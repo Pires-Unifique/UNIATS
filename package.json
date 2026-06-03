@@ -1,0 +1,31 @@
+{
+  "name": "uniats",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:int": "turbo run test:int",
+    "db:generate": "pnpm --filter @triagem/db prisma generate",
+    "db:migrate": "pnpm --filter @triagem/db prisma migrate dev",
+    "db:studio": "pnpm --filter @triagem/db prisma studio",
+    "db:seed": "pnpm --filter @triagem/db run seed",
+    "db:seed:fake": "pnpm --filter @triagem/db run seed:fake",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.3",
+    "typescript": "^5.5.4",
+    "@types/node": "^20.14.0"
+  }
+}

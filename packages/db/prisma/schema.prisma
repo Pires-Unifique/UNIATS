@@ -1,0 +1,601 @@
+// =====================================================================
+// Plataforma de Triagem e Análise de Entrevistas — Schema Prisma
+// =====================================================================
+// Convenções:
+// - Nomes de tabelas em PORTUGUÊS (snake_case) via @@map.
+// - Nomes de modelos no Prisma em PascalCase (boa prática do ORM).
+// - Soft delete via coluna `excluido_em` quando aplicável (LGPD).
+// - Coluna `criado_em` e `atualizado_em` em todas as tabelas.
+// - Coluna `gupy_id` para todas as entidades espelhadas da Gupy (idempotência).
+// - pgvector para colunas `vetor` (embeddings).
+// =====================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector"), pg_trgm, uuid_ossp(map: "uuid-ossp")]
+}
+
+// ---------------------------------------------------------------------
+// USUÁRIOS INTERNOS (recrutadores, gestores, admin) — via SSO Azure AD
+// ---------------------------------------------------------------------
+model Usuario {
+  id              String     @id @default(uuid()) @db.Uuid
+  azure_oid       String     @unique // Object ID do Azure AD (estável)
+  email           String     @unique
+  nome            String
+  papel           PapelUsuario @default(RECRUTADOR)
+  ativo           Boolean    @default(true)
+  ultimo_login_em DateTime?
+  criado_em       DateTime   @default(now())
+  atualizado_em   DateTime   @updatedAt
+
+  vagas_gestao    Vaga[]               @relation("VagaGestor")
+  vagas_recrut   Vaga[]                @relation("VagaRecrutador")
+  entrevistas     Entrevista[]
+  auditorias      RegistroAuditoria[]
+  templates_criados      TemplateMensagem[] @relation("TemplateCriador")
+  templates_atualizados  TemplateMensagem[] @relation("TemplateAtualizador")
+
+  @@map("usuarios")
+}
+
+enum PapelUsuario {
+  ADMIN
+  RECRUTADOR
+  GESTOR
+  VISUALIZADOR
+
+  @@map("papel_usuario")
+}
+
+// ---------------------------------------------------------------------
+// VAGAS — espelho da vaga publicada na Gupy
+// ---------------------------------------------------------------------
+model Vaga {
+  id                  String     @id @default(uuid()) @db.Uuid
+  gupy_id             BigInt     @unique           // id numérico na Gupy
+  codigo              String?                       // código interno (jobCode)
+  titulo              String
+  descricao           String?    @db.Text
+  departamento        String?
+  unidade             String?
+  cidade              String?
+  estado              String?
+  tipo_contrato       String?
+  remoto              Boolean    @default(false)
+  status              StatusVaga @default(PUBLICADA)
+  data_publicacao     DateTime?
+  data_fechamento     DateTime?
+  recrutador_id       String?    @db.Uuid
+  gestor_id           String?    @db.Uuid
+  recrutador          Usuario?   @relation("VagaRecrutador", fields: [recrutador_id], references: [id])
+  gestor              Usuario?   @relation("VagaGestor",    fields: [gestor_id],     references: [id])
+
+  // Requisitos preenchidos pelo líder em campos customizados
+  // Estrutura flexível em JSON (validada por Zod no app) + cópia textual
+  requisitos_json     Json?
+  requisitos_texto    String?    @db.Text          // texto consolidado p/ embedding
+
+  // Sincronização
+  gupy_sincronizado_em DateTime?
+  gupy_payload        Json?                        // último payload bruto
+
+  criado_em           DateTime   @default(now())
+  atualizado_em       DateTime   @updatedAt
+  excluido_em         DateTime?
+
+  candidaturas        Candidatura[]
+  embeddings          Embedding[]
+  perguntas           PerguntaEntrevista[]
+
+  @@index([status])
+  @@index([data_publicacao])
+  @@index([titulo(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("vagas")
+}
+
+enum StatusVaga {
+  RASCUNHO
+  PUBLICADA
+  PAUSADA
+  ENCERRADA
+  CANCELADA
+
+  @@map("status_vaga")
+}
+
+// ---------------------------------------------------------------------
+// CANDIDATOS — pessoa física (único cross-vaga)
+// ---------------------------------------------------------------------
+model Candidato {
+  id              String   @id @default(uuid()) @db.Uuid
+  gupy_id         BigInt   @unique
+  email           String?  // pode mudar; chave estável é gupy_id
+  telefone        String?
+  nome_completo   String
+  cpf_hash        String?  @db.Char(64)             // SHA-256 do CPF (não armazenar em claro)
+  linkedin_url    String?
+  cidade          String?
+  estado          String?
+
+  // LGPD
+  consentimento_lgpd_em      DateTime?
+  consentimento_lgpd_versao  String?
+  consentimento_gravacao_em  DateTime?              // gravação/análise de voz
+
+  gupy_payload    Json?
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+  excluido_em     DateTime?
+
+  candidaturas    Candidatura[]
+  curriculos      CurriculoProcessado[]
+  mensagens       Mensagem[]
+  entrevistas     Entrevista[]
+
+  @@index([email])
+  @@index([nome_completo(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("candidatos")
+}
+
+// ---------------------------------------------------------------------
+// CANDIDATURAS — aplicação de um candidato a uma vaga (N:N + extras)
+// ---------------------------------------------------------------------
+model Candidatura {
+  id                String              @id @default(uuid()) @db.Uuid
+  gupy_id           BigInt              @unique
+  vaga_id           String              @db.Uuid
+  candidato_id      String              @db.Uuid
+  etapa_gupy        String?                                 // nome da etapa atual no funil
+  status            StatusCandidatura   @default(EM_ANALISE)
+  motivo_desclassif String?
+  inscrito_em       DateTime?
+  movido_em         DateTime?
+  gupy_payload      Json?
+  criado_em         DateTime            @default(now())
+  atualizado_em     DateTime            @updatedAt
+
+  vaga              Vaga                @relation(fields: [vaga_id], references: [id], onDelete: Cascade)
+  candidato         Candidato           @relation(fields: [candidato_id], references: [id], onDelete: Cascade)
+  curriculo         CurriculoProcessado?
+  scores            Score[]
+  entrevistas       Entrevista[]
+  mensagens         Mensagem[]
+
+  @@unique([vaga_id, candidato_id])
+  @@index([status])
+  @@index([etapa_gupy])
+  @@map("candidaturas")
+}
+
+enum StatusCandidatura {
+  EM_ANALISE
+  TRIAGEM_IA
+  APROVADO_TRIAGEM
+  ENTREVISTA_AGENDADA
+  ENTREVISTA_REALIZADA
+  APROVADO
+  REPROVADO
+  CONTRATADO
+  DESISTENTE
+
+  @@map("status_candidatura")
+}
+
+// ---------------------------------------------------------------------
+// CURRÍCULOS PROCESSADOS — texto estruturado extraído do PDF/DOCX
+// ---------------------------------------------------------------------
+model CurriculoProcessado {
+  id                String   @id @default(uuid()) @db.Uuid
+  candidatura_id    String   @unique @db.Uuid
+  candidato_id      String   @db.Uuid
+
+  arquivo_url       String?                       // URL do PDF original (storage)
+  arquivo_sha256    String?  @db.Char(64)
+  texto_bruto       String   @db.Text
+  texto_normalizado String   @db.Text             // texto usado para embedding
+
+  // Estrutura parseada (LLM-assisted)
+  resumo            String?  @db.Text
+  experiencias      Json?    // [{empresa, cargo, inicio, fim, descricao, ...}]
+  formacoes         Json?    // [{instituicao, curso, nivel, conclusao, ...}]
+  competencias      String[] // ["Node.js", "PostgreSQL", ...]
+  idiomas           Json?    // [{idioma, nivel}]
+  certificacoes     Json?
+  anos_experiencia  Float?
+
+  parser_versao     String                        // versionamento do parser
+  processado_em     DateTime @default(now())
+  atualizado_em     DateTime @updatedAt
+
+  candidatura       Candidatura @relation(fields: [candidatura_id], references: [id], onDelete: Cascade)
+  candidato         Candidato   @relation(fields: [candidato_id], references: [id], onDelete: Cascade)
+  embeddings        Embedding[]
+
+  @@map("curriculos_processados")
+}
+
+// ---------------------------------------------------------------------
+// EMBEDDINGS — vetores para vagas e currículos
+// ---------------------------------------------------------------------
+// Usamos uma tabela única polimórfica: ou vaga_id, ou curriculo_id é preenchido.
+model Embedding {
+  id              String   @id @default(uuid()) @db.Uuid
+  vaga_id         String?  @db.Uuid
+  curriculo_id    String?  @db.Uuid
+
+  // Conteúdo vetorizado
+  trecho          String   @db.Text                    // texto fonte
+  vetor           Unsupported("vector(1024)")          // Voyage-3 → 1024 dims
+  modelo          String                               // ex.: "voyage-3"
+  modelo_versao   String?
+  criado_em       DateTime @default(now())
+
+  vaga            Vaga?                @relation(fields: [vaga_id], references: [id], onDelete: Cascade)
+  curriculo       CurriculoProcessado? @relation(fields: [curriculo_id], references: [id], onDelete: Cascade)
+
+  @@index([vaga_id])
+  @@index([curriculo_id])
+  // Índice HNSW para busca aproximada — criado via migration SQL bruta:
+  //   CREATE INDEX embeddings_vetor_idx ON embeddings USING hnsw (vetor vector_cosine_ops);
+  @@map("embeddings")
+}
+
+// ---------------------------------------------------------------------
+// SCORES — avaliação de aderência (CV + entrevista + voz, consolidado)
+// ---------------------------------------------------------------------
+model Score {
+  id                String   @id @default(uuid()) @db.Uuid
+  candidatura_id    String   @db.Uuid
+  tipo              TipoScore
+  valor             Float                            // 0..100
+  justificativa     String   @db.Text
+  evidencias        Json?                            // citações da fonte (CV/entrevista)
+  modelo            String                           // "claude-sonnet-4-6" / "voyage-3"
+  prompt_versao     String?
+  revisado_por      String?  @db.Uuid                // usuário humano que aprovou
+  revisado_em       DateTime?
+  criado_em         DateTime @default(now())
+
+  candidatura       Candidatura @relation(fields: [candidatura_id], references: [id], onDelete: Cascade)
+
+  @@index([candidatura_id, tipo])
+  @@map("scores")
+}
+
+enum TipoScore {
+  SIMILARIDADE_VETORIAL     // pgvector
+  RANKING_CV                // re-rank do CV pelo LLM
+  ENTREVISTA                // qualidade técnica da entrevista
+  TOM_DE_VOZ                // sentiment/emocional
+  CONSOLIDADO               // score final mostrado ao recrutador
+
+  @@map("tipo_score")
+}
+
+// ---------------------------------------------------------------------
+// MENSAGENS — convites, follow-ups, validações (WhatsApp / E-mail)
+// ---------------------------------------------------------------------
+model Mensagem {
+  id                String       @id @default(uuid()) @db.Uuid
+  candidatura_id    String?      @db.Uuid
+  candidato_id      String       @db.Uuid
+  canal             CanalMensagem
+  direcao           Direcao      @default(SAIDA)
+  template_codigo   String?
+  assunto           String?
+  corpo             String       @db.Text
+  destino           String                                // telefone ou e-mail
+  provider          String                                // "z-api" | "sendgrid"
+  provider_msg_id   String?                               // id retornado pelo provider
+  status            StatusMensagem @default(PENDENTE)
+  erro              String?       @db.Text
+  agendado_para     DateTime?
+  enviado_em        DateTime?
+  entregue_em       DateTime?
+  lido_em           DateTime?
+  respondido_em     DateTime?
+  criado_em         DateTime     @default(now())
+  atualizado_em     DateTime     @updatedAt
+
+  candidatura       Candidatura? @relation(fields: [candidatura_id], references: [id])
+  candidato         Candidato    @relation(fields: [candidato_id], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([candidatura_id])
+  @@map("mensagens")
+}
+
+enum CanalMensagem {
+  WHATSAPP
+  EMAIL
+  SMS
+
+  @@map("canal_mensagem")
+}
+
+enum Direcao {
+  ENTRADA
+  SAIDA
+
+  @@map("direcao_mensagem")
+}
+
+enum StatusMensagem {
+  PENDENTE
+  ENVIADO
+  ENTREGUE
+  LIDO
+  RESPONDIDO
+  FALHADO
+  CANCELADO
+
+  @@map("status_mensagem")
+}
+
+// ---------------------------------------------------------------------
+// ENTREVISTAS — sessão agendada/realizada
+// ---------------------------------------------------------------------
+model Entrevista {
+  id                  String   @id @default(uuid()) @db.Uuid
+  candidatura_id      String   @db.Uuid
+  candidato_id        String   @db.Uuid
+  entrevistador_id    String?  @db.Uuid
+
+  agendada_para       DateTime
+  duracao_estimada_min Int     @default(30)
+  meet_url            String?
+  google_event_id     String?
+
+  status              StatusEntrevista @default(AGENDADA)
+  bot_provider        String?                       // "meetstream"
+  bot_session_id      String?                       // id do bot na MeetStream
+  bot_status          String?                       // "joined", "recording", "ended"
+  iniciada_em         DateTime?
+  finalizada_em       DateTime?
+
+  audio_url           String?                       // storage criptografado
+  audio_sha256        String?  @db.Char(64)
+  audio_expira_em     DateTime?                     // 90 dias por padrão
+  parecer_final       String?  @db.Text
+  parecer_aprovado_em DateTime?
+  parecer_aprovado_por String? @db.Uuid
+
+  // Decisão coletiva do painel (consolidação do scorecard). Definida no momento
+  // em que um humano consolida as avaliações (LGPD Art. 20 — revisão humana).
+  recomendacao_painel RecomendacaoPainel?
+
+  criado_em           DateTime @default(now())
+  atualizado_em       DateTime @updatedAt
+
+  candidatura         Candidatura @relation(fields: [candidatura_id], references: [id], onDelete: Cascade)
+  candidato           Candidato   @relation(fields: [candidato_id], references: [id], onDelete: Cascade)
+  entrevistador       Usuario?    @relation(fields: [entrevistador_id], references: [id])
+
+  transcricao         Transcricao?
+  analise_voz         AnaliseVoz?
+  perguntas           PerguntaEntrevista[]
+  avaliacoes          AvaliacaoEntrevista[]
+
+  @@index([status])
+  @@index([agendada_para])
+  @@map("entrevistas")
+}
+
+enum RecomendacaoPainel {
+  CONTRATAR
+  CONTRATAR_COM_RESSALVAS
+  NAO_CONTRATAR
+  INCONCLUSIVO
+
+  @@map("recomendacao_painel")
+}
+
+enum StatusEntrevista {
+  AGENDADA
+  EM_ANDAMENTO
+  FINALIZADA
+  CANCELADA
+  NAO_COMPARECEU
+
+  @@map("status_entrevista")
+}
+
+// ---------------------------------------------------------------------
+// PERGUNTAS DE ENTREVISTA — geradas pelo Cérebro de IA antes da call
+// ---------------------------------------------------------------------
+model PerguntaEntrevista {
+  id              String   @id @default(uuid()) @db.Uuid
+  entrevista_id   String?  @db.Uuid
+  vaga_id         String   @db.Uuid
+
+  ordem           Int
+  pergunta        String   @db.Text
+  objetivo        String?  @db.Text                  // o que valida
+  competencia     String?                            // skill relacionada
+  dificuldade     String?                            // baixa/media/alta
+  resposta_esperada String? @db.Text
+  modelo          String                             // "claude-sonnet-4-6"
+  prompt_versao   String?
+  criado_em       DateTime @default(now())
+
+  entrevista      Entrevista? @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
+  vaga            Vaga        @relation(fields: [vaga_id], references: [id], onDelete: Cascade)
+  avaliacoes      AvaliacaoEntrevista[]
+
+  @@index([entrevista_id])
+  @@map("perguntas_entrevista")
+}
+
+// ---------------------------------------------------------------------
+// AVALIAÇÕES DE ENTREVISTA — scorecard estruturado por competência
+// ---------------------------------------------------------------------
+// Substitui o parecer em texto livre por avaliação por competência, com escala
+// e evidência, amarrada às PerguntaEntrevista. Cada avaliador (painel: técnico,
+// gestor, DHO) pontua competência a competência; a consolidação produz um
+// Score de tipo ENTREVISTA (0..100) e a `recomendacao_painel` da entrevista.
+//
+// `avaliador_id` espelha o padrão de `Score.revisado_por`: é o id do usuário
+// (sem FK rígida enquanto o módulo de auth não está plugado). `avaliador_nome`
+// é um snapshot para exibição no painel mesmo sem resolver o usuário.
+//
+// Linhas com `origem = IA_SUGERIDO` são pré-preenchimentos do Claude a partir da
+// transcrição — NUNCA contam para o Score oficial nem para a decisão coletiva;
+// servem só de rascunho que o humano confirma (preserva LGPD Art. 20).
+model AvaliacaoEntrevista {
+  id              String   @id @default(uuid()) @db.Uuid
+  entrevista_id   String   @db.Uuid
+  avaliador_id    String?  @db.Uuid              // usuarios.id (loose, como Score.revisado_por)
+  avaliador_nome  String                          // snapshot p/ exibição no painel
+  competencia     String                          // casa com PerguntaEntrevista.competencia
+  nota            Int                             // escala 1..5
+  peso            Int      @default(1)             // ponderação da competência (1..5)
+  evidencia       String?  @db.Text               // citação da fala / justificativa
+  origem          OrigemAvaliacao @default(HUMANO)
+  pergunta_id     String?  @db.Uuid               // liga a uma PerguntaEntrevista (opcional)
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+
+  entrevista      Entrevista          @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
+  pergunta        PerguntaEntrevista? @relation(fields: [pergunta_id], references: [id], onDelete: SetNull)
+
+  // Um avaliador dá UMA nota por competência (re-submeter faz upsert).
+  // Avaliações da IA usam avaliador_id NULL e não colidem entre si por design
+  // (limpamos as antigas antes de regerar).
+  @@unique([entrevista_id, avaliador_id, competencia])
+  @@index([entrevista_id])
+  @@map("avaliacoes_entrevista")
+}
+
+enum OrigemAvaliacao {
+  HUMANO
+  IA_SUGERIDO
+
+  @@map("origem_avaliacao")
+}
+
+// ---------------------------------------------------------------------
+// TRANSCRIÇÕES — saída do AssemblyAI (com diarização)
+// ---------------------------------------------------------------------
+model Transcricao {
+  id              String   @id @default(uuid()) @db.Uuid
+  entrevista_id   String   @unique @db.Uuid
+
+  provider        String                              // "assemblyai"
+  provider_id     String?                             // id do job AssemblyAI
+  idioma          String   @default("pt-BR")
+  texto_completo  String   @db.Text
+  segmentos       Json                                // [{inicio_ms, fim_ms, falante, texto, confianca}]
+  resumo          String?  @db.Text                   // sumário Claude
+  topicos         String[]                            // tópicos extraídos
+  expira_em       DateTime?                           // retenção 12 meses
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+
+  entrevista      Entrevista @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
+
+  @@map("transcricoes")
+}
+
+// ---------------------------------------------------------------------
+// ANÁLISES DE VOZ — sentiment/tom de voz
+// ---------------------------------------------------------------------
+model AnaliseVoz {
+  id                  String   @id @default(uuid()) @db.Uuid
+  entrevista_id       String   @unique @db.Uuid
+
+  provider            String                              // "assemblyai"
+  sentimento_global   String?                             // POSITIVO/NEUTRO/NEGATIVO
+  confianca_media     Float?                              // 0..1
+  nervosismo_medio    Float?
+  entusiasmo_medio    Float?
+  hesitacao_count     Int?
+  segmentos           Json                                // [{inicio_ms, fim_ms, sentimento, score, ...}]
+  observacoes_llm     String?  @db.Text                   // interpretação por Claude
+  criado_em           DateTime @default(now())
+
+  entrevista          Entrevista @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
+
+  @@map("analises_voz")
+}
+
+// ---------------------------------------------------------------------
+// WEBHOOKS RECEBIDOS — idempotência + replay
+// ---------------------------------------------------------------------
+model WebhookRecebido {
+  id              String   @id @default(uuid()) @db.Uuid
+  provider        String                              // "gupy" | "zapi" | "sendgrid" | "meetstream" | "assemblyai"
+  evento          String                              // "application.created" etc.
+  external_id     String?                             // id do evento no provider (idempotência)
+  payload         Json
+  assinatura_ok   Boolean  @default(false)
+  processado      Boolean  @default(false)
+  tentativas      Int      @default(0)
+  ultimo_erro     String?  @db.Text
+  recebido_em     DateTime @default(now())
+  processado_em   DateTime?
+
+  @@unique([provider, external_id])
+  @@index([provider, evento, processado])
+  @@map("webhooks_recebidos")
+}
+
+// ---------------------------------------------------------------------
+// AUDITORIA — LGPD / SOX / rastreabilidade
+// ---------------------------------------------------------------------
+model RegistroAuditoria {
+  id              String   @id @default(uuid()) @db.Uuid
+  usuario_id      String?  @db.Uuid
+  acao            String                              // "criar", "atualizar", "ver_dado_sensivel", ...
+  entidade        String                              // "candidatura", "score", ...
+  entidade_id     String?  @db.Uuid
+  diff            Json?                               // before/after
+  ip              String?
+  user_agent      String?
+  criado_em       DateTime @default(now())
+
+  usuario         Usuario? @relation(fields: [usuario_id], references: [id])
+
+  @@index([entidade, entidade_id])
+  @@index([usuario_id])
+  @@index([criado_em])
+  @@map("registro_auditoria")
+}
+
+// ---------------------------------------------------------------------
+// TEMPLATES DE MENSAGEM — editáveis pelo recrutador (WhatsApp / E-mail)
+// ---------------------------------------------------------------------
+// Substitui o catálogo "in-code". As variáveis ({{nome}}) NÃO são colunas:
+// são derivadas dos corpos em runtime. `versao` é incrementada a cada edição
+// para auditoria (a coluna `template_codigo` em mensagens guarda "codigo@versao").
+model TemplateMensagem {
+  id              String   @id @default(uuid()) @db.Uuid
+  codigo          String   @unique               // slug estável (ex.: "convite_triagem")
+  nome            String                          // rótulo humano para a UI
+  descricao       String?  @db.Text
+  versao          String   @default("v1")
+  ativo           Boolean  @default(true)         // soft-disable preserva histórico de envios
+
+  whatsapp_corpo  String?  @db.Text
+  email_assunto   String?
+  email_texto     String?  @db.Text
+  email_html      String?  @db.Text
+
+  criado_por      String?  @db.Uuid
+  atualizado_por  String?  @db.Uuid
+
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+
+  criador      Usuario? @relation("TemplateCriador",     fields: [criado_por],     references: [id])
+  atualizador  Usuario? @relation("TemplateAtualizador", fields: [atualizado_por], references: [id])
+
+  @@index([ativo])
+  @@map("templates_mensagem")
+}

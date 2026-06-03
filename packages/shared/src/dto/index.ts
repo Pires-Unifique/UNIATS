@@ -1,0 +1,304 @@
+/**
+ * DTOs compartilhados entre backend (NestJS) e frontend (Next.js).
+ *
+ * Estes tipos espelham o shape que os controllers REST devolvem. Mantemos
+ * em um pacote independente para que o frontend NÃO importe nada do
+ * @triagem/db (evita carregar Prisma no navegador) e para que mudanças
+ * de shape sejam visíveis em uma única alteração de arquivo.
+ */
+
+// ---------- Enums (strings literais, espelham Prisma) ----------
+
+// Espelha exatamente o enum StatusCandidatura do Prisma (packages/db).
+export type StatusCandidatura =
+  | 'EM_ANALISE'
+  | 'TRIAGEM_IA'
+  | 'APROVADO_TRIAGEM'
+  | 'ENTREVISTA_AGENDADA'
+  | 'ENTREVISTA_REALIZADA'
+  | 'APROVADO'
+  | 'REPROVADO'
+  | 'CONTRATADO'
+  | 'DESISTENTE';
+
+export type StatusVaga =
+  | 'RASCUNHO'
+  | 'PUBLICADA'
+  | 'PAUSADA'
+  | 'ENCERRADA'
+  | 'CANCELADA';
+
+export type TipoScore =
+  | 'SIMILARIDADE_VETORIAL'
+  | 'RANKING_CV'
+  | 'ENTREVISTA'
+  | 'TOM_DE_VOZ'
+  | 'CONSOLIDADO';
+
+export type CanalMensagem = 'WHATSAPP' | 'EMAIL' | 'SMS';
+export type StatusMensagem =
+  | 'PENDENTE'
+  | 'ENVIADO'
+  | 'ENTREGUE'
+  | 'LIDO'
+  | 'RESPONDIDO'
+  | 'FALHADO'
+  | 'CANCELADO';
+export type DirecaoMensagem = 'ENTRADA' | 'SAIDA';
+
+export type StatusEntrevista =
+  | 'AGENDADA'
+  | 'EM_ANDAMENTO'
+  | 'FINALIZADA'
+  | 'CANCELADA'
+  | 'NAO_COMPARECEU';
+
+export type DificuldadePergunta = 'baixa' | 'media' | 'alta';
+
+// ---------- Vaga ----------
+
+export interface VagaDTO {
+  id: string;
+  gupy_id: string; // BigInt vira string em JSON
+  codigo?: string | null;
+  titulo: string;
+  descricao?: string | null;
+  departamento?: string | null;
+  unidade?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  tipo_contrato?: string | null;
+  remoto: boolean;
+  status: StatusVaga;
+  data_publicacao?: string | null; // ISO-8601
+  data_fechamento?: string | null;
+  requisitos_json?: unknown;
+  requisitos_texto?: string | null;
+  criado_em: string;
+  atualizado_em: string;
+}
+
+// ---------- Candidato ----------
+
+export interface CandidatoDTO {
+  id: string;
+  email?: string | null;
+  telefone?: string | null;
+  nome_completo: string;
+  cidade?: string | null;
+  estado?: string | null;
+  linkedin_url?: string | null;
+  consentimento_lgpd_em?: string | null;
+  consentimento_gravacao_em?: string | null;
+  excluido_em?: string | null;
+}
+
+// ---------- Currículo estruturado ----------
+
+export interface ExperienciaDTO {
+  cargo: string;
+  empresa: string;
+  inicio?: string;
+  fim?: string;
+  descricao?: string;
+  tecnologias?: string[];
+}
+
+export interface FormacaoDTO {
+  curso: string;
+  instituicao: string;
+  nivel?:
+    | 'tecnico'
+    | 'tecnologo'
+    | 'graduacao'
+    | 'pos-graduacao'
+    | 'mba'
+    | 'mestrado'
+    | 'doutorado'
+    | 'curso-livre'
+    | 'outro';
+  inicio?: string;
+  fim?: string;
+}
+
+export interface IdiomaDTO {
+  idioma: string;
+  nivel?: 'basico' | 'intermediario' | 'avancado' | 'fluente' | 'nativo';
+}
+
+export interface CertificacaoDTO {
+  nome: string;
+  emissor?: string;
+  ano?: string;
+}
+
+export interface CurriculoEstruturadoDTO {
+  id: string;
+  candidato_id: string;
+  candidatura_id: string;
+  arquivo_sha256?: string | null;
+  resumo?: string | null;
+  experiencias?: ExperienciaDTO[];
+  formacoes?: FormacaoDTO[];
+  competencias: string[];
+  idiomas?: IdiomaDTO[];
+  certificacoes?: CertificacaoDTO[];
+  anos_experiencia?: number | null;
+  parser_versao: string;
+  processado_em: string;
+  atualizado_em: string;
+}
+
+// ---------- Scores / Ranking ----------
+
+export interface EvidenciaScoreDTO {
+  eixo:
+    | 'requisitos_gestor'
+    | 'experiencia'
+    | 'competencias'
+    | 'formacao'
+    | 'outros';
+  trecho: string;
+  impacto: 'positivo' | 'negativo' | 'neutro';
+}
+
+export interface ScoreDTO {
+  tipo: TipoScore;
+  valor: number;
+  justificativa: string;
+  evidencias?: {
+    pontos_fortes?: string[];
+    lacunas?: string[];
+    evidencias?: EvidenciaScoreDTO[];
+  };
+  modelo: string;
+  prompt_versao?: string | null;
+  revisado_por?: string | null;
+  revisado_em?: string | null;
+  criado_em: string;
+}
+
+export interface RankingItemDTO {
+  candidaturaId: string;
+  candidatoId: string;
+  candidatoNome: string;
+  curriculoId: string;
+  distancia: number;
+  similaridadeVetorial: number;
+  scoreRankingCv: number | null;
+  scoreConsolidado: number;
+  justificativa: string | null;
+}
+
+export interface RankingResponseDTO {
+  vaga: { id: string; titulo: string };
+  total: number;
+  itens: RankingItemDTO[];
+}
+
+// ---------- Mensagens ----------
+
+export interface MensagemDTO {
+  id: string;
+  candidatura_id?: string | null;
+  canal: CanalMensagem;
+  direcao: DirecaoMensagem;
+  template_codigo?: string | null;
+  assunto?: string | null;
+  destino: string;
+  provider: string;
+  provider_msg_id?: string | null;
+  status: StatusMensagem;
+  erro?: string | null;
+  enviado_em?: string | null;
+  entregue_em?: string | null;
+  lido_em?: string | null;
+  respondido_em?: string | null;
+  criado_em: string;
+}
+
+export interface TemplateDTO {
+  codigo: string;
+  versao: string;
+  descricao: string;
+  variaveis: readonly string[] | string[];
+  canais: ('WHATSAPP' | 'EMAIL')[];
+}
+
+// ---------- Entrevista / Transcrição / Voz ----------
+
+export interface TranscricaoDTO {
+  id: string;
+  idioma: string;
+  texto_completo: string;
+  resumo?: string | null;
+  topicos?: string[];
+  criado_em: string;
+}
+
+export interface AnaliseVozDTO {
+  sentimento_global?: string | null;
+  confianca_media?: number | null;
+  nervosismo_medio?: number | null;
+  entusiasmo_medio?: number | null;
+  hesitacao_count?: number | null;
+  observacoes_llm?: string | null;
+  criado_em: string;
+}
+
+export interface EntrevistaDTO {
+  id: string;
+  candidatura_id: string;
+  candidato_id: string;
+  entrevistador_id?: string | null;
+  agendada_para: string;
+  duracao_estimada_min: number;
+  meet_url?: string | null;
+  google_event_id?: string | null;
+  status: StatusEntrevista;
+  bot_provider?: string | null;
+  bot_session_id?: string | null;
+  bot_status?: string | null;
+  iniciada_em?: string | null;
+  finalizada_em?: string | null;
+  audio_sha256?: string | null;
+  audio_expira_em?: string | null;
+  parecer_final?: string | null;
+  parecer_aprovado_em?: string | null;
+  parecer_aprovado_por?: string | null;
+  criado_em: string;
+  atualizado_em: string;
+  transcricao?: TranscricaoDTO | null;
+  analise_voz?: AnaliseVozDTO | null;
+}
+
+// ---------- Perguntas ----------
+
+export interface PerguntaDTO {
+  id: string;
+  ordem: number;
+  entrevista_id?: string | null;
+  vaga_id: string;
+  pergunta: string;
+  objetivo?: string | null;
+  competencia?: string | null;
+  dificuldade?: DificuldadePergunta | null;
+  resposta_esperada?: string | null;
+  modelo?: string;
+  prompt_versao?: string | null;
+  criado_em?: string;
+}
+
+// ---------- Candidatura (agregada) ----------
+
+export interface CandidaturaDetalheDTO {
+  id: string;
+  vaga_id: string;
+  candidato: CandidatoDTO;
+  status: StatusCandidatura;
+  etapa_gupy?: string | null;
+  inscrito_em?: string | null;
+  curriculo?: CurriculoEstruturadoDTO | null;
+  scores: ScoreDTO[];
+  entrevistas: EntrevistaDTO[];
+}
