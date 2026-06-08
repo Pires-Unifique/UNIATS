@@ -116,6 +116,7 @@ export class VagasController {
     @Param('id') id: string,
     @Query('limite') limiteStr?: string,
     @Query('q') q?: string,
+    @Query('incluirReprovados') incluirReprovados?: string,
   ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id inválido.');
@@ -137,6 +138,10 @@ export class VagasController {
 
     const busca = q?.trim();
     const where: Record<string, unknown> = { vaga_id: id };
+    // Por padrão, esconde candidatos REPROVADOS/DESISTENTES da listagem.
+    if (incluirReprovados !== 'true') {
+      where.status = { notIn: ['REPROVADO', 'DESISTENTE'] };
+    }
     if (busca) {
       const contem = { contains: busca, mode: 'insensitive' as const };
       where.candidato = {

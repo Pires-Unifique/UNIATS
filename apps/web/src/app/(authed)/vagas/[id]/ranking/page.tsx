@@ -115,7 +115,13 @@ export default function CandidatosVagaPage({
       try {
         const resp = await api<CandidaturasResponse>(
           `/api/vagas/${vagaId}/candidaturas`,
-          { query: { limite: 200, q: q.trim() || undefined } },
+          {
+            query: {
+              limite: 200,
+              q: q.trim() || undefined,
+              incluirReprovados: incluirReprovados ? 'true' : undefined,
+            },
+          },
         );
         setData(resp);
       } catch (err) {
@@ -126,7 +132,7 @@ export default function CandidatosVagaPage({
         setCarregando(false);
       }
     },
-    [vagaId],
+    [vagaId, incluirReprovados],
   );
 
   useEffect(() => {
@@ -394,7 +400,7 @@ export default function CandidatosVagaPage({
             )}
             <label
               className="flex items-center gap-1.5 text-xs text-grafite-600 cursor-pointer select-none"
-              title="Por padrão, candidatos reprovados e desistentes são ignorados na classificação."
+              title="Por padrão, candidatos reprovados e desistentes ficam ocultos na lista e fora da classificação. Marque para exibi-los."
             >
               <input
                 type="checkbox"
