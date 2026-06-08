@@ -327,6 +327,147 @@ export class MatchingService {
   }
 
   /**
+   * Status do fluxo vetorial: total de CVs, quantos têm embedding (prontos para
+   * rankear) e quantos já foram avaliados pelo Claude (RANKING_CV).
+   */
+  async statusVetorial(
+    vagaId: string,
+    incluirReprovados = false,
+  ): Promise<{
+    totalCvs: number;
+    embedados: number;
+    avaliadosLLM: number;
+    pendentesLLM: number;
+  }> {
+    // Por padrão ignora candidaturas descartadas (REPROVADO/DESISTENTE).
+    const semReprovado: Prisma.CandidaturaWhereInput = incluirReprovados
+      ? {}
+      : { status: { notIn: ['REPROVADO', 'DESISTENTE'] } };
+    const filtroSqlReprovado = incluirReprovados
+      ? Prisma.empty
+      : Prisma.sql`AND c.status NOT IN ('REPROVADO', 'DESISTENTE')`;
+
+    const [totalCvs, embRows, avaliadosLLM] = await Promise.all([
+      this.prisma.candidatura.count({
+        where: { vaga_id: vagaId, curriculo: { isNot: null }, ...semReprovado },
+      }),
+      this.prisma.$queryRaw<Array<{ n: bigint }>>(Prisma.sql`
+        SELECT count(DISTINCT c.id) AS n
+        FROM candidaturas c
+        JOIN curriculos_processados cp ON cp.candidatura_id = c.id
+        JOIN embeddings e ON e.curriculo_id = cp.id
+        WHERE c.vaga_id = ${vagaId}::uuid
+          ${filtroSqlReprovado}
+      `),
+      this.prisma.score.count({
+        where: {
+          candidatura: { vaga_id: vagaId, ...semReprovado },
+          tipo: 'RANKING_CV',
+        },
+      }),
+    ]);
+    const embedados = Number(embRows[0]?.n ?? 0);
+    return {
+      totalCvs,
+      embedados,
+      avaliadosLLM,
+      pendentesLLM: Math.max(0, embedados - avaliadosLLM),
+    };
+  }
+
+  /**
+   * IDs dos próximos N candidatos por proximidade vetorial à vaga que ainda
+   * NÃO têm avaliação do Claude. Requer embedding da vaga e dos CVs.
+   */
+  private async proximosSemLLM(
+    vagaId: string,
+    n: number,
+    incluirReprovados = false,
+  ): Promise<string[]> {
+    const filtroReprovado = incluirReprovados
+      ? Prisma.empty
+      : Prisma.sql`AND c.status NOT IN ('REPROVADO', 'DESISTENTE')`;
+    const rows = await this.prisma.$queryRaw<
+      Array<{ candidatura_id: string }>
+    >(Prisma.sql`
+      WITH ev AS (
+        SELECT vetor FROM embeddings
+        WHERE vaga_id = ${vagaId}::uuid
+        ORDER BY criado_em DESC LIMIT 1
+      )
+      SELECT c.id AS candidatura_id
+      FROM candidaturas c
+      JOIN curriculos_processados cp ON cp.candidatura_id = c.id
+      JOIN LATERAL (
+        SELECT vetor FROM embeddings e
+        WHERE e.curriculo_id = cp.id
+        ORDER BY e.criado_em DESC LIMIT 1
+      ) ec ON true
+      WHERE c.vaga_id = ${vagaId}::uuid
+        AND EXISTS (SELECT 1 FROM ev)
+        ${filtroReprovado}
+        AND NOT EXISTS (
+          SELECT 1 FROM scores s
+          WHERE s.candidatura_id = c.id AND s.tipo = 'RANKING_CV'
+        )
+      ORDER BY (ec.vetor <=> (SELECT vetor FROM ev)) ASC
+      LIMIT ${n}
+    `);
+    return rows.map((r) => r.candidatura_id);
+  }
+
+  /**
+   * Avalia com Claude os próximos N candidatos por similaridade vetorial que ainda
+   * não foram avaliados. Reaproveita scorearCandidatura (vetorial + Claude → 3 scores).
+   * Use para o top-N inicial e para os lotes seguintes ("avaliar próximos").
+   */
+  async avaliarProximosLLM(
+    vagaId: string,
+    n: number,
+    incluirReprovados = false,
+  ): Promise<{
+    avaliados: ItemRanking[];
+    avaliadosAgora: number;
+    pendentesLLM: number;
+    embedados: number;
+  }> {
+    const vaga = await this.prisma.vaga.findUnique({
+      where: { id: vagaId },
+      select: { id: true },
+    });
+    if (!vaga) throw new NotFoundException(`Vaga ${vagaId} não existe.`);
+
+    const ids = await this.proximosSemLLM(vagaId, n, incluirReprovados);
+    const avaliados: ItemRanking[] = [];
+    const CONC = 4;
+    for (let i = 0; i < ids.length; i += CONC) {
+      const lote = ids.slice(i, i + CONC);
+      const res = await Promise.allSettled(
+        lote.map((id) => this.scorearCandidatura(id)),
+      );
+      for (const r of res) {
+        if (r.status === 'fulfilled') avaliados.push(r.value);
+        else
+          this.logger.warn(
+            `Falha ao avaliar candidatura: ${(r.reason as Error)?.message}`,
+          );
+      }
+    }
+
+    const st = await this.statusVetorial(vagaId, incluirReprovados);
+    this.logger.log(
+      `avaliarProximosLLM vaga=${vagaId}: +${avaliados.length} avaliados, ` +
+        `${st.pendentesLLM} pendentes de ${st.embedados} embedados.`,
+    );
+    return {
+      avaliados,
+      avaliadosAgora: avaliados.length,
+      pendentesLLM: st.pendentesLLM,
+      embedados: st.embedados,
+    };
+  }
+
+  /**
    * Lista o ranking top-K de uma vaga já scoreada.
    * NÃO recalcula scores — só consulta o que está em `scores` + faz join.
    */

@@ -77,6 +77,19 @@ const EnvSchema = z.object({
   EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(2),
   MATCHING_CONCURRENCY: z.coerce.number().int().positive().default(2),
   MATCHING_TOP_K: z.coerce.number().int().positive().max(100).default(20),
+  // Tamanho do lote avaliado pelo Claude por vez no fluxo vetorial (top-N / "próximos").
+  MATCHING_TOP_N: z.coerce.number().int().positive().max(100).default(10),
+  // Se true, o embedding de um CV dispara o Claude automaticamente (comportamento
+  // antigo: LLM em todos). Default false: Claude é sob demanda (top-N vetorial).
+  MATCHING_AUTO_ON_EMBED: z.coerce.boolean().default(false),
+  // Cron de reconciliação: re-embeda CVs/vagas sem vetor (cura falhas + backfill).
+  EMBEDDING_RECONCILE_ENABLED: z.coerce.boolean().default(true),
+  EMBEDDING_RECONCILE_BATCH: z.coerce.number().int().positive().default(3),
+  // Lote adaptativo de embedding por ORÇAMENTO DE TOKENS (limite real do Voyage).
+  // EMBEDDING_TOKEN_BUDGET: tokens estimados por requisição (trial ~6000; tier pago
+  // pode subir muito). EMBEDDING_BATCH_SIZE: teto de inputs por requisição (máx 128).
+  EMBEDDING_TOKEN_BUDGET: z.coerce.number().int().positive().default(6000),
+  EMBEDDING_BATCH_SIZE: z.coerce.number().int().positive().max(128).default(128),
 
   // WAHA — WhatsApp HTTP API (Camada 4)
   WAHA_BASE_URL: z.string().url(),

@@ -6,7 +6,9 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
+import { Prisma } from '@triagem/db';
 
+import { EmbeddingService } from './services/embedding.service.js';
 import { MatchingService } from './services/matching.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';
@@ -18,9 +20,24 @@ export class RankingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly matching: MatchingService,
+    private readonly embeddings: EmbeddingService,
     @InjectQueue(QUEUE_NAMES.EMBEDDING) private readonly filaEmbedding: Queue,
     @InjectQueue(QUEUE_NAMES.MATCHING) private readonly filaMatching: Queue,
   ) {}
+
+  /**
+   * Embedding EM LOTE (síncrono): embeda a vaga + todos os CVs em poucas chamadas
+   * ao Voyage (lotes de 128), em vez de 1 por CV. Retorna quando os vetores estão
+   * gravados — então o frontend pode chamar avaliar-proximos logo em seguida.
+   */
+  async prepararVetorialLote(vagaId: string, incluirReprovados = false) {
+    const vaga = await this.prisma.vaga.findUnique({
+      where: { id: vagaId },
+      select: { id: true },
+    });
+    if (!vaga) throw new NotFoundException(`Vaga ${vagaId} não existe.`);
+    return this.embeddings.embedarVagaEmLote(vagaId, { incluirReprovados });
+  }
 
   /**
    * Ranking top-K já calculado e persistido em `scores`.
@@ -114,6 +131,80 @@ export class RankingService {
 
     this.logger.log(`Re-rank enfileirado: vaga=${vagaId} jobs=${jobs}`);
     return { vagaId, jobsCriados: jobs };
+  }
+
+  /**
+   * Fase 1 do fluxo vetorial: garante o embedding (Voyage) da vaga + dos CVs
+   * que AINDA não têm vetor. NÃO dispara o Claude (cascataMatching=false).
+   * Barato e idempotente: re-rodar só embeda o que falta.
+   */
+  async prepararVetorial(vagaId: string): Promise<{
+    vagaId: string;
+    jobsCriados: number;
+    jaEmbedados: number;
+  }> {
+    const vaga = await this.prisma.vaga.findUnique({
+      where: { id: vagaId },
+      select: { id: true },
+    });
+    if (!vaga) throw new NotFoundException(`Vaga ${vagaId} não existe.`);
+
+    // Embedding da vaga (sempre — reflete edição de requisitos).
+    await this.filaEmbedding.add(
+      'embedding-vaga',
+      { alvo: 'vaga', vagaId },
+      { jobId: `emb-vaga-${vagaId}-${Date.now()}`, priority: 1 },
+    );
+    let jobs = 1;
+
+    // CVs que JÁ têm embedding (para pular e economizar chamadas Voyage).
+    const jaRows = await this.prisma.$queryRaw<
+      Array<{ candidatura_id: string }>
+    >(Prisma.sql`
+      SELECT DISTINCT cp.candidatura_id
+      FROM embeddings e
+      JOIN curriculos_processados cp ON cp.id = e.curriculo_id
+      JOIN candidaturas c ON c.id = cp.candidatura_id
+      WHERE c.vaga_id = ${vagaId}::uuid AND e.curriculo_id IS NOT NULL
+    `);
+    const jaEmbedados = new Set(jaRows.map((r) => r.candidatura_id));
+
+    const candidaturas = await this.prisma.candidatura.findMany({
+      where: { vaga_id: vagaId, curriculo: { isNot: null } },
+      select: { id: true, curriculo: { select: { parser_versao: true } } },
+    });
+
+    const stamp = Date.now();
+    for (const c of candidaturas) {
+      if (!c.curriculo?.parser_versao || c.curriculo.parser_versao === 'pending') {
+        continue;
+      }
+      if (jaEmbedados.has(c.id)) continue; // já tem vetor — não re-embeda
+      await this.filaEmbedding.add(
+        'embedding-curriculo',
+        { alvo: 'curriculo', candidaturaId: c.id, cascataMatching: false },
+        { jobId: `emb-cv-${c.id}-${stamp}`, priority: 1 },
+      );
+      jobs++;
+    }
+
+    this.logger.log(
+      `Preparo vetorial: vaga=${vagaId} jobs=${jobs} jaEmbedados=${jaEmbedados.size}`,
+    );
+    return { vagaId, jobsCriados: jobs, jaEmbedados: jaEmbedados.size };
+  }
+
+  /** Status do fluxo vetorial (CVs embedados x avaliados pelo Claude). */
+  async statusVetorial(vagaId: string, incluirReprovados = false) {
+    return this.matching.statusVetorial(vagaId, incluirReprovados);
+  }
+
+  /**
+   * Fase 2: avalia com Claude os próximos N candidatos por similaridade vetorial
+   * que ainda não foram avaliados (top-N inicial e lotes seguintes).
+   */
+  async avaliarProximosLLM(vagaId: string, n: number, incluirReprovados = false) {
+    return this.matching.avaliarProximosLLM(vagaId, n, incluirReprovados);
   }
 
   /**

@@ -95,12 +95,12 @@ export class VoyageClient {
         return axiosRetry.exponentialDelay(count);
       },
       retryCondition: (error) => {
-        const status = error.response?.status;
-        return (
-          axiosRetry.isNetworkOrIdempotentRequestError(error) ||
-          status === 429 ||
-          (status !== undefined && status >= 500)
-        );
+        // Sem resposta (status=undefined) = erro de rede/timeout (ECONNABORTED,
+        // ECONNRESET, socket esgotado sob carga). axios-retry NÃO re-tenta timeout
+        // por padrão — aqui re-tentamos, pois costuma ser transitório.
+        if (!error.response) return true;
+        const status = error.response.status;
+        return status === 429 || status >= 500;
       },
     });
   }

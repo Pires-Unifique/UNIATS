@@ -11,6 +11,9 @@ const PayloadSchema = z.discriminatedUnion('alvo', [
   z.object({
     alvo: z.literal('curriculo'),
     candidaturaId: z.string().uuid(),
+    // Se true, dispara o Claude (matching) logo após o embedding.
+    // Default: NÃO cascateia — o Claude é sob demanda (top-N via fluxo vetorial).
+    cascataMatching: z.boolean().optional(),
   }),
   z.object({
     alvo: z.literal('vaga'),
@@ -49,21 +52,29 @@ export class EmbeddingProcessor extends WorkerHost {
     const { candidaturaId } = parsed.data;
     const out = await this.embeddings.embedarCurriculo(candidaturaId);
 
-    // Cascateia para matching: agora que o CV tem vetor, podemos rankear contra a vaga.
-    const candidatura = await this.prisma.candidatura.findUnique({
-      where: { id: candidaturaId },
-      select: { vaga_id: true },
-    });
-    if (candidatura) {
-      await this.filaMatching.add(
-        'matching-candidatura',
-        { candidaturaId, vagaId: candidatura.vaga_id },
-        { jobId: `match-${candidaturaId}` },
-      );
-    } else {
-      this.logger.warn(
-        `Candidatura ${candidaturaId} sumiu antes de cascatear matching.`,
-      );
+    // O Claude (matching) só roda automaticamente se explicitamente pedido no job
+    // ou se MATCHING_AUTO_ON_EMBED=true. Por padrão, o embedding é barato/automático
+    // e o Claude é sob demanda (top-N via fluxo vetorial) — evita rodar LLM em todos.
+    const autoMatching =
+      parsed.data.cascataMatching === true ||
+      process.env.MATCHING_AUTO_ON_EMBED === 'true';
+
+    if (autoMatching) {
+      const candidatura = await this.prisma.candidatura.findUnique({
+        where: { id: candidaturaId },
+        select: { vaga_id: true },
+      });
+      if (candidatura) {
+        await this.filaMatching.add(
+          'matching-candidatura',
+          { candidaturaId, vagaId: candidatura.vaga_id },
+          { jobId: `match-${candidaturaId}` },
+        );
+      } else {
+        this.logger.warn(
+          `Candidatura ${candidaturaId} sumiu antes de cascatear matching.`,
+        );
+      }
     }
 
     return out;

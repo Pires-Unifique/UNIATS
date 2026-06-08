@@ -8,6 +8,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from './config/env.validation.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { QueueModule } from './queue/queue.module.js';
+import { AdmissaoModule } from './modules/admissao/admissao.module.js';
 import { AnaliseModule } from './modules/analise/analise.module.js';
 import { AssemblyAIModule } from './modules/assemblyai/assemblyai.module.js';
 import { CandidaturasModule } from './modules/candidaturas/candidaturas.module.js';
@@ -94,6 +95,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
     VagaTemplateModule,
     CandidaturasModule,
     AnaliseModule,
+    AdmissaoModule,
   ],
   providers: [
     // Rate limit global como defesa em profundidade

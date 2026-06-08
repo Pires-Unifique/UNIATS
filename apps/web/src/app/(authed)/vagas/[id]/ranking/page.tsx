@@ -78,7 +78,14 @@ export default function CandidatosVagaPage({
   const [sincronizando, setSincronizando] = useState(false);
   const [classificando, setClassificando] = useState(false);
   const [rerankeando, setRerankeando] = useState(false);
+  const [avaliandoProximos, setAvaliandoProximos] = useState(false);
+  const [pendentesLLM, setPendentesLLM] = useState<number | null>(null);
+  // Por padrão, candidatos REPROVADOS e DESISTENTES são ignorados na classificação.
+  const [incluirReprovados, setIncluirReprovados] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+
+  // Tamanho do lote avaliado pelo Claude por vez (top-N e "próximos").
+  const TOP_N = 10;
 
   // Detalhes da vaga: carregam uma vez (independem da busca).
   const carregarVaga = useCallback(async () => {
@@ -88,7 +95,17 @@ export default function CandidatosVagaPage({
     } catch {
       // Erro de candidaturas já é exibido; não duplicar mensagem aqui.
     }
-  }, [vagaId]);
+    // Status vetorial (best-effort): mostra "Avaliar próximos" se já há pendentes.
+    try {
+      const st = await api<{ pendentesLLM: number }>(
+        `/api/vagas/${vagaId}/vetorial/status`,
+        { query: { incluirReprovados: incluirReprovados ? 'true' : undefined } },
+      );
+      setPendentesLLM(st.pendentesLLM);
+    } catch {
+      /* ignore */
+    }
+  }, [vagaId, incluirReprovados]);
 
   // Candidaturas: busca no servidor por nome (varre todos, não só os 200 exibidos).
   const carregarCandidaturas = useCallback(
@@ -156,6 +173,12 @@ export default function CandidatosVagaPage({
     let anterior = -1;
     let semProgresso = 0;
 
+    // Quantos ciclos de 4s sem nenhum novo score até considerar "travado".
+    // O Voyage no tier gratuito limita a 3 req/min (~22s por embedding), então
+    // um intervalo de 60s entre dois candidatos é NORMAL, não estagnação. Usamos
+    // 3 min (45 × 4s) para evitar falso "pausado" enquanto a fila ainda progride.
+    const MAX_CICLOS_SEM_PROGRESSO = 45;
+
     // ~12 min de janela (180 × 4s). Cada candidato leva alguns segundos.
     for (let i = 0; i < 180; i++) {
       await sleep(4000);
@@ -186,10 +209,11 @@ export default function CandidatosVagaPage({
         if (st.classificados === anterior) semProgresso++;
         else semProgresso = 0;
         anterior = st.classificados;
-        if (semProgresso >= 15) {
+        if (semProgresso >= MAX_CICLOS_SEM_PROGRESSO) {
           setAviso(
-            `Processamento pausado em ${st.classificados}/${st.total}. ` +
-              'Pode ser o limite de requisições do Voyage — tente novamente em alguns minutos.',
+            `Classificação em andamento em segundo plano (${st.classificados}/${st.total} concluído(s)). ` +
+              'No plano gratuito do Voyage (3 req/min) cada candidato leva ~20s, então isso é normal. ' +
+              'Os scores continuam sendo gerados — recarregue a página em alguns minutos para ver o resultado.',
           );
           return;
         }
@@ -218,25 +242,94 @@ export default function CandidatosVagaPage({
     }
   }
 
+  /**
+   * Fluxo "completo" (Voyage + Claude) com pré-filtro vetorial:
+   *  1. Gera embeddings (Voyage) da vaga + CVs faltantes — barato.
+   *  2. Avalia com Claude apenas os TOP_N candidatos mais próximos vetorialmente.
+   * Se nenhum do top-N servir, use "Avaliar próximos" para descer na lista.
+   */
   async function classificarCompleto() {
     setRerankeando(true);
     setErro(null);
     setAviso(null);
     try {
-      const r = await api<{ vagaId: string; jobsCriados: number }>(
-        `/api/vagas/${vagaId}/reranking`,
-        { method: 'POST' },
-      );
+      // Fase 1 — embeddings EM LOTE. Em vagas grandes o Voyage (trial) pode
+      // estourar o rate limit no meio; o backend salva o que embedou e retorna
+      // `interrompido`. Repetimos até embedar tudo (cada chamada continua de onde
+      // parou, pulando os já embedados).
+      let embTotal = 0;
+      for (let i = 0; i < 30; i++) {
+        const prep = await api<{
+          curriculos: number;
+          restantes: number;
+          interrompido: boolean;
+        }>(`/api/vagas/${vagaId}/vetorial/preparar-lote`, {
+          method: 'POST',
+          body: { incluirReprovados },
+        });
+        embTotal += prep.curriculos;
+        if (!prep.interrompido || prep.restantes <= 0) break;
+        setAviso(
+          `Gerando embeddings no Voyage… ${embTotal} prontos, ~${prep.restantes} restantes ` +
+            '(plano trial é limitado — seguindo em lotes).',
+        );
+      }
+
+      // Fase 2 — Claude apenas no top-N por similaridade vetorial
+      setAviso(`Avaliando os ${TOP_N} mais aderentes com o Claude…`);
+      const r = await api<{
+        avaliadosAgora: number;
+        pendentesLLM: number;
+        embedados: number;
+      }>(`/api/vagas/${vagaId}/vetorial/avaliar-proximos`, {
+        method: 'POST',
+        body: { n: TOP_N, incluirReprovados },
+      });
+      await carregarCandidaturas(busca);
+      setPendentesLLM(r.pendentesLLM);
       setAviso(
-        `Classificação completa iniciada (${r.jobsCriados} etapa(s)) — ` +
-          'gerando embeddings no Voyage e pontuando com Claude…',
+        `Top ${r.avaliadosAgora} avaliados (Voyage + Claude). ` +
+          (r.pendentesLLM > 0
+            ? `${r.pendentesLLM} candidato(s) restante(s) — use "Avaliar próximos" se nenhum servir.`
+            : 'Todos os candidatos embedados já foram avaliados.'),
       );
-      await acompanharProgresso('completo');
     } catch (err) {
       if (err instanceof ApiError) setErro(err.message);
-      else setErro('Falha ao iniciar a classificação completa.');
+      else setErro('Falha na classificação completa.');
     } finally {
       setRerankeando(false);
+    }
+  }
+
+  /** Avalia com Claude o PRÓXIMO lote (top-N seguinte por similaridade vetorial). */
+  async function avaliarProximos() {
+    setAvaliandoProximos(true);
+    setErro(null);
+    setAviso(null);
+    try {
+      const r = await api<{
+        avaliadosAgora: number;
+        pendentesLLM: number;
+      }>(`/api/vagas/${vagaId}/vetorial/avaliar-proximos`, {
+        method: 'POST',
+        body: { n: TOP_N, incluirReprovados },
+      });
+      await carregarCandidaturas(busca);
+      setPendentesLLM(r.pendentesLLM);
+      if (r.avaliadosAgora === 0) {
+        setAviso(
+          'Não há mais candidatos para avaliar — todos os embedados já foram avaliados pelo Claude.',
+        );
+      } else {
+        setAviso(
+          `+${r.avaliadosAgora} candidato(s) avaliado(s) (Voyage + Claude). ${r.pendentesLLM} restante(s).`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof ApiError) setErro(err.message);
+      else setErro('Falha ao avaliar os próximos candidatos.');
+    } finally {
+      setAvaliandoProximos(false);
     }
   }
 
@@ -261,7 +354,7 @@ export default function CandidatosVagaPage({
             <button
               type="button"
               className="btn-secondary"
-              disabled={sincronizando || classificando || rerankeando || !data}
+              disabled={sincronizando || classificando || rerankeando || avaliandoProximos || !data}
               onClick={() => void sincronizar()}
             >
               {sincronizando ? 'Sincronizando…' : 'Sincronizar candidaturas'}
@@ -269,23 +362,48 @@ export default function CandidatosVagaPage({
             <button
               type="button"
               className="btn-secondary"
-              disabled={classificando || rerankeando || sincronizando || !temCandidatos}
+              disabled={classificando || rerankeando || avaliandoProximos || sincronizando || !temCandidatos}
               onClick={() => void classificar()}
-              title="Pontua só com o Claude (mais rápido, sem similaridade vetorial)."
+              title="Pontua só com o Claude, em todos os candidatos (sem similaridade vetorial)."
             >
               {classificando ? 'Classificando…' : 'Classificar (Claude)'}
             </button>
             <button
               type="button"
               className="btn-primary"
-              disabled={rerankeando || classificando || sincronizando || !temCandidatos}
+              disabled={rerankeando || classificando || avaliandoProximos || sincronizando || !temCandidatos}
               onClick={() => void classificarCompleto()}
-              title="Gera embeddings no Voyage e pontua com Claude (score consolidado: 40% vetorial + 60% LLM)."
+              title={`Gera embeddings no Voyage e avalia com Claude só os ${TOP_N} mais aderentes (score: 40% vetorial + 60% LLM).`}
             >
               {rerankeando
                 ? 'Classificando…'
-                : 'Classificação completa (Voyage + Claude)'}
+                : `Classificação completa (top ${TOP_N})`}
             </button>
+            {pendentesLLM != null && pendentesLLM > 0 && (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={avaliandoProximos || rerankeando || classificando || sincronizando}
+                onClick={() => void avaliarProximos()}
+                title="Avalia com Claude o próximo lote de candidatos por similaridade vetorial."
+              >
+                {avaliandoProximos
+                  ? 'Avaliando…'
+                  : `Avaliar próximos ${TOP_N} (${pendentesLLM} restantes)`}
+              </button>
+            )}
+            <label
+              className="flex items-center gap-1.5 text-xs text-grafite-600 cursor-pointer select-none"
+              title="Por padrão, candidatos reprovados e desistentes são ignorados na classificação."
+            >
+              <input
+                type="checkbox"
+                checked={incluirReprovados}
+                disabled={classificando || rerankeando || avaliandoProximos || sincronizando}
+                onChange={(e) => setIncluirReprovados(e.target.checked)}
+              />
+              Incluir reprovados/desistentes
+            </label>
           </>
         }
       />

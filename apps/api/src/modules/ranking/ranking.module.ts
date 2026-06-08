@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { EmbeddingService } from './services/embedding.service.js';
 import { EmbeddingProcessor } from './processors/embedding.processor.js';
+import { EmbeddingReconciliationService } from './services/embedding-reconciliation.service.js';
 import { MatchingProcessor } from './processors/matching.processor.js';
 import { MatchingService } from './services/matching.service.js';
 import { RankingController } from './ranking.controller.js';
@@ -27,6 +28,7 @@ import { RankingService } from './ranking.service.js';
     RankingService,
     EmbeddingProcessor,
     MatchingProcessor,
+    EmbeddingReconciliationService,
   ],
   exports: [EmbeddingService, MatchingService, RankingService],
 })

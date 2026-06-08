@@ -59,6 +59,64 @@ export class RankingController {
   }
 
   /**
+   * Fluxo vetorial — Fase 1: gera embeddings (Voyage) da vaga + CVs faltantes,
+   * SEM rodar o Claude. Barato. Acompanhe via .../vetorial/status.
+   */
+  @Post('vagas/:vagaId/vetorial/preparar')
+  async prepararVetorial(@Param('vagaId') vagaId: string) {
+    if (!UUID_REGEX.test(vagaId)) {
+      throw new BadRequestException('vagaId inválido.');
+    }
+    return this.service.prepararVetorial(vagaId);
+  }
+
+  /**
+   * Fluxo vetorial — Fase 1 RÁPIDA: embedding em LOTE (vaga + todos os CVs em
+   * poucas chamadas ao Voyage). Síncrono — retorna quando os vetores estão prontos.
+   */
+  @Post('vagas/:vagaId/vetorial/preparar-lote')
+  async prepararVetorialLote(
+    @Param('vagaId') vagaId: string,
+    @Body() body: { incluirReprovados?: boolean },
+  ) {
+    if (!UUID_REGEX.test(vagaId)) {
+      throw new BadRequestException('vagaId inválido.');
+    }
+    return this.service.prepararVetorialLote(vagaId, body?.incluirReprovados === true);
+  }
+
+  /** Status do fluxo vetorial (embedados x avaliados pelo Claude). */
+  @Get('vagas/:vagaId/vetorial/status')
+  async statusVetorial(
+    @Param('vagaId') vagaId: string,
+    @Query('incluirReprovados') incluirReprovados?: string,
+  ) {
+    if (!UUID_REGEX.test(vagaId)) {
+      throw new BadRequestException('vagaId inválido.');
+    }
+    return this.service.statusVetorial(vagaId, incluirReprovados === 'true');
+  }
+
+  /**
+   * Fluxo vetorial — Fase 2: avalia com Claude os próximos N candidatos por
+   * similaridade vetorial ainda não avaliados (top-N inicial e lotes seguintes).
+   */
+  @Post('vagas/:vagaId/vetorial/avaliar-proximos')
+  async avaliarProximos(
+    @Param('vagaId') vagaId: string,
+    @Body() body: { n?: number; incluirReprovados?: boolean },
+  ) {
+    if (!UUID_REGEX.test(vagaId)) {
+      throw new BadRequestException('vagaId inválido.');
+    }
+    const n = Number(body?.n ?? 10);
+    if (!Number.isInteger(n) || n < 1 || n > 100) {
+      throw new BadRequestException('n deve ser inteiro entre 1 e 100.');
+    }
+    return this.service.avaliarProximosLLM(vagaId, n, body?.incluirReprovados === true);
+  }
+
+  /**
    * Dispara a classificação de TODA a vaga via Claude (sem Voyage).
    * Roda em background e retorna na hora; acompanhe via .../classificar/status.
    */
