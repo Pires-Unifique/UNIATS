@@ -22,6 +22,8 @@ infra/waha-sessions/
 
 # Saídas de teste de IA (transcrições/análise de candidatos - dados sensíveis)
 apps/api/out/
+# Dados temporários do comparador de embeddings (texto real de CVs - dados sensíveis)
+apps/api/scripts/cmp-data.json
 
 # Logs e arquivos temporários de desenvolvimento
 _devlog.txt
