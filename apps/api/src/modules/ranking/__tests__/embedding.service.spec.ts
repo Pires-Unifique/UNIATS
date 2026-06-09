@@ -1,27 +1,15 @@
-import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 
 import { EmbeddingService } from '../services/embedding.service.js';
-import { VoyageClient } from '../../voyage/voyage.client.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-
-function configMock(): ConfigService {
-  const map: Record<string, unknown> = {
-    VOYAGE_DIMENSIONS: 4,
-    VOYAGE_MODEL: 'voyage-3',
-  };
-  return {
-    getOrThrow: <T>(k: string) => map[k] as T,
-    get: <T>(k: string) => map[k] as T,
-  } as unknown as ConfigService;
-}
+import type { EmbeddingProvider } from '../../embeddings/embedding.provider.js';
 
 describe('EmbeddingService', () => {
   let prisma: any;
-  let voyage: jest.Mocked<VoyageClient>;
+  let provider: { nome: string; dimensoes: number; embed: jest.Mock };
   let service: EmbeddingService;
 
   beforeEach(() => {
@@ -32,13 +20,11 @@ describe('EmbeddingService', () => {
       $transaction: jest.fn(async (cb) => cb(prisma)),
       $executeRaw: jest.fn(),
     };
-    voyage = {
-      embed: jest.fn(),
-    } as unknown as jest.Mocked<VoyageClient>;
+    // Provedor de embeddings fake — dimensão 4 p/ casar com os vetores de teste.
+    provider = { nome: 'voyage-3', dimensoes: 4, embed: jest.fn() };
     service = new EmbeddingService(
       prisma as PrismaService,
-      voyage,
-      configMock(),
+      provider as unknown as EmbeddingProvider,
     );
   });
 
@@ -57,7 +43,7 @@ describe('EmbeddingService', () => {
         descricao: 'd',
         requisitos_json: { skill: 'Node.js' },
       });
-      voyage.embed.mockResolvedValue({
+      provider.embed.mockResolvedValue({
         vetores: [[0.1, 0.2, 0.3, 0.4]],
         modelo: 'voyage-3',
         usage: { total_tokens: 100 },
@@ -68,7 +54,7 @@ describe('EmbeddingService', () => {
       const out = await service.embedarVaga('v-1');
 
       expect(out.embeddingId).toMatch(/^[0-9a-f-]{36}$/);
-      expect(voyage.embed).toHaveBeenCalledWith({
+      expect(provider.embed).toHaveBeenCalledWith({
         textos: [expect.stringContaining('Dev Sr')],
         inputType: 'document',
       });
@@ -83,7 +69,7 @@ describe('EmbeddingService', () => {
         id: 'v-1',
         titulo: 'X',
       });
-      voyage.embed.mockResolvedValue({
+      provider.embed.mockResolvedValue({
         vetores: [[1, 2]], // 2 dims, esperava 4
         modelo: 'voyage-3',
         usage: { total_tokens: 1 },
@@ -122,7 +108,7 @@ describe('EmbeddingService', () => {
         texto_normalizado: 'fallback',
         parser_versao: 'claude-curriculo-v1',
       });
-      voyage.embed.mockResolvedValue({
+      provider.embed.mockResolvedValue({
         vetores: [[1, 1, 1, 1]],
         modelo: 'voyage-3',
         usage: { total_tokens: 50 },
@@ -132,7 +118,7 @@ describe('EmbeddingService', () => {
 
       const out = await service.embedarCurriculo('cand-1');
       expect(out.embeddingId).toMatch(/^[0-9a-f-]{36}$/);
-      expect(voyage.embed).toHaveBeenCalledWith({
+      expect(provider.embed).toHaveBeenCalledWith({
         textos: [expect.stringContaining('Resumo: Dev')],
         inputType: 'document',
       });

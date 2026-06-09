@@ -115,7 +115,9 @@ describe('MessagingService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('rejeita candidato sem consentimento LGPD', async () => {
+    it('permite enviar mesmo sem consentimento LGPD prévio (Art. 7, V)', async () => {
+      // O contato em si NÃO exige consentimento prévio (procedimentos preliminares
+      // a pedido do titular). Só `excluido_em` bloqueia o envio.
       prisma.candidatura.findUnique.mockResolvedValue({
         id: candidaturaId,
         candidato_id: candidatoId,
@@ -127,14 +129,17 @@ describe('MessagingService', () => {
           excluido_em: null,
         },
       });
-      await expect(
-        service.enfileirar({
-          candidaturaId,
-          canal: 'WHATSAPP',
-          templateCodigo: 'convite_triagem',
-          variaveis,
-        }),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      prisma.mensagem.create.mockResolvedValue({ id: 'msg-sc' });
+
+      const out = await service.enfileirar({
+        candidaturaId,
+        canal: 'WHATSAPP',
+        templateCodigo: 'convite_triagem',
+        variaveis,
+      });
+      expect(out.mensagemId).toBe('msg-sc');
+      expect(prisma.mensagem.create).toHaveBeenCalled();
+      expect(fila.add).toHaveBeenCalled();
     });
 
     it('cria mensagem PENDENTE e enfileira com jobId determinístico', async () => {

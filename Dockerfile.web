@@ -30,10 +30,10 @@ COPY . .
 RUN pnpm --filter @uniats/shared build \
  && pnpm --filter @uniats/web build
 
-# ---- test (lint + typecheck) — alvo usado só no CI ----------------------------------
+# ---- test (typecheck) — alvo usado só no CI -----------------------------------------
+# (lint removido: sem config de ESLint commitada; next lint exigiria setup interativo)
 FROM build AS test
-RUN pnpm --filter @uniats/web lint \
- && pnpm --filter @uniats/web typecheck
+RUN pnpm --filter @uniats/web typecheck
 
 # ---- runtime ------------------------------------------------------------------------
 FROM build AS runtime

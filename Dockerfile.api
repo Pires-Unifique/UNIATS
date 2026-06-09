@@ -31,10 +31,10 @@ RUN pnpm --filter @uniats/db generate \
  && pnpm --filter @uniats/db build \
  && pnpm --filter @uniats/api build
 
-# ---- test: lint + typecheck + unit (alvo usado só no CI) ----------------------------
+# ---- test: typecheck + unit (alvo usado só no CI) -----------------------------------
+# (lint removido: o projeto não tem config de ESLint para a API)
 FROM build AS test
-RUN pnpm --filter @uniats/api lint \
- && pnpm --filter @uniats/api typecheck \
+RUN pnpm --filter @uniats/api typecheck \
  && pnpm --filter @uniats/api test
 
 # ---- runtime: imagem final ----------------------------------------------------------

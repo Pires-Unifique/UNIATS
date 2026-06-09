@@ -54,7 +54,7 @@ describe('EmbeddingProcessor', () => {
     prisma.candidatura.findUnique.mockResolvedValue({ vaga_id: 'v-1' });
 
     const out = await processor.process(
-      fakeJob({ alvo: 'curriculo', candidaturaId }),
+      fakeJob({ alvo: 'curriculo', candidaturaId, cascataMatching: true }),
     );
 
     expect(out.embeddingId).toBe('e-2');
@@ -71,7 +71,7 @@ describe('EmbeddingProcessor', () => {
     prisma.candidatura.findUnique.mockResolvedValue(null);
 
     const out = await processor.process(
-      fakeJob({ alvo: 'curriculo', candidaturaId }),
+      fakeJob({ alvo: 'curriculo', candidaturaId, cascataMatching: true }),
     );
     expect(out.embeddingId).toBe('e-3');
     expect(filaMatching.add).not.toHaveBeenCalled();
