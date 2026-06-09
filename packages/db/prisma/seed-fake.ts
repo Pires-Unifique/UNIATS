@@ -6,7 +6,7 @@
  *   - vagas/candidatos com gupy_id >= OFFSET_FAKE
  *   - usuários com azure_oid começando em "seed-"
  *
- * Rode:  pnpm --filter @triagem/db run seed:fake
+ * Rode:  pnpm --filter @uniats/db run seed:fake
  */
 import {
   PrismaClient,

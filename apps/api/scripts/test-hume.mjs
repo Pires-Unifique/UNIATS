@@ -16,7 +16,7 @@
  *   4. Salva JSON cru + resumo focado em nervosismo
  *
  * Uso:
- *   pnpm --filter @triagem/api test:hume ./caminho/do/arquivo.mp4
+ *   pnpm --filter @uniats/api test:hume ./caminho/do/arquivo.mp4
  *
  * Ou direto:
  *   cd apps/api

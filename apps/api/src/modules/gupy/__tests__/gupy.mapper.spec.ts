@@ -4,7 +4,7 @@ import {
   VagaGupySchema,
   CandidatoGupySchema,
   CandidaturaGupySchema,
-} from '@triagem/shared';
+} from '@uniats/shared';
 
 import {
   mapearStatusVaga,

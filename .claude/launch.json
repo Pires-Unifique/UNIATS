@@ -4,8 +4,8 @@
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@triagem/web", "dev"],
-      "port": 3000
+      "runtimeArgs": ["--filter", "@uniats/web", "dev"],
+      "port": 13000
     }
   ]
 }

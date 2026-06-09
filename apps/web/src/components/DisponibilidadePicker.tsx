@@ -12,6 +12,11 @@ import {
 interface Props {
   /** Quantos horários o recrutador deve escolher (= nº de variáveis opcao_N). */
   maxSlots: number;
+  /**
+   * E-mails extras (líderes técnicos/gestor) cuja agenda também é checada — só
+   * sobram os horários livres para o recrutador E todos eles.
+   */
+  participantes?: string[];
   onUsar: (slots: SlotLivre[]) => void;
   onClose: () => void;
 }
@@ -24,7 +29,12 @@ const HORA_FIM = 19;
  * LIVRES para ele apenas CLICAR e selecionar — sem digitar nada. Os escolhidos
  * voltam para o convite (variáveis opcao_1..N).
  */
-export function DisponibilidadePicker({ maxSlots, onUsar, onClose }: Props) {
+export function DisponibilidadePicker({
+  maxSlots,
+  participantes = [],
+  onUsar,
+  onClose,
+}: Props) {
   const habilitado = graphEnabled();
   const [duracaoMin, setDuracaoMin] = useState(30);
   const [diasUteis, setDiasUteis] = useState(7);
@@ -39,12 +49,15 @@ export function DisponibilidadePicker({ maxSlots, onUsar, onClose }: Props) {
     setErro(null);
     setSel([]);
     try {
-      const livres = await obterDisponibilidade({
-        duracaoMin,
-        diasUteis,
-        horaInicio: HORA_INICIO,
-        horaFim: HORA_FIM,
-      });
+      const livres = await obterDisponibilidade(
+        {
+          duracaoMin,
+          diasUteis,
+          horaInicio: HORA_INICIO,
+          horaFim: HORA_FIM,
+        },
+        participantes,
+      );
       setSlots(livres);
       setBuscou(true);
     } catch (err) {
@@ -159,6 +172,13 @@ export function DisponibilidadePicker({ maxSlots, onUsar, onClose }: Props) {
                 {emailAgendaFixo() && (
                   <> · agenda consultada: <strong>{emailAgendaFixo()}</strong></>
                 )}
+                {participantes.length > 0 && (
+                  <>
+                    {' '}
+                    · checando também:{' '}
+                    <strong>{participantes.join(', ')}</strong>
+                  </>
+                )}
               </span>
             </div>
 
@@ -194,7 +214,7 @@ export function DisponibilidadePicker({ maxSlots, onUsar, onClose }: Props) {
                             className={
                               'px-2.5 py-1 rounded-md text-xs border transition-colors ' +
                               (ativo
-                                ? 'border-unifique-500 bg-unifique-600 text-white'
+                                ? 'border-unifique-500 bg-unifique-600 text-[#fff]'
                                 : 'border-grafite-200 bg-white text-grafite-700 hover:bg-grafite-100')
                             }
                           >

@@ -13,7 +13,7 @@ import {
 import {
   VagaGupySchema,
   CandidaturaGupySchema,
-} from '@triagem/shared';
+} from '@uniats/shared';
 
 /**
  * Service é a camada de orquestração — testamos APENAS comportamento,

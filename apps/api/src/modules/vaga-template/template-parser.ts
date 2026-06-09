@@ -18,7 +18,7 @@ import {
   GrauConhecimento,
   NivelCargo,
   TemplateVagaParsed,
-} from '@triagem/shared';
+} from '@uniats/shared';
 
 interface Celula {
   row: number;

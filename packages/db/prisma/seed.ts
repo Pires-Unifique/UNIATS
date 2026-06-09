@@ -3,7 +3,7 @@
  * templates de mensagem padrão. Em produção este seed NÃO deve ser executado.
  *
  * Os 4 templates são inlinados aqui (e não importados de apps/api) para manter
- * o pacote `@triagem/db` autossuficiente, sem cruzar a fronteira com a API.
+ * o pacote `@uniats/db` autossuficiente, sem cruzar a fronteira com a API.
  * O upsert é idempotente e NÃO sobrescreve edições feitas pelo recrutador
  * (`update: {}`), então re-rodar o seed é seguro.
  */

@@ -16,13 +16,13 @@ const EnvSchema = z.object({
 
   DATABASE_URL: z.string().url().startsWith('postgres'),
   REDIS_URL: z.string().url().startsWith('redis'),
-  REDIS_QUEUE_PREFIX: z.string().min(1).default('triagem'),
+  REDIS_QUEUE_PREFIX: z.string().min(1).default('uniats'),
 
   // Azure AD (login dos usuários internos).
   // MVP: autenticação local de dev — Azure AD opcional até o SSO ser ligado.
   AZURE_AD_TENANT_ID: z.string().min(1).optional(),
   AZURE_AD_CLIENT_ID: z.string().min(1).optional(),
-  AZURE_AD_AUDIENCE: z.string().min(1).default('api://triagem-api'),
+  AZURE_AD_AUDIENCE: z.string().min(1).default('api://uniats-api'),
   AZURE_AD_ALLOWED_DOMAIN: z.string().min(1).default('unifique.com.br'),
 
   // Gupy

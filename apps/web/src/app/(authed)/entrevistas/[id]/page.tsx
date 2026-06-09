@@ -59,6 +59,7 @@ export default function EntrevistaPage({
   const [erro, setErro] = useState<string | null>(null);
   const [acao, setAcao] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const [gerandoPerguntas, setGerandoPerguntas] = useState(false);
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -101,6 +102,35 @@ export default function EntrevistaPage({
       setAcao('Encerramento solicitado.');
     } catch (err) {
       setAcao(err instanceof ApiError ? err.message : 'Falha ao encerrar.');
+    }
+  }
+
+  async function gerarPerguntas() {
+    const ent = e;
+    if (gerandoPerguntas || !ent) return;
+    setGerandoPerguntas(true);
+    setAcao('Gerando perguntas com IA… isso pode levar alguns segundos.');
+    try {
+      const r = await api<{ perguntas: PerguntaDTO[] }>('/api/perguntas/gerar', {
+        method: 'POST',
+        body: {
+          candidaturaId: ent.candidatura_id,
+          entrevistaId: id,
+          substituir: true,
+        },
+      });
+      // Recarrega só a lista de perguntas (evita o flicker de recarregar a página toda).
+      const lista = await api<PerguntaDTO[]>('/api/perguntas', {
+        query: { entrevistaId: id },
+      }).catch(() => [] as PerguntaDTO[]);
+      setPerguntas(lista);
+      setAcao(`${r.perguntas.length} pergunta(s) gerada(s) para esta entrevista.`);
+    } catch (err) {
+      setAcao(
+        err instanceof ApiError ? err.message : 'Falha ao gerar perguntas.',
+      );
+    } finally {
+      setGerandoPerguntas(false);
     }
   }
 
@@ -164,12 +194,28 @@ export default function EntrevistaPage({
       <div className="grid grid-cols-2 gap-4">
         {/* Perguntas pré-entrevista */}
         <section className="card p-5">
-          <h2 className="font-medium text-grafite-900 mb-3">
-            Perguntas pré-geradas
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-medium text-grafite-900">
+              Perguntas pré-geradas
+            </h2>
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              disabled={gerandoPerguntas}
+              onClick={() => void gerarPerguntas()}
+            >
+              {gerandoPerguntas
+                ? 'Gerando…'
+                : perguntas.length === 0
+                  ? 'Gerar perguntas'
+                  : 'Gerar novamente'}
+            </button>
+          </div>
           {perguntas.length === 0 ? (
             <p className="text-sm text-grafite-400">
-              Nenhuma pergunta gerada. Vá em &ldquo;Detalhe do candidato&rdquo; e clique em &ldquo;Gerar perguntas&rdquo;.
+              Nenhuma pergunta gerada ainda. Clique em &ldquo;Gerar
+              perguntas&rdquo; para criá-las com IA a partir do currículo do
+              candidato e dos requisitos da vaga.
             </p>
           ) : (
             <ol className="space-y-3">

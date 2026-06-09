@@ -16,7 +16,7 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@triagem/shared": ["../../packages/shared/src/index.ts"]
+      "@uniats/shared": ["../../packages/shared/src/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"],

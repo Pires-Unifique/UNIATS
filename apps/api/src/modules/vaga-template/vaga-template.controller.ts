@@ -10,7 +10,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
-import { PublicarVagaInputSchema } from '@triagem/shared';
+import { PublicarVagaInputSchema } from '@uniats/shared';
 
 import { TemplateParser } from './template-parser.js';
 import { VagaTemplateService } from './vaga-template.service.js';

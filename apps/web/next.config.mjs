@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@triagem/shared'],
+  transpilePackages: ['@uniats/shared'],
   experimental: {
     typedRoutes: true,
   },

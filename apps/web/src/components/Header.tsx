@@ -1,9 +1,11 @@
 'use client';
 
 import { useAuth } from '@/lib/auth';
+import { useTheme } from '@/lib/theme';
 
 export function Header() {
   const { usuario, logout } = useAuth();
+  const { theme, toggle } = useTheme();
 
   return (
     <header className="h-14 bg-white border-b border-grafite-100 flex items-center justify-between px-6">
@@ -11,6 +13,15 @@ export function Header() {
         UNIATS — Triagem e Análise de Entrevistas
       </div>
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={toggle}
+          className="btn-ghost text-base px-2 py-1"
+          title={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+          aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}
+        >
+          <span aria-hidden>{theme === 'dark' ? '☀️' : '🌙'}</span>
+        </button>
         {usuario ? (
           <>
             <div className="text-sm text-grafite-600">

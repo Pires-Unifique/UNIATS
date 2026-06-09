@@ -17,9 +17,18 @@ agenda dele via Graph `getSchedule` e mostra os **slots livres** (07h–19h, jan
 **30 min** ou **1 h**, dias úteis) para ele **só clicar e selecionar**. Os escolhidos
 preenchem automaticamente as variáveis `opcao_1`, `opcao_2`, … do template.
 
-Arquivos: `apps/web/src/lib/graph.ts` (token delegado + `getSchedule` + `gerarSlotsLivres`),
-`apps/web/src/components/DisponibilidadePicker.tsx` (UI de seleção),
-integração em `apps/web/src/components/EnviarMensagemModal.tsx`.
+Arquivos: `apps/web/src/lib/graph.ts` (token delegado + `getSchedule` + `gerarSlotsLivres`
++ `combinarViews`), `apps/web/src/components/DisponibilidadePicker.tsx` (UI de seleção),
+integração em `apps/web/src/components/EnviarMensagemModal.tsx` e
+`apps/web/src/components/AgendarEntrevistaModal.tsx`.
+
+**Disponibilidade conjunta (líderes técnicos):** no agendamento (`AgendarEntrevistaModal`),
+o recrutador pode incluir **participantes** — o **gestor da vaga** vem pré-sugerido
+(`candidaturas/:id` → `vaga.gestor.email`) e é possível adicionar outros e-mails. O
+`getSchedule` passa a consultar **todas as agendas** (`schedules: [recrutador, ...participantes]`)
+e `combinarViews` faz o **AND** dos `availabilityView`: só sobram os horários em que
+**todos** estão livres. Os participantes são usados apenas para a checagem de
+disponibilidade (e o convite manual) — **não** são persistidos na `Entrevista`.
 
 ### ⚙️ O que pedir para a INFRA (app registration no Entra ID)
 

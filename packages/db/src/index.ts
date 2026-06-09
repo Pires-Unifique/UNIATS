@@ -1,4 +1,13 @@
 export { PrismaClient, Prisma } from '@prisma/client';
+
+// Enums da admissão exportados como VALOR (usados em runtime: switch, Object.values, etc.).
+export {
+  StatusAdmissao,
+  TipoDocumentoAdmissional,
+  StatusDocumentoAdmissional,
+  ResultadoExameAdmissional,
+} from '@prisma/client';
+
 export type {
   Usuario,
   Vaga,
@@ -15,6 +24,10 @@ export type {
   AnaliseVoz,
   WebhookRecebido,
   RegistroAuditoria,
+  Admissao,
+  DocumentoAdmissional,
+  ExameAdmissional,
+  EventoAdmissao,
   StatusVaga,
   StatusCandidatura,
   TipoScore,

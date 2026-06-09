@@ -6,7 +6,7 @@ import { useCallback, useRef, useState } from 'react';
 import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';
 
-// --- Tipos (espelham @triagem/shared) ---
+// --- Tipos (espelham @uniats/shared) ---
 type Grau = 'B' | 'I' | 'A';
 type Nivel = 'JR' | 'PL' | 'SR';
 

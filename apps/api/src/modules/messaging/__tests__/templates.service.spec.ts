@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@triagem/db';
+import { Prisma } from '@uniats/db';
 
 import { TemplatesService } from '../templates/templates.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';

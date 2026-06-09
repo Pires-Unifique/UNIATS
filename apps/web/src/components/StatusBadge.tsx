@@ -9,7 +9,7 @@ const mapa: Record<string, string> = {
   CANCELADA: 'badge-red',
 
   // Candidaturas
-  EM_ANALISE: 'badge-blue',
+  EM_ANALISE: 'badge-yellow',
   TRIAGEM_IA: 'badge-yellow',
   APROVADO_TRIAGEM: 'badge-green',
   ENTREVISTA_AGENDADA: 'badge-blue',
@@ -32,6 +32,23 @@ const mapa: Record<string, string> = {
   LIDO: 'badge-green',
   RESPONDIDO: 'badge-green',
   FALHADO: 'badge-red',
+
+  // Admissão (etapas)
+  AGUARDANDO_ACEITE: 'badge-gray',
+  PROPOSTA_ACEITA: 'badge-blue',
+  COLETA_DOCUMENTOS: 'badge-yellow',
+  DOCUMENTOS_EM_ANALISE: 'badge-yellow',
+  EXAME_MEDICO: 'badge-blue',
+  ASSINATURA_CONTRATO: 'badge-blue',
+  ENVIO_ESOCIAL: 'badge-blue',
+  INTEGRACAO: 'badge-blue',
+  CONCLUIDA: 'badge-green',
+  // CANCELADA já mapeado acima (badge-red)
+
+  // Documentos / ASO (EM_ANALISE, APROVADO e REPROVADO já mapeados acima)
+  APTO: 'badge-green',
+  APTO_COM_RESTRICOES: 'badge-yellow',
+  INAPTO: 'badge-red',
 };
 
 export function StatusBadge({ status }: { status: string }) {

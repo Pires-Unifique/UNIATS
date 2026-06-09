@@ -151,7 +151,7 @@ psql $DATABASE_URL -c "SELECT extname FROM pg_extension;"
 ### 3.5. Subir a API
 
 ```bash
-pnpm --filter @triagem/api dev
+pnpm --filter @uniats/api dev
 ```
 
 A API sobe em `http://localhost:3001`. Smoke test:
@@ -179,8 +179,8 @@ Copie a URL HTTPS impressa (ex.: `https://abcd-1234.ngrok-free.app`) e configure
 
 ```bash
 # Desenvolvimento
-pnpm --filter @triagem/api dev        # API em watch mode
-pnpm --filter @triagem/web dev        # Front (Next.js) — sprint futuro
+pnpm --filter @uniats/api dev        # API em watch mode
+pnpm --filter @uniats/web dev        # Front (Next.js) — sprint futuro
 pnpm dev                              # tudo em paralelo via Turborepo
 
 # Banco
@@ -189,9 +189,9 @@ pnpm db:studio                        # GUI do Prisma em localhost:5555
 pnpm db:seed                          # repovoar com dados de demo
 
 # Testes
-pnpm --filter @triagem/api test       # unitários (Jest + nock)
-pnpm --filter @triagem/api test:cov   # com cobertura
-pnpm --filter @triagem/api test:int   # integração (requer docker-compose up)
+pnpm --filter @uniats/api test       # unitários (Jest + nock)
+pnpm --filter @uniats/api test:cov   # com cobertura
+pnpm --filter @uniats/api test:int   # integração (requer docker-compose up)
 
 # Sincronização Gupy (sob demanda, sem esperar webhook)
 curl -X POST http://localhost:3001/api/gupy/sync/vagas
@@ -719,7 +719,7 @@ pnpm dev    # roda em http://localhost:3000
 
 **Decisões de UI**
 
-- Tipos vêm de `@triagem/shared` — frontend e backend usam o mesmo shape.
+- Tipos vêm de `@uniats/shared` — frontend e backend usam o mesmo shape.
 - Cliente HTTP (`src/lib/api.ts`) centraliza Bearer token, 401 redirect e erros amigáveis. Suporta validação Zod opcional do response shape.
 - Componentes mínimos sem dependência de UI lib pesada — `clsx` + Tailwind. Substituir por shadcn/Radix se quiser ganhar mais polish sem reescrever lógica.
 - Páginas autenticadas vivem em `src/app/(authed)/` — o layout desse grupo aplica `AuthGuard` automaticamente.
@@ -763,7 +763,7 @@ pnpm db:migrate               # cria tabelas + índice HNSW
 pnpm db:seed                  # usuário admin de dev
 
 # 5. API
-pnpm --filter @triagem/api dev
+pnpm --filter @uniats/api dev
 # Em outro terminal:
 curl http://localhost:3001/health
 # → {"status":"ok",...}
@@ -771,14 +771,14 @@ curl http://localhost:3001/health
 # 6. Frontend
 cp apps/web/.env.example apps/web/.env.local
 # (deixe AZURE_AD_CLIENT_ID vazio em dev para login fake)
-pnpm --filter @triagem/web dev
+pnpm --filter @uniats/web dev
 # abra http://localhost:3000 → redireciona para /vagas
 
 # 7. Validação rápida
 # (a) typecheck: tudo verde em apps/api e apps/web
 pnpm typecheck
 # (b) testes unitários do backend
-pnpm --filter @triagem/api test
+pnpm --filter @uniats/api test
 ```
 
 **Smoke test funcional ponta-a-ponta** (precisa de credenciais reais):
@@ -794,7 +794,7 @@ pnpm --filter @triagem/api test
 
 - `pnpm typecheck` apps/api → **0 erros** ✓
 - `pnpm typecheck` apps/web → **0 erros** ✓
-- `pnpm --filter @triagem/api test` → **127/131 testes passam** ✓ (4 falhas conhecidas em testes auxiliares; 16 suites dependem do Prisma engine em runtime — passam após `pnpm db:generate`)
+- `pnpm --filter @uniats/api test` → **127/131 testes passam** ✓ (4 falhas conhecidas em testes auxiliares; 16 suites dependem do Prisma engine em runtime — passam após `pnpm db:generate`)
 
 **O que ainda fica fora do MVP atual** (próximos passos sugeridos):
 
@@ -834,7 +834,7 @@ Faltou rodar `pnpm db:migrate`. Se o erro persistir, confira se o `DATABASE_URL`
 
 Causas mais comuns, em ordem:
 
-1. **Segredo HMAC diferente entre o painel e o `.env`**. Cole o mesmo valor exato nos dois lugares e reinicie a API (`pnpm --filter @triagem/api dev`).
+1. **Segredo HMAC diferente entre o painel e o `.env`**. Cole o mesmo valor exato nos dois lugares e reinicie a API (`pnpm --filter @uniats/api dev`).
 2. **Body alterado por proxy reverso**. O ngrok normalmente preserva o body, mas se você estiver atrás de Nginx/Cloudflare, garanta que o body bruto chega no Node (a API usa `express.raw` apenas em `/webhooks/gupy`).
 3. **Cabeçalho `X-Gupy-Signature` em formato diferente do esperado** (`sha256=<hex64>`). Inspecione com:
    ```bash

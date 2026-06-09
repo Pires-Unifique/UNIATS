@@ -59,10 +59,10 @@ importers:
       '@sendgrid/mail':
         specifier: ^8.1.4
         version: 8.1.6
-      '@triagem/db':
+      '@uniats/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@triagem/shared':
+      '@uniats/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@xenova/transformers':
@@ -189,7 +189,7 @@ importers:
       '@azure/msal-react':
         specifier: ^2.1.1
         version: 2.2.0(@azure/msal-browser@3.30.0)(react@18.3.1)
-      '@triagem/shared':
+      '@uniats/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       clsx:

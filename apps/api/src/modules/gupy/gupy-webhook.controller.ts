@@ -19,7 +19,7 @@ import { Request } from 'express';
 import {
   WebhookGupyEvento,
   WebhookGupyInvolucroSchema,
-} from '@triagem/shared';
+} from '@uniats/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';

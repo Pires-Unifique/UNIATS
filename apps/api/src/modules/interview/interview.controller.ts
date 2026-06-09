@@ -22,6 +22,7 @@ interface AgendarBody {
   duracaoEstimadaMin?: number;
   entrevistadorId?: string;
   googleEventId?: string;
+  consentirGravacao?: boolean;
 }
 
 @Controller('api/entrevistas')
@@ -59,6 +60,7 @@ export class InterviewController {
       duracaoEstimadaMin: body.duracaoEstimadaMin,
       entrevistadorId: body.entrevistadorId,
       googleEventId: body.googleEventId,
+      consentirGravacao: body.consentirGravacao,
     });
   }
 
@@ -71,11 +73,28 @@ export class InterviewController {
   }
 
   @Get()
-  async listar(@Query('candidaturaId') candidaturaId?: string) {
-    if (!candidaturaId || !UUID_REGEX.test(candidaturaId)) {
-      throw new BadRequestException('candidaturaId é obrigatório (UUID).');
+  async listar(
+    @Query('candidaturaId') candidaturaId?: string,
+    @Query('status') status?: string,
+  ) {
+    // Com candidaturaId: histórico daquela candidatura (uso no detalhe do
+    // candidato). Sem candidaturaId: agenda geral de entrevistas.
+    if (candidaturaId) {
+      if (!UUID_REGEX.test(candidaturaId)) {
+        throw new BadRequestException('candidaturaId deve ser UUID.');
+      }
+      return this.service.listarPorCandidatura(candidaturaId);
     }
-    return this.service.listarPorCandidatura(candidaturaId);
+    const STATUS_VALIDOS = [
+      'AGENDADA',
+      'EM_ANDAMENTO',
+      'FINALIZADA',
+      'CANCELADA',
+    ];
+    if (status && !STATUS_VALIDOS.includes(status)) {
+      throw new BadRequestException('status inválido.');
+    }
+    return this.service.listarAgenda(status);
   }
 
   @Post(':id/iniciar-bot')

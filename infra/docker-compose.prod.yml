@@ -1,0 +1,122 @@
+# =====================================================================
+# Stack de PRODUÇÃO — UniATS (Oracle Linux 10, deploy na própria máquina)
+# ---------------------------------------------------------------------
+# Sobe Postgres (pgvector) + Redis + MinIO + API + Web numa rede interna.
+# Só a API (:13001) e o Web (:13000) são publicados — e APENAS em 127.0.0.1,
+# pois o nginx do host (infra/nginx/uniats.conf) faz o TLS e o proxy.
+#
+# Uso:
+#   docker compose -f infra/docker-compose.prod.yml up -d --build
+#
+# Pré-requisito: infra/.env.production preenchido (ver .env.production.example).
+# =====================================================================
+
+name: uniats
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: uniats
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env.production}
+      POSTGRES_DB: uniats
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uniats -d uniats"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:?defina STORAGE_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:?defina STORAGE_SECRET_KEY}
+    volumes:
+      - miniodata:/data
+    # Console do MinIO preso ao localhost (admin via túnel SSH se precisar).
+    ports:
+      - "127.0.0.1:19001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+      target: runtime
+    image: uniats-api:latest
+    restart: unless-stopped
+    # Injeta todas as vars no processo (a app via ConfigService; o Prisma CLI lê
+    # DATABASE_URL daqui na hora do `migrate deploy`).
+    env_file:
+      - ./.env.production
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      minio:    { condition: service_healthy }
+    ports:
+      - "127.0.0.1:13001:13001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:13001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.web
+      target: runtime
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.uniats.unifique.com.br}
+        NEXT_PUBLIC_APP_ENV: production
+    image: uniats-web:latest
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:13000:13000"
+
+  waha:
+    # WhatsApp HTTP API (self-hosted). Engine WEBJS = Chromium headless embutido.
+    image: devlikeapro/waha:latest
+    restart: unless-stopped
+    environment:
+      # Protege a API do WAHA: a app manda este valor no header X-Api-Key.
+      WAHA_API_KEY: ${WAHA_API_KEY:?defina WAHA_API_KEY no .env.production}
+      WHATSAPP_DEFAULT_ENGINE: WEBJS
+    volumes:
+      # Persiste o pareamento (QR) entre reinícios — NÃO apague para não reescanear.
+      - wahasessions:/app/.sessions
+    # Dashboard/QR preso ao localhost: acesse via túnel SSH para escanear o QR.
+    #   ssh -L 4000:127.0.0.1:4000 servidor  →  http://localhost:4000/dashboard
+    ports:
+      - "127.0.0.1:4000:3000"
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  wahasessions:

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
-import { Prisma } from '@triagem/db';
+import { Prisma } from '@uniats/db';
 
 import { EmbeddingService } from './services/embedding.service.js';
 import { MatchingService } from './services/matching.service.js';

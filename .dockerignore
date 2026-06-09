@@ -1,0 +1,26 @@
+# Build context enxuto — evita mandar lixo pesado pro daemon Docker
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+
+# Dados locais de infra (volumes bind do dev)
+infra/postgres-data
+infra/redis-data
+infra/storage
+infra/waha-sessions
+
+# Segredos e ambiente — NUNCA vão pra imagem
+.env
+.env.*
+!.env.example
+!infra/.env.production.example
+
+# Git / IDE / logs
+.git
+.gitignore
+.claude
+**/*.log
+*.md
+!packages/db/prisma/**

@@ -3,7 +3,7 @@
  *
  * Estes tipos espelham o shape que os controllers REST devolvem. Mantemos
  * em um pacote independente para que o frontend NÃO importe nada do
- * @triagem/db (evita carregar Prisma no navegador) e para que mudanças
+ * @uniats/db (evita carregar Prisma no navegador) e para que mudanças
  * de shape sejam visíveis em uma única alteração de arquivo.
  */
 
@@ -287,6 +287,145 @@ export interface PerguntaDTO {
   modelo?: string;
   prompt_versao?: string | null;
   criado_em?: string;
+}
+
+// ---------- Admissão ----------
+
+// Espelha o enum StatusAdmissao do Prisma (packages/db).
+export type StatusAdmissao =
+  | 'AGUARDANDO_ACEITE'
+  | 'PROPOSTA_ACEITA'
+  | 'COLETA_DOCUMENTOS'
+  | 'DOCUMENTOS_EM_ANALISE'
+  | 'EXAME_MEDICO'
+  | 'ASSINATURA_CONTRATO'
+  | 'ENVIO_ESOCIAL'
+  | 'INTEGRACAO'
+  | 'CONCLUIDA'
+  | 'CANCELADA';
+
+// Ordem canônica das etapas (para stepper/board). CANCELADA fica fora do fluxo.
+export const ETAPAS_ADMISSAO: readonly StatusAdmissao[] = [
+  'AGUARDANDO_ACEITE',
+  'PROPOSTA_ACEITA',
+  'COLETA_DOCUMENTOS',
+  'DOCUMENTOS_EM_ANALISE',
+  'EXAME_MEDICO',
+  'ASSINATURA_CONTRATO',
+  'ENVIO_ESOCIAL',
+  'INTEGRACAO',
+  'CONCLUIDA',
+] as const;
+
+export const ROTULO_ETAPA_ADMISSAO: Record<StatusAdmissao, string> = {
+  AGUARDANDO_ACEITE: 'Aguardando aceite',
+  PROPOSTA_ACEITA: 'Proposta aceita',
+  COLETA_DOCUMENTOS: 'Coleta de documentos',
+  DOCUMENTOS_EM_ANALISE: 'Documentos em análise',
+  EXAME_MEDICO: 'Exame médico',
+  ASSINATURA_CONTRATO: 'Assinatura de contrato',
+  ENVIO_ESOCIAL: 'Envio ao eSocial',
+  INTEGRACAO: 'Integração',
+  CONCLUIDA: 'Concluída',
+  CANCELADA: 'Cancelada',
+};
+
+export type TipoDocumentoAdmissional =
+  | 'RG'
+  | 'CPF'
+  | 'CTPS'
+  | 'TITULO_ELEITOR'
+  | 'PIS_NIS'
+  | 'COMPROVANTE_RESIDENCIA'
+  | 'COMPROVANTE_ESCOLARIDADE'
+  | 'CERTIDAO_NASCIMENTO_CASAMENTO'
+  | 'RESERVISTA'
+  | 'DADOS_BANCARIOS'
+  | 'FOTO_3X4'
+  | 'DEPENDENTES'
+  | 'OUTRO';
+
+export type StatusDocumentoAdmissional =
+  | 'PENDENTE'
+  | 'ENVIADO'
+  | 'EM_ANALISE'
+  | 'APROVADO'
+  | 'REPROVADO';
+
+export type ResultadoExameAdmissional =
+  | 'PENDENTE'
+  | 'APTO'
+  | 'APTO_COM_RESTRICOES'
+  | 'INAPTO';
+
+export interface DocumentoAdmissionalDTO {
+  id: string;
+  tipo: TipoDocumentoAdmissional;
+  status: StatusDocumentoAdmissional;
+  obrigatorio: boolean;
+  arquivo_url?: string | null;
+  nome_arquivo?: string | null;
+  validade?: string | null;
+  motivo_recusa?: string | null;
+  enviado_em?: string | null;
+  analisado_em?: string | null;
+}
+
+export interface ExameAdmissionalDTO {
+  id: string;
+  clinica?: string | null;
+  agendado_para?: string | null;
+  realizado_em?: string | null;
+  resultado: ResultadoExameAdmissional;
+  restricoes?: string | null;
+  aso_url?: string | null;
+}
+
+export interface EventoAdmissaoDTO {
+  id: string;
+  de_status?: StatusAdmissao | null;
+  para_status: StatusAdmissao;
+  autor_nome?: string | null;
+  observacao?: string | null;
+  criado_em: string;
+}
+
+// Item de listagem (board/kanban)
+export interface AdmissaoListItemDTO {
+  id: string;
+  status: StatusAdmissao;
+  candidato_nome: string;
+  vaga_titulo: string | null;
+  cargo?: string | null;
+  data_admissao?: string | null;
+  atualizado_em: string;
+}
+
+// Detalhe agregado
+export interface AdmissaoDetalheDTO {
+  id: string;
+  status: StatusAdmissao;
+  candidatura_id: string;
+  candidato: { id: string; nome_completo: string; email?: string | null; telefone?: string | null };
+  vaga: { id: string; titulo: string } | null;
+  responsavel_id?: string | null;
+  cargo?: string | null;
+  salario?: string | null; // Decimal vira string em JSON
+  tipo_contratacao?: string | null;
+  jornada?: string | null;
+  data_admissao?: string | null;
+  data_aceite?: string | null;
+  data_conclusao?: string | null;
+  motivo_cancelamento?: string | null;
+  esocial_recibo?: string | null;
+  esocial_status?: string | null;
+  matricula?: string | null;
+  observacoes?: string | null;
+  criado_em: string;
+  atualizado_em: string;
+  documentos: DocumentoAdmissionalDTO[];
+  exame?: ExameAdmissionalDTO | null;
+  eventos: EventoAdmissaoDTO[];
 }
 
 // ---------- Candidatura (agregada) ----------

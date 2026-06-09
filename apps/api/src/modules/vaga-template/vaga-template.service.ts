@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@triagem/db';
+import { Prisma } from '@uniats/db';
 import {
   ConhecimentoEspecifico,
   PublicarVagaInput,
   PublicarVagaResultDTO,
-} from '@triagem/shared';
+} from '@uniats/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';

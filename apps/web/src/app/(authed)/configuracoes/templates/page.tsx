@@ -130,7 +130,7 @@ function CampoComVariaveis({
                 className={
                   'px-2 py-0.5 rounded-full text-xs border transition-colors ' +
                   (v.autoPreenchida
-                    ? 'border-unifique-200 bg-unifique-50 text-unifique-700 hover:bg-unifique-100'
+                    ? 'border-unifique-200 bg-unifique-50 text-unifique-700 hover:bg-unifique-100 dark:border-unifique-500/30 dark:bg-unifique-500/15 dark:text-unifique-400 dark:hover:bg-unifique-500/25'
                     : 'border-grafite-200 bg-white text-grafite-600 hover:bg-grafite-100')
                 }
               >

@@ -162,11 +162,33 @@ function diasUteisContados(de: Date, ate: Date): number {
 }
 
 /**
- * Lê a disponibilidade da agenda do recrutador e devolve os slots livres.
+ * Combina os `availabilityView` de vários participantes em UMA visão conjunta:
+ * um intervalo só é considerado LIVRE ('0') se TODOS estiverem livres nele;
+ * basta um ocupado para marcar '1'. Função PURA (testável). Usa o menor
+ * comprimento entre as views (devem ser iguais, mas protege contra desalinho).
+ */
+export function combinarViews(views: string[]): string {
+  const validas = views.filter((v) => v.length > 0);
+  if (validas.length === 0) return '';
+  const len = Math.min(...validas.map((v) => v.length));
+  let out = '';
+  for (let i = 0; i < len; i++) {
+    out += validas.every((v) => v[i] === '0') ? '0' : '1';
+  }
+  return out;
+}
+
+/**
+ * Lê a disponibilidade conjunta da agenda do recrutador + participantes
+ * (líderes técnicos) e devolve os slots em que TODOS estão livres.
  * Faz o popup de consentimento na primeira chamada.
+ *
+ * @param participantes E-mails extras a checar junto com o recrutador (ex.: o
+ *   gestor/líder técnico da vaga). Slots ocupados em qualquer agenda são descartados.
  */
 export async function obterDisponibilidade(
   opts: OpcoesDisponibilidade,
+  participantes: string[] = [],
 ): Promise<SlotLivre[]> {
   if (!graphEnabled()) {
     throw new Error(
@@ -175,7 +197,16 @@ export async function obterDisponibilidade(
   }
   const token = await obterTokenGraph();
   // E-mail fixo de teste tem precedência; senão resolve via /me.
-  const email = emailAgendaFixo() || (await obterMeuEmail(token));
+  const meuEmail = emailAgendaFixo() || (await obterMeuEmail(token));
+
+  // Agendas a consultar: a minha + participantes (sem duplicar, case-insensitive).
+  const schedules: string[] = [meuEmail];
+  for (const p of participantes) {
+    const e = p.trim();
+    if (e && !schedules.some((s) => s.toLowerCase() === e.toLowerCase())) {
+      schedules.push(e);
+    }
+  }
 
   // Janela: de amanhã 00:00 até diasUteis+7 dias depois, no expediente.
   const inicio = new Date();
@@ -194,7 +225,7 @@ export async function obterDisponibilidade(
       Prefer: `outlook.timezone="${TZ_WINDOWS}"`,
     },
     body: JSON.stringify({
-      schedules: [email],
+      schedules,
       startTime: { dateTime: isoLocal(inicio), timeZone: TZ_WINDOWS },
       endTime: { dateTime: isoLocal(fim), timeZone: TZ_WINDOWS },
       availabilityViewInterval: intervalo,
@@ -205,8 +236,10 @@ export async function obterDisponibilidade(
     throw new Error(`Graph getSchedule falhou (${resp.status}). ${txt.slice(0, 200)}`);
   }
   const j = (await resp.json()) as {
-    value?: Array<{ availabilityView?: string }>;
+    value?: Array<{ availabilityView?: string; scheduleId?: string }>;
   };
-  const view = j.value?.[0]?.availabilityView ?? '';
-  return gerarSlotsLivres(view, inicio, intervalo, opts);
+  const views = (j.value ?? []).map((v) => v.availabilityView ?? '');
+  // Slot só é livre se TODOS (recrutador + participantes) estiverem livres nele.
+  const viewConjunta = combinarViews(views);
+  return gerarSlotsLivres(viewConjunta, inicio, intervalo, opts);
 }

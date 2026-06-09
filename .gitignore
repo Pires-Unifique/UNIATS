@@ -32,3 +32,6 @@ _tmp_*
 # Estado local do Claude Code
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+# Envs de produção/homolog (segredos)
+infra/.env.production

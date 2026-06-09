@@ -16,7 +16,7 @@
  * então gravação de tela em .mp4 (OBS, Loom, Meet/Teams) funciona direto.
  *
  * Uso:
- *   pnpm --filter @triagem/api test:ia ./caminho/do/audio-ou-video.mp4
+ *   pnpm --filter @uniats/api test:ia ./caminho/do/audio-ou-video.mp4
  *
  * Ou direto:
  *   cd apps/api

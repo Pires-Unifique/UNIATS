@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Prisma } from '@triagem/db';
+import { Prisma } from '@uniats/db';
 import type { Queue } from 'bullmq';
 
 import { PrismaService } from '../../prisma/prisma.service.js';

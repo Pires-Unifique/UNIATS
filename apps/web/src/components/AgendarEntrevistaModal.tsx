@@ -10,9 +10,14 @@ interface Props {
   candidaturaId: string;
   /** Indica se o candidato consentiu gravação — bot só roda com isso. */
   consentimentoGravacao: boolean;
+  /** Gestor/líder da vaga — sugerido como participante (líder técnico). */
+  gestorEmail?: string | null;
+  gestorNome?: string | null;
   onClose: () => void;
   onAgendada: () => void;
 }
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function minutosEntre(inicioIso: string, fimIso: string): number {
   const ms = new Date(fimIso).getTime() - new Date(inicioIso).getTime();
@@ -29,6 +34,8 @@ function minutosEntre(inicioIso: string, fimIso: string): number {
 export function AgendarEntrevistaModal({
   candidaturaId,
   consentimentoGravacao,
+  gestorEmail,
+  gestorNome,
   onClose,
   onAgendada,
 }: Props) {
@@ -38,6 +45,36 @@ export function AgendarEntrevistaModal({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [mostrarPicker, setMostrarPicker] = useState(false);
+  // Marcado por padrão: o convite já comunica que aceitar a reunião = consentir
+  // com a gravação. Só aparece quando ainda não há consentimento registrado.
+  const [registrarConsentimento, setRegistrarConsentimento] = useState(true);
+
+  // Participantes (líderes técnicos): o gestor da vaga vem pré-sugerido e o
+  // recrutador pode adicionar outros e-mails. A agenda de TODOS é checada no
+  // picker — só sobram horários livres para todo mundo.
+  const temGestor = Boolean(gestorEmail && EMAIL_REGEX.test(gestorEmail));
+  const [incluirGestor, setIncluirGestor] = useState(true);
+  const [extras, setExtras] = useState<string[]>([]);
+  const [novoEmail, setNovoEmail] = useState('');
+
+  const participantes: string[] = [
+    ...(temGestor && incluirGestor ? [gestorEmail!.trim()] : []),
+    ...extras,
+  ];
+
+  function adicionarExtra() {
+    const e = novoEmail.trim().toLowerCase();
+    if (!EMAIL_REGEX.test(e)) return;
+    const jaExiste =
+      extras.some((x) => x.toLowerCase() === e) ||
+      (temGestor && gestorEmail!.toLowerCase() === e);
+    if (!jaExiste) setExtras((prev) => [...prev, novoEmail.trim()]);
+    setNovoEmail('');
+  }
+
+  function removerExtra(email: string) {
+    setExtras((prev) => prev.filter((x) => x !== email));
+  }
 
   function aplicarSlot(slots: SlotLivre[]) {
     const s = slots[0];
@@ -61,6 +98,7 @@ export function AgendarEntrevistaModal({
           agendadaPara: new Date(agendadaPara).toISOString(),
           duracaoEstimadaMin: duracao,
           meetUrl,
+          consentirGravacao: !consentimentoGravacao && registrarConsentimento,
         },
       });
       onAgendada();
@@ -95,12 +133,98 @@ export function AgendarEntrevistaModal({
           </button>
         </div>
 
-        {!consentimentoGravacao && (
-          <div className="badge-yellow mb-3 px-3 py-2 w-full justify-start">
-            Sem consentimento de gravação: a entrevista é agendada, mas o bot de
-            gravação não poderá entrar até o candidato consentir.
+        {consentimentoGravacao ? (
+          <div className="badge-green mb-3 px-3 py-2 w-full justify-start">
+            Consentimento de gravação registrado — o bot poderá gravar a entrevista.
           </div>
+        ) : (
+          <label className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-grafite-700">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={registrarConsentimento}
+              onChange={(e) => setRegistrarConsentimento(e.target.checked)}
+            />
+            <span>
+              O candidato foi informado no convite e{' '}
+              <strong>concorda com a gravação</strong> da entrevista por vídeo
+              (necessário para o bot de gravação/transcrição). Desmarque se ainda
+              não há consentimento — a entrevista é agendada, mas o bot só poderá
+              entrar depois de registrar o consentimento.
+            </span>
+          </label>
         )}
+
+        {/* Participantes (líderes técnicos) — agenda checada junto com a do recrutador */}
+        <div className="mb-3 rounded-md border border-grafite-200 p-3">
+          <div className="text-xs font-medium text-grafite-700 mb-2">
+            Participantes (líderes técnicos)
+          </div>
+          {temGestor && (
+            <label className="flex items-start gap-2 text-sm text-grafite-700 mb-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={incluirGestor}
+                onChange={(e) => setIncluirGestor(e.target.checked)}
+              />
+              <span>
+                Incluir gestor da vaga
+                {gestorNome ? ` — ${gestorNome}` : ''}{' '}
+                <span className="text-grafite-400">({gestorEmail})</span>
+              </span>
+            </label>
+          )}
+
+          {extras.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {extras.map((email) => (
+                <span
+                  key={email}
+                  className="inline-flex items-center gap-1 rounded-md bg-grafite-100 px-2 py-0.5 text-xs text-grafite-700"
+                >
+                  {email}
+                  <button
+                    type="button"
+                    onClick={() => removerExtra(email)}
+                    className="text-grafite-400 hover:text-red-600"
+                    aria-label={`Remover ${email}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              type="email"
+              className="flex-1 border border-grafite-200 rounded-md px-2 py-1.5 text-sm"
+              value={novoEmail}
+              onChange={(e) => setNovoEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  adicionarExtra();
+                }
+              }}
+              placeholder="adicionar e-mail (ex.: lider@unifique.com.br)"
+            />
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              disabled={!EMAIL_REGEX.test(novoEmail.trim())}
+              onClick={adicionarExtra}
+            >
+              Adicionar
+            </button>
+          </div>
+          <p className="text-xs text-grafite-400 mt-2">
+            A disponibilidade de todos os participantes é checada junto com a sua
+            ao buscar horários — só aparecem horários livres para todo mundo.
+          </p>
+        </div>
 
         <div className="mb-3 flex items-center gap-2 flex-wrap">
           <button
@@ -180,6 +304,7 @@ export function AgendarEntrevistaModal({
       {mostrarPicker && (
         <DisponibilidadePicker
           maxSlots={1}
+          participantes={participantes}
           onUsar={aplicarSlot}
           onClose={() => setMostrarPicker(false)}
         />

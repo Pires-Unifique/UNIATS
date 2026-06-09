@@ -19,6 +19,8 @@ export interface AgendarEntrevistaInput {
   duracaoEstimadaMin?: number;
   entrevistadorId?: string;
   googleEventId?: string;
+  /** Registra consentimento de gravação do candidato no ato do agendamento. */
+  consentirGravacao?: boolean;
 }
 
 @Injectable()
@@ -78,9 +80,21 @@ export class InterviewService {
         'Candidato pediu exclusão (LGPD) — não é permitido agendar entrevista.',
       );
     }
-    if (!candidatura.candidato.consentimento_gravacao_em) {
-      throw new BadRequestException(
-        'Candidato sem consentimento de gravação de voz — entreviste sem bot ou colete consentimento.',
+
+    // O agendamento NÃO exige consentimento de gravação — só o BOT de gravação
+    // exige (ver iniciarBot / bot-start.processor). Quando o recrutador confirma
+    // que o candidato foi informado/aceitou (cláusula do convite), registramos
+    // o consentimento aqui para liberar o bot.
+    if (
+      input.consentirGravacao &&
+      !candidatura.candidato.consentimento_gravacao_em
+    ) {
+      await this.prisma.candidato.update({
+        where: { id: candidatura.candidato_id },
+        data: { consentimento_gravacao_em: new Date() },
+      });
+      this.logger.log(
+        `Consentimento de gravação registrado no agendamento — candidato=${candidatura.candidato_id}`,
       );
     }
 
@@ -249,6 +263,35 @@ export class InterviewService {
         iniciada_em: true,
         finalizada_em: true,
         meet_url: true,
+      },
+    });
+  }
+
+  /**
+   * Agenda geral de entrevistas (todas as candidaturas) — alimenta a página
+   * "Entrevistas". Por padrão lista as AGENDADAS (próximas, ordem crescente);
+   * sem filtro de status lista todas em ordem decrescente.
+   */
+  async listarAgenda(status?: string) {
+    return this.prisma.entrevista.findMany({
+      where: status ? { status: status as never } : undefined,
+      orderBy: { agendada_para: status === 'AGENDADA' ? 'asc' : 'desc' },
+      take: 200,
+      select: {
+        id: true,
+        agendada_para: true,
+        duracao_estimada_min: true,
+        status: true,
+        bot_status: true,
+        meet_url: true,
+        candidatura: {
+          select: {
+            id: true,
+            vaga: { select: { titulo: true } },
+          },
+        },
+        candidato: { select: { nome_completo: true } },
+        entrevistador: { select: { nome: true } },
       },
     });
   }

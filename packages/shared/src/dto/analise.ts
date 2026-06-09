@@ -2,7 +2,7 @@
  * DTOs do Painel Analítico do DHO (funil de recrutamento + métricas).
  *
  * Espelham o shape devolvido por `GET /api/analise/painel` e
- * `GET /api/analise/filtros`. Como TODO o frontend lê via `@triagem/shared`
+ * `GET /api/analise/filtros`. Como TODO o frontend lê via `@uniats/shared`
  * (sem importar Prisma no navegador), este é o contrato único.
  *
  * IMPORTANTE: na ausência de um log de transições de etapa, várias métricas

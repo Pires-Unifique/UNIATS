@@ -38,6 +38,7 @@ model Usuario {
   vagas_gestao    Vaga[]               @relation("VagaGestor")
   vagas_recrut   Vaga[]                @relation("VagaRecrutador")
   entrevistas     Entrevista[]
+  admissoes       Admissao[]           @relation("AdmissaoResponsavel")
   auditorias      RegistroAuditoria[]
   templates_criados      TemplateMensagem[] @relation("TemplateCriador")
   templates_atualizados  TemplateMensagem[] @relation("TemplateAtualizador")
@@ -93,6 +94,7 @@ model Vaga {
   candidaturas        Candidatura[]
   embeddings          Embedding[]
   perguntas           PerguntaEntrevista[]
+  admissoes           Admissao[]
 
   @@index([status])
   @@index([data_publicacao])
@@ -138,6 +140,7 @@ model Candidato {
   curriculos      CurriculoProcessado[]
   mensagens       Mensagem[]
   entrevistas     Entrevista[]
+  admissoes       Admissao[]
 
   @@index([email])
   @@index([nome_completo(ops: raw("gin_trgm_ops"))], type: Gin)
@@ -167,6 +170,7 @@ model Candidatura {
   scores            Score[]
   entrevistas       Entrevista[]
   mensagens         Mensagem[]
+  admissao          Admissao?
 
   @@unique([vaga_id, candidato_id])
   @@index([status])
@@ -232,7 +236,7 @@ model Embedding {
 
   // Conteúdo vetorizado
   trecho          String   @db.Text                    // texto fonte
-  vetor           Unsupported("vector(1024)")          // Voyage-3 → 1024 dims
+  vetor           Unsupported("vector(1024)")          // Voyage-3 → 1024 dims (local e5-base usaria 768)
   modelo          String                               // ex.: "voyage-3"
   modelo_versao   String?
   criado_em       DateTime @default(now())
@@ -598,4 +602,177 @@ model TemplateMensagem {
 
   @@index([ativo])
   @@map("templates_mensagem")
+}
+
+// =====================================================================
+// ADMISSÃO — processo pós-contratação (Departamento Pessoal / DHO)
+// =====================================================================
+// Agregado que nasce de uma Candidatura com status CONTRATADO. Cobre
+// coleta de documentos, exame admissional (ASO), assinatura e envio ao
+// eSocial/folha. Dados aqui são SENSÍVEIS (CPF, dependentes, saúde do
+// ASO, salário) — acesso deve ser restrito ao time de admissão (a camada
+// de autorização por grupo de AD será plugada depois).
+// ---------------------------------------------------------------------
+
+model Admissao {
+  id                  String   @id @default(uuid()) @db.Uuid
+  candidatura_id      String   @unique @db.Uuid
+  candidato_id        String   @db.Uuid
+  vaga_id             String   @db.Uuid
+  responsavel_id      String?  @db.Uuid              // usuário do DHO/RH
+
+  status              StatusAdmissao @default(AGUARDANDO_ACEITE)
+
+  // Dados da contratação
+  cargo               String?
+  salario             Decimal? @db.Decimal(12, 2)
+  tipo_contratacao    String?                        // CLT | PJ | ESTAGIO | APRENDIZ
+  jornada             String?
+  data_admissao       DateTime?                      // início previsto
+  data_aceite         DateTime?
+  data_conclusao      DateTime?
+  motivo_cancelamento String?
+
+  // Integração folha / eSocial
+  esocial_recibo      String?                        // recibo do evento S-2200
+  esocial_status      String?
+  matricula           String?                        // matrícula no ERP de RH
+
+  observacoes         String?  @db.Text
+  criado_em           DateTime @default(now())
+  atualizado_em       DateTime @updatedAt
+  excluido_em         DateTime?
+
+  candidatura         Candidatura @relation(fields: [candidatura_id], references: [id], onDelete: Cascade)
+  candidato           Candidato   @relation(fields: [candidato_id], references: [id], onDelete: Cascade)
+  vaga                Vaga        @relation(fields: [vaga_id], references: [id])
+  responsavel         Usuario?    @relation("AdmissaoResponsavel", fields: [responsavel_id], references: [id])
+
+  documentos          DocumentoAdmissional[]
+  exame               ExameAdmissional?
+  eventos             EventoAdmissao[]
+
+  @@index([status])
+  @@map("admissoes")
+}
+
+enum StatusAdmissao {
+  AGUARDANDO_ACEITE
+  PROPOSTA_ACEITA
+  COLETA_DOCUMENTOS
+  DOCUMENTOS_EM_ANALISE
+  EXAME_MEDICO
+  ASSINATURA_CONTRATO
+  ENVIO_ESOCIAL
+  INTEGRACAO
+  CONCLUIDA
+  CANCELADA
+
+  @@map("status_admissao")
+}
+
+// ---------------------------------------------------------------------
+// DOCUMENTOS ADMISSIONAIS — checklist por admissão (arquivo no storage)
+// ---------------------------------------------------------------------
+model DocumentoAdmissional {
+  id              String   @id @default(uuid()) @db.Uuid
+  admissao_id     String   @db.Uuid
+  tipo            TipoDocumentoAdmissional
+  status          StatusDocumentoAdmissional @default(PENDENTE)
+  obrigatorio     Boolean  @default(true)
+
+  arquivo_url     String?                            // storage (MinIO/S3)
+  arquivo_sha256  String?  @db.Char(64)
+  nome_arquivo    String?
+  validade        DateTime?                          // p/ docs com vencimento
+  motivo_recusa   String?
+  enviado_em      DateTime?
+  analisado_por   String?  @db.Uuid
+  analisado_em    DateTime?
+
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+
+  admissao        Admissao @relation(fields: [admissao_id], references: [id], onDelete: Cascade)
+
+  @@unique([admissao_id, tipo])
+  @@index([admissao_id, status])
+  @@map("documentos_admissionais")
+}
+
+enum TipoDocumentoAdmissional {
+  RG
+  CPF
+  CTPS
+  TITULO_ELEITOR
+  PIS_NIS
+  COMPROVANTE_RESIDENCIA
+  COMPROVANTE_ESCOLARIDADE
+  CERTIDAO_NASCIMENTO_CASAMENTO
+  RESERVISTA
+  DADOS_BANCARIOS
+  FOTO_3X4
+  DEPENDENTES
+  OUTRO
+
+  @@map("tipo_documento_admissional")
+}
+
+enum StatusDocumentoAdmissional {
+  PENDENTE
+  ENVIADO
+  EM_ANALISE
+  APROVADO
+  REPROVADO
+
+  @@map("status_documento_admissional")
+}
+
+// ---------------------------------------------------------------------
+// EXAME ADMISSIONAL (ASO) — 1:1 com a admissão
+// ---------------------------------------------------------------------
+model ExameAdmissional {
+  id            String   @id @default(uuid()) @db.Uuid
+  admissao_id   String   @unique @db.Uuid
+  clinica       String?
+  agendado_para DateTime?
+  realizado_em  DateTime?
+  resultado     ResultadoExameAdmissional @default(PENDENTE)
+  restricoes    String?  @db.Text
+  aso_url       String?                            // PDF do ASO no storage
+  aso_sha256    String?  @db.Char(64)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  admissao      Admissao @relation(fields: [admissao_id], references: [id], onDelete: Cascade)
+
+  @@map("exames_admissionais")
+}
+
+enum ResultadoExameAdmissional {
+  PENDENTE
+  APTO
+  APTO_COM_RESTRICOES
+  INAPTO
+
+  @@map("resultado_exame_admissional")
+}
+
+// ---------------------------------------------------------------------
+// EVENTOS DE ADMISSÃO — timeline das transições de etapa
+// ---------------------------------------------------------------------
+model EventoAdmissao {
+  id           String   @id @default(uuid()) @db.Uuid
+  admissao_id  String   @db.Uuid
+  de_status    StatusAdmissao?
+  para_status  StatusAdmissao
+  autor_id     String?  @db.Uuid
+  autor_nome   String?
+  observacao   String?  @db.Text
+  criado_em    DateTime @default(now())
+
+  admissao     Admissao @relation(fields: [admissao_id], references: [id], onDelete: Cascade)
+
+  @@index([admissao_id])
+  @@map("eventos_admissao")
 }

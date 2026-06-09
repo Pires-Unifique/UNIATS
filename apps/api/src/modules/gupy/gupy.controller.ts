@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
+import { PrismaService } from '../../prisma/prisma.service.js';
 import { GupyService } from './gupy.service.js';
 import { GupyClient } from './gupy.client.js';
 
@@ -25,6 +26,7 @@ export class GupyController {
   constructor(
     private readonly service: GupyService,
     private readonly client: GupyClient,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ---- Leitura direta (passthrough autenticado) ----
@@ -61,7 +63,12 @@ export class GupyController {
     if (!/^\d+$/.test(gupyIdStr)) {
       throw new BadRequestException('gupyId deve ser numérico');
     }
-    return this.client.listarEtapasDaVaga({ jobId: BigInt(gupyIdStr) });
+    const etapas = await this.client.listarEtapasDaVaga({
+      jobId: BigInt(gupyIdStr),
+    });
+    // O `id` vem como BigInt (idGupy) e não é serializável em JSON — converte
+    // para number (ids de step cabem com folga no range seguro).
+    return etapas.map((e) => ({ ...e, id: Number(e.id) }));
   }
 
   // ---- Estrutura organizacional (selects do formulário de publicação) ----
@@ -97,6 +104,8 @@ export class GupyController {
       status?: string;
       disapprovalReason?: string;
       disapprovalReasonNotes?: string;
+      /** Nome da etapa de destino — usado só para refletir localmente na UI. */
+      etapaNome?: string;
     },
   ) {
     if (!/^\d+$/.test(gupyIdStr)) {
@@ -106,8 +115,13 @@ export class GupyController {
       throw new BadRequestException('applicationId deve ser numérico');
     }
 
-    const { currentStepId, status, disapprovalReason, disapprovalReasonNotes } =
-      body ?? {};
+    const {
+      currentStepId,
+      status,
+      disapprovalReason,
+      disapprovalReasonNotes,
+      etapaNome,
+    } = body ?? {};
 
     if (currentStepId === undefined && status === undefined) {
       throw new BadRequestException(
@@ -136,6 +150,19 @@ export class GupyController {
       disapprovalReason,
       disapprovalReasonNotes,
     });
+
+    // Reflete localmente o resultado do move (a UI/ranking não dependem de
+    // re-sincronizar a vaga inteira). Best-effort: não falha a request se a
+    // candidatura ainda não existir no banco local.
+    const dadosLocais: { etapa_gupy?: string; status?: 'REPROVADO' } = {};
+    if (etapaNome) dadosLocais.etapa_gupy = etapaNome;
+    if (status === 'reproved') dadosLocais.status = 'REPROVADO';
+    if (Object.keys(dadosLocais).length > 0) {
+      await this.prisma.candidatura.updateMany({
+        where: { gupy_id: BigInt(applicationIdStr) },
+        data: dadosLocais,
+      });
+    }
 
     return { movido: true };
   }

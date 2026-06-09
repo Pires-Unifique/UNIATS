@@ -44,9 +44,9 @@ Estes testes complementam a suíte unitária Jest (em `apps/api/src/modules/gupy
 ### Infra local
 
 - Docker rodando (`infra/docker-compose.yml`) — Postgres + Redis + MinIO.
-- Migrations aplicadas (`pnpm --filter @triagem/db migrate deploy`).
+- Migrations aplicadas (`pnpm --filter @uniats/db migrate deploy`).
 - `ngrok http 3000` ativo, com URL pública apontando para `/webhooks/gupy` configurada no painel de sandbox da Gupy.
-- API em execução: `pnpm --filter @triagem/api dev`.
+- API em execução: `pnpm --filter @uniats/api dev`.
 
 ### Dados-semente no sandbox
 
@@ -73,7 +73,7 @@ Recomendamos manter no sandbox (criados via painel da Gupy ou via CSM):
 | | |
 |---|---|
 | **Pré-condições** | Token válido, sandbox seedado. |
-| **Passos** | `curl -H "Authorization: Bearer $TOKEN" $BASE/companies/jobs?perPage=50` ou `pnpm --filter @triagem/api exec ts-node scripts/probe-listar-vagas.ts`. |
+| **Passos** | `curl -H "Authorization: Bearer $TOKEN" $BASE/companies/jobs?perPage=50` ou `pnpm --filter @uniats/api exec ts-node scripts/probe-listar-vagas.ts`. |
 | **Resultado esperado** | HTTP 200; payload bate com `VagaGupySchema`; ao menos 3 vagas retornadas; o cliente parseia sem erros. |
 | **Critério de aceite** | Nenhum log de "Resposta da Gupy não passou no schema". |
 
@@ -242,15 +242,15 @@ A Camada 1 só é considerada **pronta para integração com a Camada 2** quando
 
 ```bash
 # Unitários
-pnpm --filter @triagem/api test
-pnpm --filter @triagem/api test:cov
+pnpm --filter @uniats/api test
+pnpm --filter @uniats/api test:cov
 
 # Integração local (com docker-compose up)
-pnpm --filter @triagem/api test:int
+pnpm --filter @uniats/api test:int
 
 # Probes contra sandbox (manuais, exigem credenciais)
-pnpm --filter @triagem/api exec ts-node scripts/probe-listar-vagas.ts
-pnpm --filter @triagem/api exec ts-node scripts/emitir-webhook.ts application.created
+pnpm --filter @uniats/api exec ts-node scripts/probe-listar-vagas.ts
+pnpm --filter @uniats/api exec ts-node scripts/emitir-webhook.ts application.created
 ```
 
 ### Limpeza após bateria

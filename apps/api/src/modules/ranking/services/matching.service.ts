@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
-import { Prisma } from '@triagem/db';
+import { Prisma } from '@uniats/db';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import {

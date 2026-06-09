@@ -1,4 +1,4 @@
-import { PublicarVagaInput } from '@triagem/shared';
+import { PublicarVagaInput } from '@uniats/shared';
 
 import { VagaTemplateService } from '../vaga-template.service.js';
 

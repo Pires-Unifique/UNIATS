@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { AgendarEntrevistaModal } from '@/components/AgendarEntrevistaModal';
 import { EnviarMensagemModal } from '@/components/EnviarMensagemModal';
+import { EsteiraGupy } from '@/components/EsteiraGupy';
 import { PageHeader } from '@/components/PageHeader';
 import { ScoreBadge } from '@/components/ScoreBadge';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -38,11 +39,19 @@ interface Score {
 
 interface CandidaturaDetalhe {
   id: string;
+  gupy_id: string;
   vaga_id: string;
   status: string;
   etapa_gupy: string | null;
   inscrito_em: string | null;
-  vaga: { id: string; titulo: string; status: string };
+  vaga: {
+    id: string;
+    gupy_id: string;
+    titulo: string;
+    status: string;
+    gestor: { nome: string; email: string } | null;
+    recrutador: { nome: string; email: string } | null;
+  };
   candidato: {
     id: string;
     nome_completo: string;
@@ -86,7 +95,6 @@ export default function CandidaturaPage({
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [acaoStatus, setAcaoStatus] = useState<string | null>(null);
-  const [gerandoPerguntas, setGerandoPerguntas] = useState(false);
   const [mensagens, setMensagens] = useState<MensagemHistorico[]>([]);
   const [modalContato, setModalContato] = useState(false);
   const [modalAgendar, setModalAgendar] = useState(false);
@@ -149,25 +157,6 @@ export default function CandidaturaPage({
     }
   }
 
-  async function gerarPerguntas() {
-    if (gerandoPerguntas) return;
-    setGerandoPerguntas(true);
-    setAcaoStatus('Gerando perguntas com IA… isso pode levar alguns segundos.');
-    try {
-      const r = await api<{ perguntas: any[] }>('/api/perguntas/gerar', {
-        method: 'POST',
-        body: { candidaturaId: id, substituir: true },
-      });
-      setAcaoStatus(`${r.perguntas.length} perguntas geradas.`);
-    } catch (err) {
-      setAcaoStatus(
-        err instanceof ApiError ? err.message : 'Falha ao gerar perguntas.',
-      );
-    } finally {
-      setGerandoPerguntas(false);
-    }
-  }
-
   async function calcularScore() {
     setAcaoStatus(null);
     try {
@@ -177,6 +166,28 @@ export default function CandidaturaPage({
     } catch (err) {
       setAcaoStatus(
         err instanceof ApiError ? err.message : 'Falha ao calcular score.',
+      );
+    }
+  }
+
+  async function definirConsentimentoGravacao(consentir: boolean) {
+    setAcaoStatus(null);
+    try {
+      await api(`/api/candidaturas/${id}/consentimento-gravacao`, {
+        method: 'POST',
+        body: { consentir },
+      });
+      setAcaoStatus(
+        consentir
+          ? 'Consentimento de gravação registrado.'
+          : 'Consentimento de gravação revogado.',
+      );
+      await carregar();
+    } catch (err) {
+      setAcaoStatus(
+        err instanceof ApiError
+          ? err.message
+          : 'Falha ao atualizar consentimento de gravação.',
       );
     }
   }
@@ -251,6 +262,8 @@ export default function CandidaturaPage({
         <AgendarEntrevistaModal
           candidaturaId={id}
           consentimentoGravacao={Boolean(c.candidato.consentimento_gravacao_em)}
+          gestorEmail={c.vaga.gestor?.email}
+          gestorNome={c.vaga.gestor?.nome}
           onClose={() => setModalAgendar(false)}
           onAgendada={() => {
             setAcaoStatus('Entrevista agendada.');
@@ -269,6 +282,18 @@ export default function CandidaturaPage({
         <Stat label="Score consolidado" valor={consolidado?.valor ?? null} />
         <Stat label="Similaridade vetorial" valor={similaridade?.valor ?? null} />
         <Stat label="Ranking LLM" valor={rankingCv?.valor ?? null} />
+      </div>
+
+      <div className="mb-4">
+        <EsteiraGupy
+          jobId={c.vaga.gupy_id}
+          applicationId={c.gupy_id}
+          etapaAtual={c.etapa_gupy}
+          onMoved={(aviso) => {
+            setAcaoStatus(aviso);
+            void carregar();
+          }}
+        />
       </div>
 
       {/* Justificativa do LLM */}
@@ -408,14 +433,6 @@ export default function CandidaturaPage({
             <button
               type="button"
               className="btn-secondary text-xs"
-              disabled={gerandoPerguntas}
-              onClick={() => void gerarPerguntas()}
-            >
-              {gerandoPerguntas ? 'Gerando…' : 'Gerar perguntas'}
-            </button>
-            <button
-              type="button"
-              className="btn-secondary text-xs"
               onClick={() => void calcularScore()}
             >
               Recalcular score
@@ -513,6 +530,19 @@ export default function CandidaturaPage({
                 ? formatarData(c.candidato.consentimento_gravacao_em)
                 : 'não coletado'}
             </span>
+            {!c.candidato.excluido_em && (
+              <button
+                type="button"
+                className="ml-2 text-xs text-unifique-700 hover:underline"
+                onClick={() =>
+                  void definirConsentimentoGravacao(
+                    !c.candidato.consentimento_gravacao_em,
+                  )
+                }
+              >
+                {c.candidato.consentimento_gravacao_em ? 'Revogar' : 'Registrar'}
+              </button>
+            )}
           </li>
           <li>
             Revisão humana da análise de IA (Art. 20):{' '}

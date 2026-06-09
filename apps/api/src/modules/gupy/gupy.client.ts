@@ -18,7 +18,7 @@ import {
   VagaCriadaGupySchema,
   VagaGupy,
   VagaGupySchema,
-} from '@triagem/shared';
+} from '@uniats/shared';
 
 import {
   CriarVagaGupyPayload,

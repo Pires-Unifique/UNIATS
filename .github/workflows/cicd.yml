@@ -1,0 +1,79 @@
+# =====================================================================
+# CI/CD — UniATS  •  GitHub Actions + runner self-hosted na máquina de produção
+# ---------------------------------------------------------------------
+# A MESMA máquina (Oracle Linux 10) builda e faz deploy. Sem registry: as
+# imagens ficam no daemon Docker local e o compose sobe a partir delas.
+#
+# Requisitos no runner (ver docs/cicd-github.md):
+#   - Docker + plugin compose; usuário do runner no grupo `docker`
+#   - labels do runner: self-hosted, uniats-prod
+#   - Secret do repo ENV_PRODUCTION com o conteúdo do infra/.env.production
+# =====================================================================
+
+name: CI/CD
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Cancela execuções antigas do mesmo ref quando chega push novo.
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKER_BUILDKIT: "1"
+  COMPOSE_FILE: infra/docker-compose.prod.yml
+  ENV_FILE: infra/.env.production
+
+jobs:
+  # --- TESTES: lint + typecheck + unit, dentro do build Docker -----------------------
+  test:
+    runs-on: [self-hosted, uniats-prod]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test API (lint + typecheck + unit)
+        run: docker build -f Dockerfile.api --target test -t uniats-api-test:${{ github.sha }} .
+      - name: Test Web (lint + typecheck)
+        run: docker build -f Dockerfile.web --target test -t uniats-web-test:${{ github.sha }} .
+
+  # --- BUILD: imagens de runtime (api + web) -----------------------------------------
+  build:
+    needs: test
+    runs-on: [self-hosted, uniats-prod]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materializa o .env.production a partir do secret
+        env:
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
+        run: |
+          if [ -z "$ENV_PRODUCTION" ]; then echo "ERRO: secret ENV_PRODUCTION não definido"; exit 1; fi
+          printf '%s' "$ENV_PRODUCTION" > "$ENV_FILE"
+      - name: Build das imagens
+        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build
+
+  # --- DEPLOY: migra o banco e sobe a stack — só na main -----------------------------
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, uniats-prod]
+    environment:
+      name: production
+      url: https://uniats.unifique.com.br
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materializa o .env.production a partir do secret
+        env:
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
+        run: |
+          if [ -z "$ENV_PRODUCTION" ]; then echo "ERRO: secret ENV_PRODUCTION não definido"; exit 1; fi
+          printf '%s' "$ENV_PRODUCTION" > "$ENV_FILE"
+      - name: Sobe dependências (idempotente)
+        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d postgres redis minio
+      - name: Aplica migrações Prisma (migrate deploy)
+        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps api pnpm --filter @uniats/db exec prisma migrate deploy
+      - name: Recria api + web com as imagens novas
+        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build
+      - name: Limpa imagens órfãs
+        run: docker image prune -f

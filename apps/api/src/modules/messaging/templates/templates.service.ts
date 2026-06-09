@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@triagem/db';
+import { Prisma } from '@uniats/db';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { extrairVariaveis } from './renderer.js';

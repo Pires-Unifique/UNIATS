@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-import { Prisma } from '@triagem/db';
+import { Prisma } from '@uniats/db';
 import type { Job } from 'bullmq';
 import { z } from 'zod';
 

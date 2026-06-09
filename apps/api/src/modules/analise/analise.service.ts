@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, StatusCandidatura } from '@triagem/db';
+import { Prisma, StatusCandidatura } from '@uniats/db';
 import type {
   EntrevistasAnaliseDTO,
   FunilEtapaDTO,
@@ -8,7 +8,7 @@ import type {
   PorRecrutadorDTO,
   PorVagaDTO,
   TempoMarcoDTO,
-} from '@triagem/shared';
+} from '@uniats/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 

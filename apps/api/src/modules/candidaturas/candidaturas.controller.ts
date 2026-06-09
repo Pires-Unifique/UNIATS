@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   NotFoundException,
   Param,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -92,14 +94,54 @@ export class CandidaturasController {
         vaga: {
           select: {
             id: true,
+            gupy_id: true, // jobId na Gupy — necessário p/ listar/mover etapas
             titulo: true,
             status: true,
+            // Gestor/líder da vaga — sugerido como participante (líder técnico)
+            // no agendamento da entrevista para checar a disponibilidade dele.
+            gestor: { select: { nome: true, email: true } },
+            recrutador: { select: { nome: true, email: true } },
           },
         },
       },
     });
     if (!c) throw new NotFoundException(`Candidatura ${id} não existe.`);
     // BigInt → string para serialização JSON (gupy_id não é serializável nativamente).
-    return { ...c, gupy_id: c.gupy_id.toString() };
+    return {
+      ...c,
+      gupy_id: c.gupy_id.toString(),
+      vaga: { ...c.vaga, gupy_id: c.vaga.gupy_id.toString() },
+    };
+  }
+
+  /**
+   * Registra (ou revoga) o consentimento de GRAVAÇÃO de voz/vídeo do candidato.
+   * Dado sensível — exige consentimento específico (separado do consentimento
+   * geral). Sem ele, o bot de gravação/transcrição não pode entrar na entrevista.
+   */
+  @Post(':id/consentimento-gravacao')
+  async consentimentoGravacao(
+    @Param('id') id: string,
+    @Body() body: { consentir?: boolean },
+  ) {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('id inválido.');
+    }
+    if (typeof body?.consentir !== 'boolean') {
+      throw new BadRequestException('consentir (boolean) é obrigatório.');
+    }
+    const cand = await this.prisma.candidatura.findUnique({
+      where: { id },
+      select: { candidato_id: true },
+    });
+    if (!cand) throw new NotFoundException(`Candidatura ${id} não existe.`);
+    const candidato = await this.prisma.candidato.update({
+      where: { id: cand.candidato_id },
+      data: {
+        consentimento_gravacao_em: body.consentir ? new Date() : null,
+      },
+      select: { consentimento_gravacao_em: true },
+    });
+    return { consentimento_gravacao_em: candidato.consentimento_gravacao_em };
   }
 }
