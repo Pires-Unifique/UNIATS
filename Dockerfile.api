@@ -26,6 +26,10 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 # ---- build: gera Prisma Client e compila db + shared + api --------------------------
 FROM deps AS build
 COPY . .
+# Remove `node-options=--use-system-ca` do .npmrc: é p/ dev (Node 22+, proxy TLS
+# corporativo). O pnpm exportaria isso como NODE_OPTIONS e o Node 20 da imagem
+# rejeita a flag, quebrando `pnpm exec` (ex.: prisma migrate). Mantido no repo p/ dev.
+RUN sed -i '/^node-options/d' .npmrc 2>/dev/null || true
 RUN pnpm --filter @uniats/db generate \
  && pnpm --filter @uniats/shared build \
  && pnpm --filter @uniats/db build \
