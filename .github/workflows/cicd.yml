@@ -72,7 +72,9 @@ jobs:
       - name: Sobe dependências (idempotente)
         run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d postgres redis minio
       - name: Aplica migrações Prisma (migrate deploy)
-        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps api pnpm --filter @uniats/db exec prisma migrate deploy
+        # -e NODE_OPTIONS= : limpa a flag --use-system-ca (rejeitada pelo Node 20),
+        # herdada do ambiente/secret corporativo. Precedência máxima sobre env_file.
+        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps -e NODE_OPTIONS= api pnpm --filter @uniats/db exec prisma migrate deploy
       - name: Recria api + web com as imagens novas
         run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build
       - name: Limpa imagens órfãs
