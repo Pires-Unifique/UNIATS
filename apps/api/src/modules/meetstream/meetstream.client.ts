@@ -85,7 +85,9 @@ export class MeetStreamClient {
   };
 
   constructor(private readonly config: ConfigService) {
-    const apiKey = this.config.getOrThrow<string>('MEETSTREAM_API_KEY');
+    // Opcional: sem a key, o client é construído mas as chamadas falham em runtime
+    // (MeetStream não é usado até o bot de entrevista ser ligado). Não derruba o boot.
+    const apiKey = this.config.get<string>('MEETSTREAM_API_KEY') ?? '';
     const baseURL =
       this.config.get<string>('MEETSTREAM_BASE_URL') ??
       'https://api.meetstream.ai';

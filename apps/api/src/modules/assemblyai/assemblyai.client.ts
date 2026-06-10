@@ -81,7 +81,9 @@ export class AssemblyAIClient {
   private readonly webhookSecret?: string;
 
   constructor(private readonly config: ConfigService) {
-    const apiKey = this.config.getOrThrow<string>('ASSEMBLYAI_API_KEY');
+    // Opcional: sem a key, o client é construído mas as chamadas falham em runtime
+    // (AssemblyAI não é usado até a transcrição ser ligada). Não derruba o boot.
+    const apiKey = this.config.get<string>('ASSEMBLYAI_API_KEY') ?? '';
     this.defaultLanguage =
       this.config.get<string>('ASSEMBLYAI_LANGUAGE_CODE') ?? 'pt';
     this.speakerLabels = Boolean(
