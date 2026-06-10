@@ -42,5 +42,6 @@ FROM build AS runtime
 ENV NODE_ENV=production
 WORKDIR /app/apps/api
 EXPOSE 13001
-# bootstrap-env.ts carrega /app/.env (../../.env) com override — montado pelo compose.
-CMD ["node", "dist/main.js"]
+# NODE_OPTIONS= limpa qualquer flag herdada do ambiente (ex.: --use-system-ca,
+# rejeitada pelo Node 20) antes de iniciar; `exec` mantém o node como PID 1.
+CMD ["sh", "-c", "NODE_OPTIONS= exec node dist/main.js"]

@@ -71,12 +71,6 @@ services:
     # DATABASE_URL daqui na hora do `migrate deploy`).
     env_file:
       - ./.env.production
-    environment:
-      # Neutraliza NODE_OPTIONS herdado do secret/ambiente (ex.: --use-system-ca,
-      # rejeitado pelo Node 20 da imagem). `environment` sobrepõe o env_file.
-      # Se precisar confiar numa CA corporativa, monte o bundle e use
-      # NODE_EXTRA_CA_CERTS=/caminho/ca.pem em vez de --use-system-ca.
-      NODE_OPTIONS: ""
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
