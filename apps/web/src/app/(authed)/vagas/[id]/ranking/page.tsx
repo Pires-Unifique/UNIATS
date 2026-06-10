@@ -64,6 +64,17 @@ const STATUS_LABEL: Record<string, string> = {
   DESISTENTE: 'Desistente',
 };
 
+type AbaId = 'candidatos' | 'reprovados' | 'desistentes';
+
+const ABAS: Array<{ id: AbaId; label: string }> = [
+  { id: 'candidatos', label: 'Candidatos' },
+  { id: 'reprovados', label: 'Reprovados' },
+  { id: 'desistentes', label: 'Desistentes' },
+];
+
+// Status considerados "descartados" — separados nas abas Reprovados/Desistentes.
+const STATUS_DESCARTADOS = ['REPROVADO', 'DESISTENTE'];
+
 export default function CandidatosVagaPage({
   params,
 }: {
@@ -76,13 +87,17 @@ export default function CandidatosVagaPage({
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
-  const [classificando, setClassificando] = useState(false);
   const [rerankeando, setRerankeando] = useState(false);
-  const [avaliandoProximos, setAvaliandoProximos] = useState(false);
   const [pendentesLLM, setPendentesLLM] = useState<number | null>(null);
-  // Por padrão, candidatos REPROVADOS e DESISTENTES são ignorados na classificação.
+  // Inclusão de REPROVADOS/DESISTENTES na classificação. Não é mais um checkbox:
+  // é definida pela ação escolhida (botão principal = só ativos; opção do menu
+  // suspenso = inclui descartados). Persistida para reaproveitar em "Avaliar próximos".
   const [incluirReprovados, setIncluirReprovados] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  // Aba ativa da lista de candidaturas.
+  const [aba, setAba] = useState<AbaId>('candidatos');
+  // Menu suspenso (setinha) do botão de classificação completa.
+  const [menuClassificar, setMenuClassificar] = useState(false);
 
   // Tamanho do lote avaliado pelo Claude por vez (top-N e "próximos").
   const TOP_N = 10;
@@ -119,20 +134,22 @@ export default function CandidatosVagaPage({
             query: {
               limite: 200,
               q: q.trim() || undefined,
-              incluirReprovados: incluirReprovados ? 'true' : undefined,
+              // Carrega todos (inclui descartados) — a separação por aba
+              // (Candidatos / Reprovados / Desistentes) é feita no cliente.
+              incluirReprovados: 'true',
             },
           },
         );
         setData(resp);
       } catch (err) {
         if (err instanceof ApiError) setErro(err.message);
-        else setErro('Falha ao carregar candidatos.');
+        else setErro('Não conseguimos carregar os candidatos. Tente de novo.');
         setData(null);
       } finally {
         setCarregando(false);
       }
     },
-    [vagaId, incluirReprovados],
+    [vagaId],
   );
 
   useEffect(() => {
@@ -155,96 +172,13 @@ export default function CandidatosVagaPage({
         `/api/gupy/sync/vaga/${data.vaga.gupyId}/candidaturas`,
         { method: 'POST' },
       );
-      setAviso(`${r.total} candidatura(s) sincronizada(s) da Gupy.`);
+      setAviso(`${r.total} candidato(s) trazido(s) da Gupy.`);
       await Promise.all([carregarCandidaturas(busca), carregarVaga()]);
     } catch (err) {
       if (err instanceof ApiError) setErro(err.message);
-      else setErro('Falha ao sincronizar candidaturas.');
+      else setErro('Não conseguimos trazer os candidatos da Gupy. Tente de novo.');
     } finally {
       setSincronizando(false);
-    }
-  }
-
-  /**
-   * Acompanha o progresso da classificação via polling do endpoint de status.
-   * - modo 'claude' (LLM-only): a API marca `emAndamento`, então paramos quando ele zera.
-   * - modo 'completo' (Voyage + Claude via fila): o `reranking` não seta `emAndamento`,
-   *   então paramos quando todos foram pontuados ou quando o progresso estaciona
-   *   (possível limite de requisições do Voyage).
-   */
-  async function acompanharProgresso(modo: 'claude' | 'completo') {
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const label =
-      modo === 'claude' ? 'Classificando com IA (Claude)' : 'Classificando (Voyage + Claude)';
-    let anterior = -1;
-    let semProgresso = 0;
-
-    // Quantos ciclos de 4s sem nenhum novo score até considerar "travado".
-    // O Voyage no tier gratuito limita a 3 req/min (~22s por embedding), então
-    // um intervalo de 60s entre dois candidatos é NORMAL, não estagnação. Usamos
-    // 3 min (45 × 4s) para evitar falso "pausado" enquanto a fila ainda progride.
-    const MAX_CICLOS_SEM_PROGRESSO = 45;
-
-    // ~12 min de janela (180 × 4s). Cada candidato leva alguns segundos.
-    for (let i = 0; i < 180; i++) {
-      await sleep(4000);
-      const st = await api<{
-        total: number;
-        classificados: number;
-        emAndamento: boolean;
-      }>(`/api/vagas/${vagaId}/classificar/status`);
-      await carregarCandidaturas(busca);
-
-      const concluiuTudo = st.total > 0 && st.classificados >= st.total;
-
-      if (modo === 'claude' && !st.emAndamento) {
-        setAviso(
-          `Classificação concluída: ${st.classificados}/${st.total} candidato(s) pontuado(s) pelo Claude.`,
-        );
-        return;
-      }
-
-      if (modo === 'completo') {
-        if (concluiuTudo) {
-          setAviso(
-            `Classificação completa concluída: ${st.classificados}/${st.total} candidato(s) (Voyage + Claude).`,
-          );
-          return;
-        }
-        // Detecta estagnação (jobs travados por rate limit do Voyage, p.ex.).
-        if (st.classificados === anterior) semProgresso++;
-        else semProgresso = 0;
-        anterior = st.classificados;
-        if (semProgresso >= MAX_CICLOS_SEM_PROGRESSO) {
-          setAviso(
-            `Classificação em andamento em segundo plano (${st.classificados}/${st.total} concluído(s)). ` +
-              'No plano gratuito do Voyage (3 req/min) cada candidato leva ~20s, então isso é normal. ' +
-              'Os scores continuam sendo gerados — recarregue a página em alguns minutos para ver o resultado.',
-          );
-          return;
-        }
-      }
-
-      setAviso(`${label}: ${st.classificados}/${st.total} candidato(s)…`);
-    }
-  }
-
-  async function classificar() {
-    setClassificando(true);
-    setErro(null);
-    setAviso(null);
-    try {
-      await api<{ iniciado: boolean; total: number; classificados: number }>(
-        `/api/vagas/${vagaId}/classificar`,
-        { method: 'POST' },
-      );
-      setAviso('Classificação iniciada — os scores aparecem conforme processam…');
-      await acompanharProgresso('claude');
-    } catch (err) {
-      if (err instanceof ApiError) setErro(err.message);
-      else setErro('Falha ao classificar candidatos.');
-    } finally {
-      setClassificando(false);
     }
   }
 
@@ -253,8 +187,13 @@ export default function CandidatosVagaPage({
    *  1. Gera embeddings (Voyage) da vaga + CVs faltantes — barato.
    *  2. Avalia com Claude apenas os TOP_N candidatos mais próximos vetorialmente.
    * Se nenhum do top-N servir, use "Avaliar próximos" para descer na lista.
+   *
+   * @param incluir Quando true, considera também REPROVADOS/DESISTENTES
+   *   (acionado pela opção "Classificar reprovados/desistentes" do menu).
    */
-  async function classificarCompleto() {
+  async function classificarCompleto(incluir: boolean) {
+    setMenuClassificar(false);
+    setIncluirReprovados(incluir);
     setRerankeando(true);
     setErro(null);
     setAviso(null);
@@ -271,75 +210,64 @@ export default function CandidatosVagaPage({
           interrompido: boolean;
         }>(`/api/vagas/${vagaId}/vetorial/preparar-lote`, {
           method: 'POST',
-          body: { incluirReprovados },
+          body: { incluirReprovados: incluir },
         });
         embTotal += prep.curriculos;
         if (!prep.interrompido || prep.restantes <= 0) break;
         setAviso(
-          `Gerando embeddings no Voyage… ${embTotal} prontos, ~${prep.restantes} restantes ` +
-            '(plano trial é limitado — seguindo em lotes).',
+          `Passo 1 de 2: lendo os currículos… ${embTotal} já lidos, ~${prep.restantes} faltando. ` +
+            'Fazemos por partes, então pode levar alguns minutos.',
         );
       }
 
       // Fase 2 — Claude apenas no top-N por similaridade vetorial
-      setAviso(`Avaliando os ${TOP_N} mais aderentes com o Claude…`);
+      setAviso(`Passo 2 de 2: avaliando os ${TOP_N} currículos mais parecidos com a vaga…`);
       const r = await api<{
         avaliadosAgora: number;
         pendentesLLM: number;
         embedados: number;
       }>(`/api/vagas/${vagaId}/vetorial/avaliar-proximos`, {
         method: 'POST',
-        body: { n: TOP_N, incluirReprovados },
+        body: { n: TOP_N, incluirReprovados: incluir },
       });
       await carregarCandidaturas(busca);
       setPendentesLLM(r.pendentesLLM);
-      setAviso(
-        `Top ${r.avaliadosAgora} avaliados (Voyage + Claude). ` +
-          (r.pendentesLLM > 0
-            ? `${r.pendentesLLM} candidato(s) restante(s) — use "Avaliar próximos" se nenhum servir.`
-            : 'Todos os candidatos embedados já foram avaliados.'),
-      );
+      if (r.avaliadosAgora === 0) {
+        setAviso('Todos os currículos já foram avaliados — não há mais nenhum sem nota.');
+      } else {
+        setAviso(
+          `Pronto! ${r.avaliadosAgora} currículo(s) avaliado(s) e com nota. ` +
+            (r.pendentesLLM > 0
+              ? `Ainda faltam ${r.pendentesLLM} candidato(s) — clique em "Continuar avaliação" para seguir.`
+              : 'Todos os currículos já foram avaliados.'),
+        );
+      }
     } catch (err) {
       if (err instanceof ApiError) setErro(err.message);
-      else setErro('Falha na classificação completa.');
+      else setErro('Não conseguimos avaliar os currículos agora. Tente de novo.');
     } finally {
       setRerankeando(false);
     }
   }
 
-  /** Avalia com Claude o PRÓXIMO lote (top-N seguinte por similaridade vetorial). */
-  async function avaliarProximos() {
-    setAvaliandoProximos(true);
-    setErro(null);
-    setAviso(null);
-    try {
-      const r = await api<{
-        avaliadosAgora: number;
-        pendentesLLM: number;
-      }>(`/api/vagas/${vagaId}/vetorial/avaliar-proximos`, {
-        method: 'POST',
-        body: { n: TOP_N, incluirReprovados },
-      });
-      await carregarCandidaturas(busca);
-      setPendentesLLM(r.pendentesLLM);
-      if (r.avaliadosAgora === 0) {
-        setAviso(
-          'Não há mais candidatos para avaliar — todos os embedados já foram avaliados pelo Claude.',
-        );
-      } else {
-        setAviso(
-          `+${r.avaliadosAgora} candidato(s) avaliado(s) (Voyage + Claude). ${r.pendentesLLM} restante(s).`,
-        );
-      }
-    } catch (err) {
-      if (err instanceof ApiError) setErro(err.message);
-      else setErro('Falha ao avaliar os próximos candidatos.');
-    } finally {
-      setAvaliandoProximos(false);
-    }
-  }
-
   const temCandidatos = (data?.itens.length ?? 0) > 0;
+
+  // Separa as candidaturas carregadas (todas) por aba, no cliente.
+  const itensTodos = data?.itens ?? [];
+  const grupos: Record<AbaId, CandidaturaItem[]> = {
+    candidatos: itensTodos.filter((i) => !STATUS_DESCARTADOS.includes(i.status)),
+    reprovados: itensTodos.filter((i) => i.status === 'REPROVADO'),
+    desistentes: itensTodos.filter((i) => i.status === 'DESISTENTE'),
+  };
+  const itensAba = grupos[aba];
+
+  // Já houve ao menos uma avaliação? (algum candidato já tem nota.) Nesse caso o
+  // botão principal vira "Continuar avaliação" — avalia os próximos sem nota,
+  // sem repetir quem já foi avaliado.
+  const jaAvaliou = itensTodos.some((i) => i.score != null);
+
+  // Desabilita as ações de classificação enquanto qualquer fluxo está em curso.
+  const classificacaoOcupada = rerankeando || sincronizando;
 
   return (
     <div>
@@ -360,56 +288,75 @@ export default function CandidatosVagaPage({
             <button
               type="button"
               className="btn-secondary"
-              disabled={sincronizando || classificando || rerankeando || avaliandoProximos || !data}
+              disabled={classificacaoOcupada || !data}
               onClick={() => void sincronizar()}
             >
-              {sincronizando ? 'Sincronizando…' : 'Sincronizar candidaturas'}
+              {sincronizando ? 'Buscando…' : 'Buscar candidatos da Gupy'}
             </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={classificando || rerankeando || avaliandoProximos || sincronizando || !temCandidatos}
-              onClick={() => void classificar()}
-              title="Pontua só com o Claude, em todos os candidatos (sem similaridade vetorial)."
-            >
-              {classificando ? 'Classificando…' : 'Classificar (Claude)'}
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={rerankeando || classificando || avaliandoProximos || sincronizando || !temCandidatos}
-              onClick={() => void classificarCompleto()}
-              title={`Gera embeddings no Voyage e avalia com Claude só os ${TOP_N} mais aderentes (score: 40% vetorial + 60% LLM).`}
-            >
-              {rerankeando
-                ? 'Classificando…'
-                : `Classificação completa (top ${TOP_N})`}
-            </button>
-            {pendentesLLM != null && pendentesLLM > 0 && (
+
+            {/* Split button: classificação completa + menu (setinha) para incluir descartados */}
+            <div className="relative inline-flex">
               <button
                 type="button"
-                className="btn-secondary"
-                disabled={avaliandoProximos || rerankeando || classificando || sincronizando}
-                onClick={() => void avaliarProximos()}
-                title="Avalia com Claude o próximo lote de candidatos por similaridade vetorial."
+                className="btn-primary rounded-r-none"
+                disabled={classificacaoOcupada || !temCandidatos}
+                onClick={() => void classificarCompleto(false)}
+                title={
+                  jaAvaliou
+                    ? `Avalia os próximos ${TOP_N} currículos que ainda não têm nota. Não repete quem já foi avaliado.`
+                    : `Lê os currículos e avalia os ${TOP_N} mais parecidos com a vaga, dando uma nota a cada um. Não inclui reprovados nem desistentes.`
+                }
               >
-                {avaliandoProximos
-                  ? 'Avaliando…'
-                  : `Avaliar próximos ${TOP_N} (${pendentesLLM} restantes)`}
+                {rerankeando
+                  ? jaAvaliou
+                    ? 'Avaliando…'
+                    : 'Classificando…'
+                  : jaAvaliou
+                    ? pendentesLLM != null && pendentesLLM > 0
+                      ? `Continuar avaliação (faltam ${pendentesLLM})`
+                      : 'Continuar avaliação'
+                    : `Classificação completa (top ${TOP_N})`}
               </button>
-            )}
-            <label
-              className="flex items-center gap-1.5 text-xs text-grafite-600 cursor-pointer select-none"
-              title="Por padrão, candidatos reprovados e desistentes ficam ocultos na lista e fora da classificação. Marque para exibi-los."
-            >
-              <input
-                type="checkbox"
-                checked={incluirReprovados}
-                disabled={classificando || rerankeando || avaliandoProximos || sincronizando}
-                onChange={(e) => setIncluirReprovados(e.target.checked)}
-              />
-              Incluir reprovados/desistentes
-            </label>
+              <button
+                type="button"
+                className="btn-primary rounded-l-none border-l border-black/20 px-2"
+                disabled={classificacaoOcupada || !temCandidatos}
+                onClick={() => setMenuClassificar((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={menuClassificar}
+                aria-label="Mais opções de avaliação"
+                title="Mais opções de avaliação"
+              >
+                <span aria-hidden>▾</span>
+              </button>
+              {menuClassificar && (
+                <>
+                  {/* Backdrop para fechar ao clicar fora */}
+                  <button
+                    type="button"
+                    aria-hidden
+                    tabIndex={-1}
+                    className="fixed inset-0 z-10 cursor-default"
+                    onClick={() => setMenuClassificar(false)}
+                  />
+                  <div
+                    role="menu"
+                    className="card absolute right-0 top-full z-20 mt-1 w-64 p-1"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="btn-ghost w-full justify-start text-sm"
+                      disabled={classificacaoOcupada || !temCandidatos}
+                      onClick={() => void classificarCompleto(true)}
+                      title="Faz a mesma avaliação, mas considerando também os reprovados e desistentes."
+                    >
+                      Classificar reprovados/desistentes
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </>
         }
       />
@@ -452,16 +399,51 @@ export default function CandidatosVagaPage({
           descricao={
             busca.trim()
               ? `Nenhum candidato corresponde a “${busca.trim()}”. Tente outro nome, e-mail ou cidade.`
-              : "Clique em 'Sincronizar candidaturas' para importar os candidatos desta vaga a partir da Gupy."
+              : "Clique em 'Buscar candidatos da Gupy' para trazer os candidatos desta vaga."
           }
         />
       ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-grafite-50 text-grafite-600">
+        <>
+          {/* Abas: separa candidatos ativos dos reprovados e desistentes */}
+          <div className="mb-3 flex gap-1 border-b border-grafite-100">
+            {ABAS.map((t) => {
+              const ativa = aba === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setAba(t.id)}
+                  className={
+                    '-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ' +
+                    (ativa
+                      ? 'border-unifique-600 text-unifique-700 dark:border-unifique-400 dark:text-unifique-400'
+                      : 'border-transparent text-grafite-400 hover:text-grafite-600')
+                  }
+                >
+                  {t.label}
+                  <span className="ml-1.5 text-xs tabular-nums text-grafite-400">
+                    {grupos[t.id].length}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {itensAba.length === 0 ? (
+            <div className="card p-6 text-sm text-grafite-400">
+              {aba === 'candidatos'
+                ? 'Nenhum candidato ativo nesta vaga.'
+                : aba === 'reprovados'
+                  ? 'Nenhum candidato reprovado.'
+                  : 'Nenhum candidato desistente.'}
+            </div>
+          ) : (
+            <div className="card overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-grafite-50 text-grafite-600">
               <tr>
                 <Th>#</Th>
-                <Th>Score IA</Th>
+                <Th>Nota IA</Th>
                 <Th>Candidato</Th>
                 <Th>Contato</Th>
                 <Th>Local</Th>
@@ -472,7 +454,7 @@ export default function CandidatosVagaPage({
               </tr>
             </thead>
             <tbody>
-              {data.itens.map((it, idx) => (
+              {itensAba.map((it, idx) => (
                 <tr
                   key={it.candidaturaId}
                   className="border-t border-grafite-100 hover:bg-grafite-50"
@@ -533,9 +515,11 @@ export default function CandidatosVagaPage({
                   </Td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
