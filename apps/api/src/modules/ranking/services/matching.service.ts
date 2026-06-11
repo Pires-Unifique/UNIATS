@@ -362,7 +362,11 @@ export class MatchingService {
       this.prisma.score.count({
         where: {
           candidatura: { vaga_id: vagaId, ...semReprovado },
-          tipo: 'RANKING_CV',
+          // CONSOLIDADO é a nota EXIBIDA ao recrutador. Contamos por ela (não por
+          // RANKING_CV) para que "avaliados" = "tem nota visível". Assim um CV num
+          // estado inconsistente (RANKING_CV sem CONSOLIDADO) volta a aparecer como
+          // pendente e é reavaliado em vez de ficar travado sem nota.
+          tipo: 'CONSOLIDADO',
         },
       }),
     ]);
@@ -407,8 +411,11 @@ export class MatchingService {
         AND EXISTS (SELECT 1 FROM ev)
         ${filtroReprovado}
         AND NOT EXISTS (
+          -- "Já avaliado" = tem a nota CONSOLIDADO (a exibida ao recrutador).
+          -- Quem ficou sem CONSOLIDADO (estado inconsistente) é reavaliado aqui,
+          -- e scorearCandidatura regrava as 3 notas — então a nota volta a aparecer.
           SELECT 1 FROM scores s
-          WHERE s.candidatura_id = c.id AND s.tipo = 'RANKING_CV'
+          WHERE s.candidatura_id = c.id AND s.tipo = 'CONSOLIDADO'
         )
       ORDER BY (ec.vetor <=> (SELECT vetor FROM ev)) ASC
       LIMIT ${n}
