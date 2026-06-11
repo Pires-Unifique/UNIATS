@@ -1,7 +1,7 @@
 # =====================================================================
 # Web (Next.js) — UniATS  •  build context = raiz do monorepo
 # Build: docker build -f Dockerfile.web --target runtime -t uniats-web \
-#          --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.uniats.unifique.com.br .
+#          --build-arg NEXT_PUBLIC_API_BASE_URL=https://api-uniats.unifique.com.br .
 # =====================================================================
 
 FROM node:20-bookworm-slim AS base
@@ -21,10 +21,20 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 # ---- build --------------------------------------------------------------------------
 FROM deps AS build
 # NEXT_PUBLIC_* são embutidos no bundle do navegador EM BUILD TIME.
-ARG NEXT_PUBLIC_API_BASE_URL=https://api.uniats.unifique.com.br
+ARG NEXT_PUBLIC_API_BASE_URL=https://api-uniats.unifique.com.br
 ARG NEXT_PUBLIC_APP_ENV=production
+# Azure AD / agenda Teams (delegado, SPA). Sem CLIENT_ID, o botão de buscar
+# horários fica desabilitado (graphEnabled() === false).
+ARG NEXT_PUBLIC_AZURE_AD_TENANT_ID=
+ARG NEXT_PUBLIC_AZURE_AD_CLIENT_ID=
+ARG NEXT_PUBLIC_AZURE_AD_API_SCOPE=
+ARG NEXT_PUBLIC_AZURE_AD_SSO=
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
+ENV NEXT_PUBLIC_AZURE_AD_TENANT_ID=$NEXT_PUBLIC_AZURE_AD_TENANT_ID
+ENV NEXT_PUBLIC_AZURE_AD_CLIENT_ID=$NEXT_PUBLIC_AZURE_AD_CLIENT_ID
+ENV NEXT_PUBLIC_AZURE_AD_API_SCOPE=$NEXT_PUBLIC_AZURE_AD_API_SCOPE
+ENV NEXT_PUBLIC_AZURE_AD_SSO=$NEXT_PUBLIC_AZURE_AD_SSO
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
 # Remove `node-options=--use-system-ca` do .npmrc (válida só p/ dev em Node 22+;

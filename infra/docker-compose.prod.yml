@@ -90,8 +90,13 @@ services:
       dockerfile: Dockerfile.web
       target: runtime
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.uniats.unifique.com.br}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api-uniats.unifique.com.br}
         NEXT_PUBLIC_APP_ENV: production
+        # Azure AD / agenda Teams — embutidas no build do bundle (NEXT_PUBLIC_*).
+        NEXT_PUBLIC_AZURE_AD_TENANT_ID: ${NEXT_PUBLIC_AZURE_AD_TENANT_ID:-}
+        NEXT_PUBLIC_AZURE_AD_CLIENT_ID: ${NEXT_PUBLIC_AZURE_AD_CLIENT_ID:-}
+        NEXT_PUBLIC_AZURE_AD_API_SCOPE: ${NEXT_PUBLIC_AZURE_AD_API_SCOPE:-}
+        NEXT_PUBLIC_AZURE_AD_SSO: ${NEXT_PUBLIC_AZURE_AD_SSO:-}
     image: uniats-web:latest
     restart: unless-stopped
     depends_on:
