@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { AgendarEntrevistaModal } from '@/components/AgendarEntrevistaModal';
 import { EnviarMensagemModal } from '@/components/EnviarMensagemModal';
+import { ProporHorariosModal } from '@/components/ProporHorariosModal';
 import { EsteiraGupy } from '@/components/EsteiraGupy';
 import { PageHeader } from '@/components/PageHeader';
 import { ScoreBadge } from '@/components/ScoreBadge';
@@ -22,6 +23,18 @@ interface MensagemHistorico {
   destino: string | null;
   enviado_em: string | null;
   lido_em: string | null;
+  criado_em: string;
+}
+
+interface EnqueteHorario {
+  id: string;
+  status: string; // AGUARDANDO | RESPONDIDA | CANCELADA
+  pergunta: string;
+  opcoes: Array<{ rotulo: string; inicio: string; fim: string }>;
+  opcao_escolhida: string | null;
+  inicio_escolhido: string | null;
+  fim_escolhido: string | null;
+  respondido_em: string | null;
   criado_em: string;
 }
 
@@ -96,8 +109,14 @@ export default function CandidaturaPage({
   const [carregando, setCarregando] = useState(true);
   const [acaoStatus, setAcaoStatus] = useState<string | null>(null);
   const [mensagens, setMensagens] = useState<MensagemHistorico[]>([]);
+  const [enquetes, setEnquetes] = useState<EnqueteHorario[]>([]);
   const [modalContato, setModalContato] = useState(false);
   const [modalAgendar, setModalAgendar] = useState(false);
+  const [modalPropor, setModalPropor] = useState(false);
+  // Horário pré-selecionado ao abrir o agendamento (vindo da escolha da enquete).
+  const [slotAgendar, setSlotAgendar] = useState<
+    { inicio: string; fim: string } | undefined
+  >(undefined);
 
   const carregarMensagens = useCallback(async () => {
     try {
@@ -107,6 +126,17 @@ export default function CandidaturaPage({
       setMensagens(lista);
     } catch {
       setMensagens([]);
+    }
+  }, [id]);
+
+  const carregarEnquetes = useCallback(async () => {
+    try {
+      const lista = await api<EnqueteHorario[]>(
+        `/api/mensagens/enquete-horarios/${id}`,
+      );
+      setEnquetes(lista);
+    } catch {
+      setEnquetes([]);
     }
   }, [id]);
 
@@ -127,7 +157,8 @@ export default function CandidaturaPage({
   useEffect(() => {
     void carregar();
     void carregarMensagens();
-  }, [carregar, carregarMensagens]);
+    void carregarEnquetes();
+  }, [carregar, carregarMensagens, carregarEnquetes]);
 
   async function aprovarScore() {
     if (!c || !usuario) return;
@@ -264,10 +295,30 @@ export default function CandidaturaPage({
           consentimentoGravacao={Boolean(c.candidato.consentimento_gravacao_em)}
           gestorEmail={c.vaga.gestor?.email}
           gestorNome={c.vaga.gestor?.nome}
-          onClose={() => setModalAgendar(false)}
+          slotInicial={slotAgendar}
+          onClose={() => {
+            setModalAgendar(false);
+            setSlotAgendar(undefined);
+          }}
           onAgendada={() => {
             setAcaoStatus('Entrevista agendada.');
+            setSlotAgendar(undefined);
             void carregar();
+          }}
+        />
+      )}
+      {modalPropor && (
+        <ProporHorariosModal
+          candidaturaId={id}
+          gestorEmail={c.vaga.gestor?.email}
+          gestorNome={c.vaga.gestor?.nome}
+          onClose={() => setModalPropor(false)}
+          onEnviada={() => {
+            setAcaoStatus(
+              'Enquete de horários enviada no WhatsApp — o candidato vota e a escolha aparece aqui.',
+            );
+            void carregarMensagens();
+            void carregarEnquetes();
           }}
         />
       )}
@@ -425,8 +476,17 @@ export default function CandidaturaPage({
           <div className="flex gap-2">
             <button
               type="button"
+              className="btn-secondary text-xs"
+              onClick={() => setModalPropor(true)}
+              title="Envia uma enquete no WhatsApp com opções de horário; o candidato vota e a escolha aparece aqui."
+            >
+              Propor horários
+            </button>
+            <button
+              type="button"
               className="btn-primary text-xs"
               onClick={() => setModalAgendar(true)}
+              title="Agenda direto em um horário já combinado."
             >
               Agendar entrevista
             </button>
@@ -439,6 +499,48 @@ export default function CandidaturaPage({
             </button>
           </div>
         </div>
+
+        {/* Enquete de horários — escolha do candidato (quando houver) */}
+        {enquetes[0] && (
+          <div className="mb-3 rounded-md border border-grafite-200 p-3">
+            {enquetes[0].status === 'RESPONDIDA' &&
+            enquetes[0].inicio_escolhido ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm text-grafite-700">
+                  <span className="badge-green mr-2">Candidato escolheu</span>
+                  {enquetes[0].opcao_escolhida ??
+                    formatarDataHora(enquetes[0].inicio_escolhido)}
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary text-xs"
+                  onClick={() => {
+                    setSlotAgendar({
+                      inicio: enquetes[0].inicio_escolhido!,
+                      fim:
+                        enquetes[0].fim_escolhido ??
+                        enquetes[0].inicio_escolhido!,
+                    });
+                    setModalAgendar(true);
+                  }}
+                >
+                  Agendar neste horário
+                </button>
+              </div>
+            ) : enquetes[0].status === 'AGUARDANDO' ? (
+              <div className="text-sm text-grafite-600">
+                <span className="badge-yellow mr-2">Enquete enviada</span>
+                Aguardando o candidato votar entre {enquetes[0].opcoes.length}{' '}
+                horário(s) no WhatsApp.
+              </div>
+            ) : (
+              <div className="text-xs text-grafite-400">
+                Enquete de horários anterior: {enquetes[0].status.toLowerCase()}.
+              </div>
+            )}
+          </div>
+        )}
+
         {c.entrevistas.length === 0 ? (
           <p className="text-sm text-grafite-400">
             Nenhuma entrevista agendada.

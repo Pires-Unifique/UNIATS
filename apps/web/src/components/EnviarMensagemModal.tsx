@@ -36,6 +36,8 @@ interface Props {
   };
   /** Nome do recrutador logado — usado como fallback para {{recrutador_nome}}. */
   recrutadorNome?: string | null;
+  /** Código do template a pré-selecionar ao abrir (ex.: 'proposta_horarios'). */
+  templateInicial?: string;
   onClose: () => void;
   onSent: () => void;
 }
@@ -53,6 +55,7 @@ export function EnviarMensagemModal({
   candidaturaId,
   candidato,
   recrutadorNome,
+  templateInicial,
   onClose,
   onSent,
 }: Props) {
@@ -66,6 +69,8 @@ export function EnviarMensagemModal({
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [mostrarPicker, setMostrarPicker] = useState(false);
+  // Template pedido (templateInicial) que ainda não existe — guia a criação.
+  const [templateAusente, setTemplateAusente] = useState(false);
 
   const template = useMemo(
     () => templates.find((t) => t.codigo === codigo),
@@ -116,7 +121,14 @@ export function EnviarMensagemModal({
           recrutador_nome: ctx.recrutador_nome ?? recrutadorNome ?? '',
         };
         setContexto(ctxNorm);
-        if (tpls.length) setCodigo(tpls[0].codigo);
+        if (tpls.length) {
+          // Pré-seleciona o template pedido (ex.: proposta de horários) se existir.
+          const inicial = templateInicial
+            ? tpls.find((t) => t.codigo === templateInicial)
+            : undefined;
+          setCodigo(inicial?.codigo ?? tpls[0].codigo);
+          setTemplateAusente(Boolean(templateInicial) && !inicial);
+        }
       } catch (err) {
         if (vivo) {
           setErro(
@@ -130,7 +142,7 @@ export function EnviarMensagemModal({
     return () => {
       vivo = false;
     };
-  }, [candidaturaId, recrutadorNome]);
+  }, [candidaturaId, recrutadorNome, templateInicial]);
 
   // Ao trocar de template, ajusta canal disponível e pré-preenche variáveis.
   useEffect(() => {
@@ -221,6 +233,21 @@ export function EnviarMensagemModal({
             {candidatoExcluido && (
               <div className="badge-red mb-3 px-3 py-2 w-full justify-start">
                 Candidato pediu exclusão de dados (LGPD) — envio bloqueado.
+              </div>
+            )}
+
+            {templateAusente && (
+              <div className="badge-yellow mb-3 px-3 py-2 w-full justify-start">
+                O template <strong className="mx-1">“Proposta de horários”</strong>{' '}
+                ainda não existe. Crie-o em{' '}
+                <a
+                  href="/configuracoes/templates"
+                  className="mx-1 underline hover:text-grafite-900"
+                >
+                  Configurações → Templates
+                </a>{' '}
+                (já vem um <strong>modelo pronto</strong> — clique em “Novo
+                template” e escolha “Proposta de horários”).
               </div>
             )}
 

@@ -25,6 +25,16 @@ export interface EnviarMidiaInput {
   legenda?: string;
 }
 
+export interface EnviarEnqueteInput {
+  chatId: WahaChatId;
+  /** Texto da pergunta da enquete. */
+  pergunta: string;
+  /** Opções (2–12). Devem ser únicas e ≤ 100 caracteres cada. */
+  opcoes: string[];
+  /** Permite múltiplas escolhas (default: false — só uma). */
+  multiplas?: boolean;
+}
+
 export interface EnviarResultado {
   /** ID retornado pelo WAHA para a mensagem (`true_xxx@c.us_AAAA`). */
   messageId: string;

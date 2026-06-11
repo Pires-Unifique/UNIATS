@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
+import { EnqueteService } from './enquete.service.js';
 import { MessagingService } from './messaging.service.js';
 import { TemplatesService } from './templates/templates.service.js';
 import { VARIAVEIS_DISPONIVEIS } from './templates/variaveis.catalog.js';
@@ -48,6 +49,7 @@ export class MessagingController {
   constructor(
     private readonly service: MessagingService,
     private readonly templates: TemplatesService,
+    private readonly enquetes: EnqueteService,
   ) {}
 
   /** ----------------------------------------------------------------------
@@ -134,6 +136,47 @@ export class MessagingController {
       throw new BadRequestException('candidaturaId deve ser UUID válido.');
     }
     return this.service.resolverContexto(candidaturaId);
+  }
+
+  /** ----------------------------------------------------------------------
+   *  Enquete de horários (WhatsApp poll) — propõe opções; voto chega via webhook.
+   *  --------------------------------------------------------------------- */
+
+  /** Envia uma enquete de horários para o candidato escolher. */
+  @Post('enquete-horarios')
+  async enviarEnquete(
+    @Body()
+    body: {
+      candidaturaId?: string;
+      opcoes?: Array<{ rotulo?: string; inicio?: string; fim?: string }>;
+      pergunta?: string;
+    },
+  ) {
+    if (!body || !UUID_REGEX.test(body.candidaturaId ?? '')) {
+      throw new BadRequestException('candidaturaId deve ser UUID.');
+    }
+    if (!Array.isArray(body.opcoes) || body.opcoes.length < 2) {
+      throw new BadRequestException('Informe ao menos 2 opções de horário.');
+    }
+    const opcoes = body.opcoes.map((o) => ({
+      rotulo: String(o?.rotulo ?? '').trim(),
+      inicio: String(o?.inicio ?? ''),
+      fim: String(o?.fim ?? ''),
+    }));
+    return this.enquetes.enviar({
+      candidaturaId: body.candidaturaId!,
+      opcoes,
+      pergunta: body.pergunta,
+    });
+  }
+
+  /** Lista as enquetes de horário de uma candidatura (status + escolha). */
+  @Get('enquete-horarios/:candidaturaId')
+  async listarEnquetes(@Param('candidaturaId') candidaturaId: string) {
+    if (!UUID_REGEX.test(candidaturaId)) {
+      throw new BadRequestException('candidaturaId deve ser UUID válido.');
+    }
+    return this.enquetes.listarPorCandidatura(candidaturaId);
   }
 
   /** ----------------------------------------------------------------------

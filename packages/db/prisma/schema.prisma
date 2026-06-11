@@ -140,6 +140,7 @@ model Candidato {
   curriculos      CurriculoProcessado[]
   mensagens       Mensagem[]
   entrevistas     Entrevista[]
+  enquetes_horario EnqueteHorario[]
   admissoes       Admissao[]
 
   @@index([email])
@@ -170,6 +171,7 @@ model Candidatura {
   scores            Score[]
   entrevistas       Entrevista[]
   mensagens         Mensagem[]
+  enquetes_horario  EnqueteHorario[]
   admissao          Admissao?
 
   @@unique([vaga_id, candidato_id])
@@ -322,6 +324,37 @@ enum CanalMensagem {
   SMS
 
   @@map("canal_mensagem")
+}
+
+// ---------------------------------------------------------------------
+// ENQUETE DE HORÁRIOS — propõe N opções ao candidato (enquete WhatsApp)
+// e captura o voto dele para o recrutador agendar no horário escolhido.
+// ---------------------------------------------------------------------
+model EnqueteHorario {
+  id                String        @id @default(uuid()) @db.Uuid
+  candidatura_id    String        @db.Uuid
+  candidato_id      String        @db.Uuid
+  canal             CanalMensagem @default(WHATSAPP)
+  provider          String        @default("waha")
+  provider_msg_id   String?                              // id da mensagem-enquete (liga o voto)
+  pergunta          String
+  // Opções oferecidas: [{ rotulo, inicio (ISO), fim (ISO) }] — `rotulo` é o texto
+  // exato da opção na enquete; usado para casar com o voto recebido.
+  opcoes            Json
+  status            String        @default("AGUARDANDO") // AGUARDANDO | RESPONDIDA | CANCELADA
+  opcao_escolhida   String?                              // rótulo escolhido pelo candidato
+  inicio_escolhido  DateTime?
+  fim_escolhido     DateTime?
+  respondido_em     DateTime?
+  criado_em         DateTime      @default(now())
+  atualizado_em     DateTime      @updatedAt
+
+  candidatura       Candidatura   @relation(fields: [candidatura_id], references: [id], onDelete: Cascade)
+  candidato         Candidato     @relation(fields: [candidato_id], references: [id], onDelete: Cascade)
+
+  @@index([provider_msg_id])
+  @@index([candidatura_id])
+  @@map("enquetes_horario")
 }
 
 enum Direcao {

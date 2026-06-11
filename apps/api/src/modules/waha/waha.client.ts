@@ -12,6 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import type {
   CheckNumberResult,
+  EnviarEnqueteInput,
   EnviarMidiaInput,
   EnviarResultado,
   EnviarTextoInput,
@@ -123,6 +124,40 @@ export class WahaClient {
       return this.extrairResultado(resp.data);
     } catch (err) {
       throw this.normalizarErro(err, 'sendText');
+    }
+  }
+
+  /**
+   * Envia uma ENQUETE (poll) do WhatsApp — o candidato vota numa das opções.
+   * O voto chega depois pelo webhook (`poll.vote`), com o(s) rótulo(s) escolhido(s).
+   * Requer engine WEBJS (já é o padrão do compose) e a sessão inscrita no evento
+   * `poll.vote`. Opções devem ser únicas e ≤ 100 caracteres.
+   */
+  async sendPoll(input: EnviarEnqueteInput): Promise<EnviarResultado> {
+    this.validarChatId(input.chatId);
+    const opcoes = input.opcoes.map((o) => o.trim()).filter(Boolean);
+    if (opcoes.length < 2 || opcoes.length > 12) {
+      throw new BadRequestException('Enquete exige entre 2 e 12 opções.');
+    }
+    if (new Set(opcoes).size !== opcoes.length) {
+      throw new BadRequestException('As opções da enquete devem ser únicas.');
+    }
+
+    await this.simularDigitando(input.chatId);
+
+    try {
+      const resp = await this.client.post('/api/sendPoll', {
+        session: this.session,
+        chatId: input.chatId,
+        poll: {
+          name: input.pergunta.slice(0, 255),
+          options: opcoes,
+          multipleAnswers: input.multiplas ?? false,
+        },
+      });
+      return this.extrairResultado(resp.data);
+    } catch (err) {
+      throw this.normalizarErro(err, 'sendPoll');
     }
   }
 
