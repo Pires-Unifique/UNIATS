@@ -22,6 +22,28 @@ export interface SlotLivre {
   rotulo: string;
 }
 
+/** Uma célula da grade de agenda (um intervalo de `duracaoMin` num dia). */
+export interface CelulaAgenda {
+  inicio: string; // ISO local "YYYY-MM-DDTHH:mm:ss"
+  fim: string;
+  status: 'livre' | 'ocupado';
+}
+
+/** Uma coluna da grade (um dia útil), com uma célula por horário. */
+export interface DiaAgenda {
+  data: string; // "YYYY-MM-DD"
+  rotuloDia: string; // "ter, 03/06"
+  /** Mesma ordem/comprimento de `GradeAgenda.horarios`. */
+  celulas: CelulaAgenda[];
+}
+
+/** Grade estilo Teams: linhas = horários, colunas = dias. */
+export interface GradeAgenda {
+  /** Rótulos das linhas, ex.: ["07:00", "07:30", …]. */
+  horarios: string[];
+  dias: DiaAgenda[];
+}
+
 export interface OpcoesDisponibilidade {
   /** Duração de cada janela em minutos (30 ou 60). */
   duracaoMin: number;
@@ -147,6 +169,75 @@ export function gerarSlotsLivres(
   return slots;
 }
 
+/**
+ * Monta a GRADE completa (livre E ocupado) do expediente — base da visão estilo
+ * Teams. Mesma indexação de `gerarSlotsLivres`, mas em vez de descartar os
+ * ocupados, marca cada célula com seu status. Função PURA (testável).
+ */
+export function gerarGradeDisponibilidade(
+  availabilityView: string,
+  janelaInicio: Date,
+  intervalo: number,
+  opts: OpcoesDisponibilidade,
+): GradeAgenda {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const charsPorSlot = Math.max(1, Math.round(opts.duracaoMin / intervalo));
+  const fmtDia = new Intl.DateTimeFormat('pt-BR', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+  });
+
+  // Linhas: horários do expediente em passos de `duracaoMin`.
+  const horarios: string[] = [];
+  for (
+    let h = opts.horaInicio * 60;
+    h + opts.duracaoMin <= opts.horaFim * 60;
+    h += opts.duracaoMin
+  ) {
+    horarios.push(`${pad(Math.floor(h / 60))}:${pad(h % 60)}`);
+  }
+
+  // Colunas: dias úteis (pula fim de semana, respeita o limite de dias úteis).
+  const dias: DiaAgenda[] = [];
+  const base = new Date(janelaInicio);
+  for (let dia = 0; dia < opts.diasUteis + 7; dia++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + dia);
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) continue;
+    if (diasUteisContados(base, d) > opts.diasUteis) break;
+
+    const celulas: CelulaAgenda[] = horarios.map((hm) => {
+      const [hh, mm] = hm.split(':').map(Number);
+      const inicio = new Date(d);
+      inicio.setHours(0, 0, 0, 0);
+      inicio.setMinutes(hh * 60 + mm);
+      const fim = new Date(inicio);
+      fim.setMinutes(inicio.getMinutes() + opts.duracaoMin);
+
+      const idx = Math.round(
+        (inicio.getTime() - janelaInicio.getTime()) / (intervalo * 60_000),
+      );
+      let status: 'livre' | 'ocupado' = 'ocupado';
+      if (idx >= 0 && idx + charsPorSlot <= availabilityView.length) {
+        status = /^0+$/.test(availabilityView.slice(idx, idx + charsPorSlot))
+          ? 'livre'
+          : 'ocupado';
+      }
+      return { inicio: isoLocal(inicio), fim: isoLocal(fim), status };
+    });
+
+    dias.push({
+      data: isoLocal(d).slice(0, 10),
+      rotuloDia: fmtDia.format(d),
+      celulas,
+    });
+  }
+
+  return { horarios, dias };
+}
+
 function diasUteisContados(de: Date, ate: Date): number {
   let count = 0;
   const d = new Date(de);
@@ -179,17 +270,14 @@ export function combinarViews(views: string[]): string {
 }
 
 /**
- * Lê a disponibilidade conjunta da agenda do recrutador + participantes
- * (líderes técnicos) e devolve os slots em que TODOS estão livres.
- * Faz o popup de consentimento na primeira chamada.
- *
- * @param participantes E-mails extras a checar junto com o recrutador (ex.: o
- *   gestor/líder técnico da vaga). Slots ocupados em qualquer agenda são descartados.
+ * Busca no Graph a visão de disponibilidade CONJUNTA (recrutador + participantes)
+ * e devolve a `availabilityView` combinada + a janela. Faz o popup de
+ * consentimento na primeira chamada. Base de `obterDisponibilidade`/`obterGrade…`.
  */
-export async function obterDisponibilidade(
+async function buscarViewConjunta(
   opts: OpcoesDisponibilidade,
-  participantes: string[] = [],
-): Promise<SlotLivre[]> {
+  participantes: string[],
+): Promise<{ view: string; inicio: Date; intervalo: number }> {
   if (!graphEnabled()) {
     throw new Error(
       'Agenda não configurada: peça à infra um app registration (Calendars.Read).',
@@ -239,7 +327,33 @@ export async function obterDisponibilidade(
     value?: Array<{ availabilityView?: string; scheduleId?: string }>;
   };
   const views = (j.value ?? []).map((v) => v.availabilityView ?? '');
-  // Slot só é livre se TODOS (recrutador + participantes) estiverem livres nele.
-  const viewConjunta = combinarViews(views);
-  return gerarSlotsLivres(viewConjunta, inicio, intervalo, opts);
+  // Intervalo só é livre se TODOS (recrutador + participantes) estiverem livres.
+  return { view: combinarViews(views), inicio, intervalo };
+}
+
+/**
+ * Lê a disponibilidade conjunta e devolve apenas os slots em que TODOS estão
+ * livres (lista enxuta — usada onde só interessam as opções livres).
+ *
+ * @param participantes E-mails extras a checar junto com o recrutador (ex.: o
+ *   gestor/líder técnico da vaga). Slots ocupados em qualquer agenda são descartados.
+ */
+export async function obterDisponibilidade(
+  opts: OpcoesDisponibilidade,
+  participantes: string[] = [],
+): Promise<SlotLivre[]> {
+  const { view, inicio, intervalo } = await buscarViewConjunta(opts, participantes);
+  return gerarSlotsLivres(view, inicio, intervalo, opts);
+}
+
+/**
+ * Lê a disponibilidade conjunta e devolve a GRADE completa (livre E ocupado),
+ * para a visão estilo Teams (linhas = horários, colunas = dias).
+ */
+export async function obterGradeDisponibilidade(
+  opts: OpcoesDisponibilidade,
+  participantes: string[] = [],
+): Promise<GradeAgenda> {
+  const { view, inicio, intervalo } = await buscarViewConjunta(opts, participantes);
+  return gerarGradeDisponibilidade(view, inicio, intervalo, opts);
 }
