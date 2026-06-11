@@ -171,8 +171,9 @@ export function gerarSlotsLivres(
 
 /**
  * Monta a GRADE completa (livre E ocupado) do expediente — base da visão estilo
- * Teams. Mesma indexação de `gerarSlotsLivres`, mas em vez de descartar os
- * ocupados, marca cada célula com seu status. Função PURA (testável).
+ * Teams. As células têm SEMPRE o tamanho do `intervalo` (30 min), independente da
+ * duração da reunião: a duração vira "quantas células consecutivas" a UI seleciona
+ * (1 célula = 30 min, 2 = 1 h). Marca cada célula com seu status. Função PURA.
  */
 export function gerarGradeDisponibilidade(
   availabilityView: string,
@@ -181,19 +182,18 @@ export function gerarGradeDisponibilidade(
   opts: OpcoesDisponibilidade,
 ): GradeAgenda {
   const pad = (n: number) => String(n).padStart(2, '0');
-  const charsPorSlot = Math.max(1, Math.round(opts.duracaoMin / intervalo));
   const fmtDia = new Intl.DateTimeFormat('pt-BR', {
     weekday: 'short',
     day: '2-digit',
     month: '2-digit',
   });
 
-  // Linhas: horários do expediente em passos de `duracaoMin`.
+  // Linhas: o expediente em passos fixos de `intervalo` (30 min).
   const horarios: string[] = [];
   for (
     let h = opts.horaInicio * 60;
-    h + opts.duracaoMin <= opts.horaFim * 60;
-    h += opts.duracaoMin
+    h + intervalo <= opts.horaFim * 60;
+    h += intervalo
   ) {
     horarios.push(`${pad(Math.floor(h / 60))}:${pad(h % 60)}`);
   }
@@ -214,16 +214,15 @@ export function gerarGradeDisponibilidade(
       inicio.setHours(0, 0, 0, 0);
       inicio.setMinutes(hh * 60 + mm);
       const fim = new Date(inicio);
-      fim.setMinutes(inicio.getMinutes() + opts.duracaoMin);
+      fim.setMinutes(inicio.getMinutes() + intervalo);
 
       const idx = Math.round(
         (inicio.getTime() - janelaInicio.getTime()) / (intervalo * 60_000),
       );
+      // Cada célula = 1 caractere do availabilityView ('0' = livre).
       let status: 'livre' | 'ocupado' = 'ocupado';
-      if (idx >= 0 && idx + charsPorSlot <= availabilityView.length) {
-        status = /^0+$/.test(availabilityView.slice(idx, idx + charsPorSlot))
-          ? 'livre'
-          : 'ocupado';
+      if (idx >= 0 && idx < availabilityView.length) {
+        status = availabilityView[idx] === '0' ? 'livre' : 'ocupado';
       }
       return { inicio: isoLocal(inicio), fim: isoLocal(fim), status };
     });

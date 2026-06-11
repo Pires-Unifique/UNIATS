@@ -55,6 +55,38 @@ const FORM_VAZIO: FormState = {
   emailTexto: '',
 };
 
+/** Modelos prontos para começar um template novo sem partir do zero. */
+type Modelo = FormState & { rotuloBotao: string };
+
+const MODELOS: Modelo[] = [
+  {
+    rotuloBotao: 'Proposta de horários',
+    codigo: 'proposta_horarios',
+    nome: 'Proposta de horários',
+    descricao:
+      'Oferece opções de horário (preenchidas pela agenda) para o candidato escolher por resposta.',
+    whatsappCorpo:
+      'Olá, {{candidato_nome}}! 👋\n\n' +
+      'Para agendarmos a entrevista da vaga *{{vaga_titulo}}*, temos estes horários disponíveis:\n\n' +
+      '1️⃣ {{opcao_1}}\n' +
+      '2️⃣ {{opcao_2}}\n' +
+      '3️⃣ {{opcao_3}}\n\n' +
+      'É só me responder com o número da opção que preferir. 😊\n\n' +
+      '— {{recrutador_nome}}',
+    emailAssunto: 'Horários para sua entrevista — {{vaga_titulo}}',
+    emailTexto:
+      'Olá, {{candidato_nome}},\n\n' +
+      'Para agendarmos a entrevista da vaga {{vaga_titulo}}, temos os seguintes horários disponíveis:\n\n' +
+      '1) {{opcao_1}}\n' +
+      '2) {{opcao_2}}\n' +
+      '3) {{opcao_3}}\n\n' +
+      'Responda a este e-mail com a opção de sua preferência e enviaremos o link da videochamada.\n\n' +
+      'Atenciosamente,\n' +
+      '{{recrutador_nome}}\n' +
+      'Unifique — Recrutamento & Seleção',
+  },
+];
+
 /**
  * Campo de texto com uma paleta de "botões de variável": o usuário clica e a
  * variável ({{slug}}) é inserida no ponto do cursor — sem precisar digitar {{ }}.
@@ -192,6 +224,19 @@ export default function TemplatesPage() {
   function novo() {
     setEditando(null);
     setForm({ ...FORM_VAZIO });
+    setStatus(null);
+  }
+
+  function aplicarModelo(m: Modelo) {
+    setEditando(null);
+    setForm({
+      codigo: m.codigo,
+      nome: m.nome,
+      descricao: m.descricao,
+      whatsappCorpo: m.whatsappCorpo,
+      emailAssunto: m.emailAssunto,
+      emailTexto: m.emailTexto,
+    });
     setStatus(null);
   }
 
@@ -360,6 +405,25 @@ export default function TemplatesPage() {
             </p>
           ) : (
             <div className="space-y-4">
+              {!editando && (
+                <div className="rounded-md border border-grafite-100 bg-grafite-50 p-2">
+                  <div className="text-[11px] text-grafite-500 mb-1">
+                    Começar de um modelo pronto:
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {MODELOS.map((m) => (
+                      <button
+                        key={m.codigo}
+                        type="button"
+                        className="btn-secondary text-xs"
+                        onClick={() => aplicarModelo(m)}
+                      >
+                        {m.rotuloBotao}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {!editando && (
                 <label className="block">
                   <span className="text-xs text-grafite-400">

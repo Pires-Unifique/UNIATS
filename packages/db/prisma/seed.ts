@@ -92,6 +92,35 @@ const TEMPLATES_PADRAO: TemplateSeed[] = [
       'Unifique — Recrutamento & Seleção',
   },
   {
+    codigo: 'proposta_horarios',
+    nome: 'Proposta de horários',
+    descricao:
+      'Oferece 2–3 opções de horário (preenchidas pela agenda) para o candidato escolher por resposta.',
+    versao: 'v1',
+    whatsapp_corpo:
+      'Oi, {{candidato_nome}}! 👋\n\n' +
+      'Vamos marcar sua entrevista para a vaga *{{vaga_titulo}}*. ' +
+      'Separei alguns horários — me diz qual fica melhor pra você:\n\n' +
+      '1️⃣ {{opcao_1}}\n' +
+      '2️⃣ {{opcao_2}}\n' +
+      '3️⃣ {{opcao_3}}\n\n' +
+      'É só responder com o número da opção que preferir. ' +
+      'Qualquer coisa, estou por aqui!\n\n' +
+      '— {{recrutador_nome}}',
+    email_assunto: 'Escolha o horário da sua entrevista — {{vaga_titulo}}',
+    email_texto:
+      'Olá, {{candidato_nome}},\n\n' +
+      'Vamos avançar para a entrevista da vaga {{vaga_titulo}}. ' +
+      'Por favor, escolha um dos horários abaixo respondendo a este contato:\n\n' +
+      '1) {{opcao_1}}\n' +
+      '2) {{opcao_2}}\n' +
+      '3) {{opcao_3}}\n\n' +
+      'Assim que você confirmar, enviamos o link da videochamada.\n\n' +
+      'Atenciosamente,\n' +
+      '{{recrutador_nome}}\n' +
+      'Unifique — Recrutamento & Seleção',
+  },
+  {
     codigo: 'comunicado_decisao',
     nome: 'Comunicado de decisão',
     descricao:

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { EnqueteService } from './enquete.service.js';
 import { MensagemProcessor } from './processors/mensagem.processor.js';
 import { MessagingController } from './messaging.controller.js';
 import { MessagingService } from './messaging.service.js';
@@ -24,7 +25,12 @@ import { WahaWebhookController } from './webhooks/waha-webhook.controller.js';
     WahaWebhookController,
     SendGridWebhookController,
   ],
-  providers: [MessagingService, TemplatesService, MensagemProcessor],
-  exports: [MessagingService, TemplatesService],
+  providers: [
+    MessagingService,
+    TemplatesService,
+    MensagemProcessor,
+    EnqueteService,
+  ],
+  exports: [MessagingService, TemplatesService, EnqueteService],
 })
 export class MessagingModule {}

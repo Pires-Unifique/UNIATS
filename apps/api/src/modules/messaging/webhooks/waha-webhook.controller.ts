@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Request } from 'express';
 
+import { EnqueteService } from '../enquete.service.js';
 import { MessagingService } from '../messaging.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 
@@ -38,6 +39,7 @@ export class WahaWebhookController {
     config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
+    private readonly enquetes: EnqueteService,
   ) {
     this.secret = config.get<string>('WAHA_WEBHOOK_SECRET');
     if (!this.secret) {
@@ -238,6 +240,32 @@ export class WahaWebhookController {
         this.logger.warn(
           `Mensagem ENTRADA de ${chatId} sem candidatura prévia — descartando.`,
         );
+      }
+      return;
+    }
+
+    if (envelope.event === 'poll.vote') {
+      // Candidato votou numa opção da enquete de horários.
+      const p = envelope.payload as {
+        vote?: {
+          selectedOptions?: Array<string | { name?: string }>;
+          from?: string;
+        };
+        poll?: { id?: string | { _serialized?: string } };
+        // Alguns engines achatam o voto direto no payload.
+        selectedOptions?: Array<string | { name?: string }>;
+        id?: string | { _serialized?: string };
+        from?: string;
+      };
+      const pollId =
+        (typeof p.poll?.id === 'string' ? p.poll.id : p.poll?.id?._serialized) ??
+        (typeof p.id === 'string' ? p.id : p.id?._serialized);
+      const selecionadas = (p.vote?.selectedOptions ?? p.selectedOptions ?? [])
+        .map((o) => (typeof o === 'string' ? o : o?.name))
+        .filter((s): s is string => typeof s === 'string');
+      const votanteChatId = p.vote?.from ?? p.from;
+      if (pollId && selecionadas.length > 0) {
+        await this.enquetes.registrarVoto(pollId, selecionadas, votanteChatId);
       }
       return;
     }
