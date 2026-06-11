@@ -89,7 +89,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (!authEnabled()) {
-      // Modo dev sem MSAL: identidade fake.
+      // Sem SSO. Se o login local está LIGADO, ele é OBRIGATÓRIO: NÃO criamos
+      // usuário fake — deixamos `usuario` nulo para o AuthGuard redirecionar ao
+      // /login (onde a conta local admin/admin é exigida).
+      if (LOGIN_LOCAL_ATIVO) {
+        configurarTokenProvider(async () => null);
+        setPronto(true);
+        return;
+      }
+      // Nem SSO nem login local: modo dev puro com identidade fake (conveniência).
       configurarTokenProvider(async () => null);
       setUsuario({
         nome: 'Recrutador (dev)',
@@ -157,6 +165,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       usuario,
       async login() {
         if (!authEnabled()) {
+          // Sem SSO: se o login local é obrigatório, o botão "Microsoft" NÃO
+          // concede acesso — o usuário deve entrar pela conta local. Só no modo
+          // dev puro (sem SSO e sem login local) caímos no usuário fake.
+          if (LOGIN_LOCAL_ATIVO) return;
           setUsuario({
             nome: 'Recrutador (dev)',
             email: 'dev@unifique.com.br',

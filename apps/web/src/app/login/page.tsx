@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 
 import { loginLocalAtivo, useAuth } from '@/lib/auth';
+import { authEnabled } from '@/lib/msal';
 
 function LoginInner() {
   const params = useSearchParams();
@@ -54,13 +55,17 @@ function LoginInner() {
           </p>
         )}
 
-        <button
-          type="button"
-          className="btn-primary w-full"
-          onClick={() => void login()}
-        >
-          Entrar com Microsoft
-        </button>
+        {/* Botão Microsoft só faz sentido com SSO configurado. Em modo só-local
+            (login obrigatório sem SSO) ele é ocultado para não conceder acesso. */}
+        {(authEnabled() || !loginLocalAtivo()) && (
+          <button
+            type="button"
+            className="btn-primary w-full"
+            onClick={() => void login()}
+          >
+            Entrar com Microsoft
+          </button>
+        )}
 
         {loginLocalAtivo() && (
           <>

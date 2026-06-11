@@ -97,6 +97,7 @@ services:
         NEXT_PUBLIC_AZURE_AD_CLIENT_ID: ${NEXT_PUBLIC_AZURE_AD_CLIENT_ID:-}
         NEXT_PUBLIC_AZURE_AD_API_SCOPE: ${NEXT_PUBLIC_AZURE_AD_API_SCOPE:-}
         NEXT_PUBLIC_AZURE_AD_SSO: ${NEXT_PUBLIC_AZURE_AD_SSO:-}
+        NEXT_PUBLIC_LOGIN_LOCAL: ${NEXT_PUBLIC_LOGIN_LOCAL:-}
     image: uniats-web:latest
     restart: unless-stopped
     depends_on:
