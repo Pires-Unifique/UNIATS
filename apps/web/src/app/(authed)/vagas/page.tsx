@@ -31,7 +31,6 @@ export default function VagasPage() {
   const [busca, setBusca] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<string>('PUBLICADA');
   const [sincronizando, setSincronizando] = useState(false);
-  const [importandoCand, setImportandoCand] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
@@ -59,26 +58,22 @@ export default function VagasPage() {
     void carregar();
   }, [carregar]);
 
+  // Sincroniza tudo num passo só: primeiro o cadastro das vagas, depois as
+  // candidaturas (que rodam em background na API — acompanhamos o progresso).
   async function sincronizar() {
     setSincronizando(true);
-    try {
-      await api('/api/gupy/sync/vagas', { method: 'POST' });
-      await carregar();
-    } catch (err) {
-      if (err instanceof ApiError) setErro(err.message);
-    } finally {
-      setSincronizando(false);
-    }
-  }
-
-  async function importarCandidaturas() {
-    setImportandoCand(true);
     setErro(null);
     setAviso(null);
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
+      // 1) Vagas — endpoint síncrono.
+      setAviso('Sincronizando vagas…');
+      await api('/api/gupy/sync/vagas', { method: 'POST' });
+      await carregar();
+
+      // 2) Candidatos de todas as vagas — background + polling de progresso.
       await api('/api/gupy/sync/candidaturas-todas', { method: 'POST' });
-      setAviso('Importando candidaturas de todas as vagas…');
+      setAviso('Buscando candidatos de todas as vagas…');
       for (let i = 0; i < 300; i++) {
         await sleep(4000);
         const st = await api<{
@@ -90,19 +85,19 @@ export default function VagasPage() {
         await carregar();
         if (!st.emAndamento) {
           setAviso(
-            `Importação concluída: ${st.candidaturasImportadas} candidatura(s) em ${st.vagasProcessadas} vaga(s).`,
+            `Sincronização concluída: ${st.candidaturasImportadas} candidatura(s) em ${st.vagasProcessadas} vaga(s).`,
           );
           break;
         }
         setAviso(
-          `Importando candidaturas: ${st.vagasProcessadas}/${st.totalVagas} vagas · ${st.candidaturasImportadas} candidatura(s)…`,
+          `Buscando candidatos: ${st.vagasProcessadas}/${st.totalVagas} vagas · ${st.candidaturasImportadas} candidatura(s)…`,
         );
       }
     } catch (err) {
       if (err instanceof ApiError) setErro(err.message);
-      else setErro('Falha ao importar candidaturas.');
+      else setErro('Falha ao sincronizar com a Gupy.');
     } finally {
-      setImportandoCand(false);
+      setSincronizando(false);
     }
   }
 
@@ -112,26 +107,14 @@ export default function VagasPage() {
         titulo="Vagas"
         subtitulo="Vagas importadas da Gupy. Clique em uma vaga para ver o ranking de candidatos."
         acoes={
-          <>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={sincronizando || importandoCand}
-              onClick={() => void sincronizar()}
-            >
-              {sincronizando ? 'Sincronizando…' : 'Sincronizar Gupy'}
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={importandoCand || sincronizando}
-              onClick={() => void importarCandidaturas()}
-            >
-              {importandoCand
-                ? 'Importando candidaturas…'
-                : 'Importar candidaturas (todas)'}
-            </button>
-          </>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={sincronizando}
+            onClick={() => void sincronizar()}
+          >
+            {sincronizando ? 'Sincronizando…' : 'Sincronizar Gupy'}
+          </button>
         }
       />
 
