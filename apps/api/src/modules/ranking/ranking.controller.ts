@@ -121,11 +121,17 @@ export class RankingController {
    * Roda em background e retorna na hora; acompanhe via .../classificar/status.
    */
   @Post('vagas/:vagaId/classificar')
-  async classificar(@Param('vagaId') vagaId: string) {
+  async classificar(
+    @Param('vagaId') vagaId: string,
+    @Body() body?: { somentePendentes?: boolean },
+  ) {
     if (!UUID_REGEX.test(vagaId)) {
       throw new BadRequestException('vagaId inválido.');
     }
-    return this.service.iniciarClassificacaoVagaLLM(vagaId);
+    return this.service.iniciarClassificacaoVagaLLM(
+      vagaId,
+      body?.somentePendentes === true,
+    );
   }
 
   /** Progresso da classificação (para polling do frontend). */

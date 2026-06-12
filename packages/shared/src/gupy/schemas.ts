@@ -24,9 +24,11 @@ export const VagaGupySchema = z
     additionalInformation: z.string().optional().nullable(),
     // Critérios de avaliação definidos na vaga (sinal para ranking).
     jobRatingCriterias: z.array(z.unknown()).optional().nullable(),
-    // Responsável pela vaga.
+    // Responsáveis pela vaga (a Gupy envia nome + e-mail de gestor e recrutador).
     managerName: z.string().optional().nullable(),
     managerEmail: z.string().optional().nullable(),
+    recruiterName: z.string().optional().nullable(),
+    recruiterEmail: z.string().optional().nullable(),
     // Formas aninhada (API antiga/fictícia) e plana (API real) de depto/filial.
     department: z
       .object({ name: z.string().optional() })
@@ -40,8 +42,13 @@ export const VagaGupySchema = z
       .nullable(),
     departmentName: z.string().optional().nullable(),
     branchName: z.string().optional().nullable(),
+    // Localização: a API real manda como addressCity/addressState; as formas
+    // city/state são da API antiga/fictícia. addressStateShortName = "SC".
     city: z.string().optional().nullable(),
     state: z.string().optional().nullable(),
+    addressCity: z.string().optional().nullable(),
+    addressState: z.string().optional().nullable(),
+    addressStateShortName: z.string().optional().nullable(),
     type: z.string().optional().nullable(),
     isRemoteWork: z.boolean().optional().nullable(),
     remoteWorking: z.boolean().optional().nullable(),

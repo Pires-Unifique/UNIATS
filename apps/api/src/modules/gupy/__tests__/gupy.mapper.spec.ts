@@ -13,6 +13,7 @@ import {
   paraUpsertVaga,
   paraUpsertCandidato,
   paraUpsertCandidatura,
+  traduzirTipoContrato,
 } from '../mappers/gupy.mapper.js';
 
 import {
@@ -37,6 +38,25 @@ describe('mapearStatusVaga', () => {
     expect(mapearStatusVaga(undefined)).toBe('PUBLICADA');
     expect(mapearStatusVaga(null)).toBe('PUBLICADA');
     expect(mapearStatusVaga('xyz')).toBe('PUBLICADA');
+  });
+});
+
+describe('traduzirTipoContrato', () => {
+  it.each([
+    ['vacancy_type_effective', 'Efetivo'],
+    ['vacancy_type_internship', 'Estágio'],
+    ['vacancy_type_apprentice', 'Aprendiz'],
+    ['vacancy_legal_entity', 'Pessoa Jurídica (PJ)'],
+    ['effective', 'Efetivo'],
+    ['young_apprentice', 'Jovem Aprendiz'],
+  ])('"%s" → %s', (input, esperado) => {
+    expect(traduzirTipoContrato(input)).toBe(esperado);
+  });
+
+  it('valor desconhecido volta cru; vazio vira null', () => {
+    expect(traduzirTipoContrato('CLT')).toBe('CLT');
+    expect(traduzirTipoContrato(null)).toBeNull();
+    expect(traduzirTipoContrato(undefined)).toBeNull();
   });
 });
 

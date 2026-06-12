@@ -10,9 +10,30 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { traduzirTipoContrato } from '../gupy/mappers/gupy.mapper.js';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Monta { nome, email } a partir do que a Gupy mandou no payload. Usado como
+ * fallback quando a vaga não tem recrutador/gestor INTERNO (usuário SSO) ligado
+ * — caso comum em vagas só sincronizadas, não criadas pelo nosso app.
+ */
+function pessoaDoPayload(
+  nome: unknown,
+  email: unknown,
+): { nome: string; email: string } | null {
+  const n = typeof nome === 'string' ? nome.trim() : '';
+  const e = typeof email === 'string' ? email.trim() : '';
+  if (!n && !e) return null;
+  return { nome: n || e, email: e };
+}
+
+/** Lê uma string não-vazia do payload da Gupy (senão null). */
+function strDoPayload(valor: unknown): string | null {
+  return typeof valor === 'string' && valor.trim() ? valor.trim() : null;
+}
 
 /**
  * Read API local — frontend usa para listar vagas JÁ SINCRONIZADAS, com
@@ -94,13 +115,24 @@ export class VagasController {
       where: { id },
       include: {
         _count: { select: { candidaturas: true } },
-        recrutador: { select: { nome: true, email: true } },
-        gestor: { select: { nome: true, email: true } },
       },
     });
     if (!v) throw new NotFoundException(`Vaga ${id} não existe.`);
+    // Recrutador/gestor vêm do próprio payload da Gupy (recruiterName/managerName).
+    // Ainda não há vagas criadas pelo sistema, então não usamos a relação interna.
+    const payload = (v.gupy_payload ?? {}) as Record<string, unknown>;
     return {
       ...v,
+      tipo_contrato: traduzirTipoContrato(v.tipo_contrato),
+      recrutador: pessoaDoPayload(payload.recruiterName, payload.recruiterEmail),
+      gestor: pessoaDoPayload(payload.managerName, payload.managerEmail),
+      // Local: usa o que está na coluna; senão cai no payload (vagas antigas
+      // foram sincronizadas antes de mapearmos addressCity/addressState).
+      cidade: v.cidade ?? strDoPayload(payload.addressCity),
+      estado:
+        v.estado ??
+        strDoPayload(payload.addressStateShortName) ??
+        strDoPayload(payload.addressState),
       gupy_id: v.gupy_id.toString(),
       qtdCandidaturas: v._count.candidaturas,
     };

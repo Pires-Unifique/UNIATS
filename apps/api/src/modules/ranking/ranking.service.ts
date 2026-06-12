@@ -227,7 +227,10 @@ export class RankingService {
    * Dispara a classificação da vaga em BACKGROUND e retorna na hora.
    * O frontend acompanha via `statusClassificacao` (polling).
    */
-  async iniciarClassificacaoVagaLLM(vagaId: string): Promise<{
+  async iniciarClassificacaoVagaLLM(
+    vagaId: string,
+    somentePendentes = false,
+  ): Promise<{
     iniciado: boolean;
     jaEmAndamento: boolean;
     total: number;
@@ -248,7 +251,7 @@ export class RankingService {
     this.classificando.add(vagaId);
     // Fire-and-forget: não await. Erros são logados; o Set é liberado no fim.
     void this.matching
-      .classificarVagaLLM(vagaId)
+      .classificarVagaLLM(vagaId, somentePendentes)
       .catch((err) =>
         this.logger.error(
           `Classificação da vaga ${vagaId} falhou: ${(err as Error).message}`,

@@ -250,6 +250,49 @@ export default function CandidatosVagaPage({
     }
   }
 
+  /**
+   * Reavalia (via IA) APENAS os currículos que estão SEM NOTA na lista — ou seja,
+   * sem score CONSOLIDADO. Usa o classificador direto do Claude (não depende de
+   * embedding), então cobre todos os pendentes. Útil para destravar quem ficou
+   * sem nota por algum motivo, sem reavaliar quem já tem.
+   */
+  async function avaliarSemNota() {
+    setMenuClassificar(false);
+    setRerankeando(true);
+    setErro(null);
+    setAviso('Procurando currículos sem nota e reavaliando com IA…');
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    try {
+      await api(`/api/vagas/${vagaId}/classificar`, {
+        method: 'POST',
+        body: { somentePendentes: true },
+      });
+      for (let i = 0; i < 300; i++) {
+        await sleep(3000);
+        const st = await api<{
+          total: number;
+          classificados: number;
+          emAndamento: boolean;
+        }>(`/api/vagas/${vagaId}/classificar/status`);
+        await carregarCandidaturas(busca);
+        if (!st.emAndamento) {
+          setAviso(
+            `Pronto! ${st.classificados}/${st.total} currículo(s) com nota.`,
+          );
+          break;
+        }
+        setAviso(
+          `Reavaliando quem estava sem nota… ${st.classificados}/${st.total} com nota.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof ApiError) setErro(err.message);
+      else setErro('Não conseguimos reavaliar agora. Tente de novo.');
+    } finally {
+      setRerankeando(false);
+    }
+  }
+
   const temCandidatos = (data?.itens.length ?? 0) > 0;
 
   // Separa as candidaturas carregadas (todas) por aba, no cliente.
@@ -352,6 +395,16 @@ export default function CandidatosVagaPage({
                       title="Faz a mesma avaliação, mas considerando também os reprovados e desistentes."
                     >
                       Classificar reprovados/desistentes
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="btn-ghost w-full justify-start text-sm"
+                      disabled={classificacaoOcupada || !temCandidatos}
+                      onClick={() => void avaliarSemNota()}
+                      title="Detecta os currículos que estão sem nota e reavalia só esses com IA."
+                    >
+                      Avaliar quem está sem nota
                     </button>
                   </div>
                 </>
@@ -473,8 +526,20 @@ export default function CandidatosVagaPage({
                       >
                         {Math.round(it.score)}
                       </span>
+                    ) : it.temCurriculo ? (
+                      <span
+                        className="badge-yellow text-xs"
+                        title="Tem currículo, mas ainda sem nota da IA. Use 'Avaliar quem está sem nota'."
+                      >
+                        sem nota
+                      </span>
                     ) : (
-                      <span className="text-grafite-400 text-xs">—</span>
+                      <span
+                        className="badge-gray text-xs"
+                        title="Sem currículo processado — a IA não tem o que avaliar. Importe/reprocesse o currículo (sincronizar Gupy)."
+                      >
+                        sem currículo
+                      </span>
                     )}
                   </Td>
                   <Td>

@@ -41,6 +41,38 @@ export function mapearStatusCandidatura(s?: string | null): StatusCandidatura {
 }
 
 /**
+ * Rótulos PT-BR para o tipo de vaga/contrato. Cobre tanto o enum da API da Gupy
+ * (`vacancy_type_effective`) quanto as formas curtas usadas ao criar vaga pelo
+ * nosso app (`effective`). Valor desconhecido volta cru (melhor que sumir).
+ */
+const TIPO_CONTRATO_LABEL: Record<string, string> = {
+  effective: 'Efetivo',
+  internship: 'Estágio',
+  apprentice: 'Aprendiz',
+  young_apprentice: 'Jovem Aprendiz',
+  trainee: 'Trainee',
+  temporary: 'Temporário',
+  freelancer: 'Freelancer',
+  associate: 'Associado',
+  outsource: 'Terceirizado',
+  talent_pool: 'Banco de talentos',
+  volunteer: 'Voluntário',
+  partner: 'Parceiro',
+  summer: 'Temporada de Verão',
+  intermittent: 'Intermitente',
+  legal_entity: 'Pessoa Jurídica (PJ)',
+};
+
+export function traduzirTipoContrato(tipo?: string | null): string | null {
+  if (!tipo) return null;
+  const chave = tipo
+    .toLowerCase()
+    .replace(/^vacancy_type_/, '')
+    .replace(/^vacancy_/, '');
+  return TIPO_CONTRATO_LABEL[chave] ?? tipo;
+}
+
+/**
  * Remove tags HTML e normaliza espaços/entidades — os campos de texto da Gupy
  * (description, prerequisites, responsibilities) vêm em HTML.
  */
@@ -127,8 +159,8 @@ export function paraUpsertVaga(vaga: VagaGupy): Prisma.VagaUpsertArgs {
     descricao: limparHtml(vaga.description) || null,
     departamento: vaga.departmentName ?? vaga.department?.name ?? null,
     unidade: vaga.branchName ?? vaga.branch?.name ?? null,
-    cidade: vaga.city ?? null,
-    estado: vaga.state ?? null,
+    cidade: vaga.city ?? vaga.addressCity ?? null,
+    estado: vaga.state ?? vaga.addressStateShortName ?? vaga.addressState ?? null,
     tipo_contrato: vaga.type ?? null,
     remoto: vaga.isRemoteWork ?? vaga.remoteWorking ?? false,
     status: mapearStatusVaga(vaga.status),

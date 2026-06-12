@@ -279,6 +279,7 @@ export class MatchingService {
    */
   async classificarVagaLLM(
     vagaId: string,
+    somentePendentes = false,
   ): Promise<{ vagaId: string; total: number; classificados: number; erros: number }> {
     const vaga = await this.prisma.vaga.findUnique({
       where: { id: vagaId },
@@ -286,8 +287,16 @@ export class MatchingService {
     });
     if (!vaga) throw new NotFoundException(`Vaga ${vagaId} não existe.`);
 
+    // Com `somentePendentes`, pega só quem NÃO tem a nota exibida (CONSOLIDADO) —
+    // ou seja, os currículos que aparecem sem nota na lista. Reavalia só esses.
     const candidaturas = await this.prisma.candidatura.findMany({
-      where: { vaga_id: vagaId, curriculo: { isNot: null } },
+      where: {
+        vaga_id: vagaId,
+        curriculo: { isNot: null },
+        ...(somentePendentes
+          ? { scores: { none: { tipo: 'CONSOLIDADO' } } }
+          : {}),
+      },
       select: { id: true },
     });
 
