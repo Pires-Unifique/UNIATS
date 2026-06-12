@@ -25,6 +25,13 @@ interface AgendarBody {
   consentirGravacao?: boolean;
 }
 
+interface ConfirmarEnqueteBody {
+  enqueteId: string;
+  provedor?: 'teams';
+  duracaoEstimadaMin?: number;
+  consentirGravacao?: boolean;
+}
+
 @Controller('api/entrevistas')
 @UseGuards(ThrottlerGuard)
 export class InterviewController {
@@ -60,6 +67,40 @@ export class InterviewController {
       duracaoEstimadaMin: body.duracaoEstimadaMin,
       entrevistadorId: body.entrevistadorId,
       googleEventId: body.googleEventId,
+      consentirGravacao: body.consentirGravacao,
+    });
+  }
+
+  /**
+   * Confirma a entrevista a partir do horário escolhido pelo candidato na enquete
+   * (1 clique do recrutador): cria reunião Teams + bloqueia agenda + convida por
+   * e-mail (Outlook) e reforça por WhatsApp.
+   */
+  @Post('confirmar-enquete')
+  async confirmarEnquete(@Body() body: ConfirmarEnqueteBody) {
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Body inválido.');
+    }
+    if (!UUID_REGEX.test(body.enqueteId ?? '')) {
+      throw new BadRequestException('enqueteId deve ser UUID.');
+    }
+    if (body.provedor && body.provedor !== 'teams') {
+      throw new BadRequestException(
+        'provedor inválido — o fluxo automático suporta apenas "teams".',
+      );
+    }
+    if (
+      body.duracaoEstimadaMin != null &&
+      (body.duracaoEstimadaMin < 5 || body.duracaoEstimadaMin > 240)
+    ) {
+      throw new BadRequestException(
+        'duracaoEstimadaMin deve estar entre 5 e 240.',
+      );
+    }
+    return this.service.confirmarPorEnquete({
+      enqueteId: body.enqueteId,
+      provedor: body.provedor,
+      duracaoEstimadaMin: body.duracaoEstimadaMin,
       consentirGravacao: body.consentirGravacao,
     });
   }

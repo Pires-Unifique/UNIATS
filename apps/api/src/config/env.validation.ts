@@ -25,6 +25,25 @@ const EnvSchema = z.object({
   AZURE_AD_AUDIENCE: z.string().min(1).default('api://uniats-api'),
   AZURE_AD_ALLOWED_DOMAIN: z.string().min(1).default('unifique.com.br'),
 
+  // Microsoft Graph (app-only / client credentials) — agendamento de entrevista:
+  // cria a reunião Teams, bloqueia a agenda do recrutador e convida o candidato
+  // (convite nativo do Outlook). Opcional no MVP: sem o secret, o agendamento
+  // automático fica DESABILITADO (graphEnabled()=false) e a API responde 422.
+  // Reusa AZURE_AD_TENANT_ID / AZURE_AD_CLIENT_ID acima.
+  AZURE_AD_CLIENT_SECRET: z.string().min(1).optional(),
+  GRAPH_BASE_URL: z.string().url().default('https://graph.microsoft.com/v1.0'),
+  GRAPH_SCOPE: z
+    .string()
+    .min(1)
+    .default('https://graph.microsoft.com/.default'),
+  // Fuso passado ao Graph (Prefer: outlook.timezone) e usado no corpo do evento.
+  GRAPH_TIMEZONE: z.string().min(1).default('E. South America Standard Time'),
+  GRAPH_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  GRAPH_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
+  // Organizador/agenda quando a vaga não tem recrutador vinculado (comum sem SSO).
+  // Precisa ser uma caixa válida do tenant (ex.: recrutamento@unifique.com.br).
+  AGENDA_ORGANIZADOR_FALLBACK_EMAIL: z.string().email().optional(),
+
   // Gupy
   GUPY_API_BASE_URL: z.string().url(),
   // API de estrutura organizacional (departamentos/cargos/filiais) — base distinta.

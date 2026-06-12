@@ -346,11 +346,15 @@ model EnqueteHorario {
   inicio_escolhido  DateTime?
   fim_escolhido     DateTime?
   respondido_em     DateTime?
+  // Entrevista criada quando o recrutador confirma o horário escolhido. Único:
+  // garante idempotência — reconfirmar a mesma enquete não recria a reunião.
+  entrevista_id     String?       @unique @db.Uuid
   criado_em         DateTime      @default(now())
   atualizado_em     DateTime      @updatedAt
 
   candidatura       Candidatura   @relation(fields: [candidatura_id], references: [id], onDelete: Cascade)
   candidato         Candidato     @relation(fields: [candidato_id], references: [id], onDelete: Cascade)
+  entrevista        Entrevista?   @relation(fields: [entrevista_id], references: [id], onDelete: SetNull)
 
   @@index([provider_msg_id])
   @@index([candidatura_id])
@@ -389,6 +393,12 @@ model Entrevista {
   duracao_estimada_min Int     @default(30)
   meet_url            String?
   google_event_id     String?
+  // Agendamento via Microsoft Graph (app-only). O evento criado na agenda do
+  // recrutador já cria a reunião Teams, bloqueia o horário ("busy") e dispara o
+  // convite nativo do Outlook ao candidato (attendee).
+  graph_event_id      String?                       // id do evento no Outlook (p/ cancelar)
+  teams_join_url      String?                       // joinUrl quando provedor = teams
+  provedor_video      String?                       // "teams" | "google_meet"
 
   status              StatusEntrevista @default(AGENDADA)
   bot_provider        String?                       // "meetstream"
@@ -419,6 +429,7 @@ model Entrevista {
   analise_voz         AnaliseVoz?
   perguntas           PerguntaEntrevista[]
   avaliacoes          AvaliacaoEntrevista[]
+  enquete_horario     EnqueteHorario?               // enquete que originou esta entrevista (se houver)
 
   @@index([status])
   @@index([agendada_para])

@@ -2,9 +2,10 @@
 
 > **Status:** a **leitura de disponibilidade (delegada, popup)** já está implementada
 > no frontend, porém **inativa** até existir um *app registration* no Entra ID
-> (`NEXT_PUBLIC_AZURE_AD_CLIENT_ID`). O **bloqueio de agenda** (escrita) segue projetado
-> (§3/§4). Enquanto o app registration não chega, o botão "Escolher horários da minha
-> agenda" aparece desabilitado com instrução, e o fluxo manual funciona (ver §6).
+> (`NEXT_PUBLIC_AZURE_AD_CLIENT_ID`). A **escrita (criação de reunião Teams + bloqueio
+> de agenda + convite ao candidato)** agora está **implementada no backend** (app-only),
+> *pronta-para-ligar* — basta preencher `AZURE_AD_CLIENT_SECRET` e dar admin consent.
+> Ver §8 abaixo para o estado exato.
 
 ---
 
@@ -196,3 +197,48 @@ agenda) passam de manuais para automáticos — sem reescrever o resto.
   redige headers de Authorization.
 - **Idempotência:** ao reenviar a confirmação, não recriar o evento de bloqueio se já há
   `graph_event_id` na entrevista.
+
+## 8. ✅ Implementado — escrita via Graph (reunião Teams + bloqueio + convite)
+
+Decisões de produto adotadas nesta entrega:
+
+| Decisão | Escolha |
+|---|---|
+| **Gatilho** | O candidato vota na enquete; o **recrutador confirma com 1 clique** ("✓ Confirmar no Teams" no detalhe da candidatura). Mantém a revisão humana (§5). |
+| **Autenticação** | **App-only / client credentials** (não depende de SSO). |
+| **Convite por e-mail** | **Convite nativo do Outlook** — o candidato é `attendee` do evento; o Outlook envia o convite (com Aceitar/Recusar e `.ics`) e embute o link do Teams. |
+| **Organizador / agenda** | **Recrutador da vaga** (`vaga.recrutador.email`); fallback `AGENDA_ORGANIZADOR_FALLBACK_EMAIL` quando não houver. |
+
+**O que um único `POST /users/{recrutador}/events` faz** (em `GraphClient.criarEventoComTeams`):
+1. cria a reunião no **Teams** (`isOnlineMeeting` + `teamsForBusiness`) → devolve `joinUrl`;
+2. **bloqueia** a agenda do recrutador (`showAs: "busy"`);
+3. **convida o candidato por e-mail** (attendee → convite nativo do Outlook).
+
+Depois, o backend registra a `Entrevista` (`graph_event_id`, `teams_join_url`,
+`provedor_video="teams"`), vincula a enquete (`enquetes_horario.entrevista_id`, único →
+idempotência) e manda um **reforço por WhatsApp** com data/hora + `joinUrl` (best-effort).
+O **cancelamento** (`InterviewService.cancelar`) remove o evento no Graph quando há
+`graph_event_id` (cancela o convite do candidato junto).
+
+**Arquivos:**
+- `apps/api/src/modules/graph/graph.client.ts` — client app-only (token cacheado, `criarEventoComTeams`, `removerEvento`).
+- `apps/api/src/modules/graph/graph.module.ts` — módulo global.
+- `apps/api/src/modules/interview/services/interview.service.ts` — `confirmarPorEnquete` (orquestração) + `cancelar` ligado ao Graph.
+- `apps/api/src/modules/interview/interview.controller.ts` — `POST /api/entrevistas/confirmar-enquete`.
+- `apps/web/src/app/(authed)/candidaturas/[id]/page.tsx` — botão "✓ Confirmar no Teams".
+- Schema: `Entrevista.{graph_event_id,teams_join_url,provedor_video}`, `EnqueteHorario.entrevista_id` (migration `20260612000000_agendamento_teams`).
+
+### O que falta para LIGAR (infra) — app-only
+
+App registration (Entra ID) com permissões de **APLICAÇÃO** + **admin consent**:
+- `Calendars.ReadWrite`
+- `OnlineMeetings.ReadWrite.All`
+
+E preencher no `.env` da API: `AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_ID`,
+`AZURE_AD_CLIENT_SECRET` (+ opcional `AGENDA_ORGANIZADOR_FALLBACK_EMAIL`). Sem o secret,
+`GraphClient.enabled` é `false` e o endpoint responde **422** com instrução — nada quebra.
+> Nota: para `OnlineMeetings` **app-only**, o tenant normalmente exige uma **Application
+> Access Policy** (PowerShell `New-CsApplicationAccessPolicy` + `Grant-CsApplicationAccessPolicy`)
+> autorizando o app a criar reuniões em nome das caixas dos recrutadores. A alternativa
+> delegada (`OnlineMeetings.ReadWrite`, sem `.All`) dispensaria a policy, mas exigiria SSO
+> do recrutador — descartada por ora.

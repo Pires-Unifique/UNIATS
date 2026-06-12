@@ -117,6 +117,7 @@ export default function CandidaturaPage({
   const [slotAgendar, setSlotAgendar] = useState<
     { inicio: string; fim: string } | undefined
   >(undefined);
+  const [confirmandoTeams, setConfirmandoTeams] = useState(false);
 
   const carregarMensagens = useCallback(async () => {
     try {
@@ -198,6 +199,40 @@ export default function CandidaturaPage({
       setAcaoStatus(
         err instanceof ApiError ? err.message : 'Falha ao calcular score.',
       );
+    }
+  }
+
+  // Confirma a entrevista no horário escolhido pela enquete: cria a reunião no
+  // Teams, bloqueia a agenda do recrutador e convida o candidato (e-mail + WhatsApp).
+  async function confirmarEnqueteTeams(enqueteId: string) {
+    setAcaoStatus(null);
+    setConfirmandoTeams(true);
+    try {
+      const r = await api<{
+        entrevistaId: string;
+        joinUrl: string;
+        whatsappEnviado: boolean;
+        jaExistia: boolean;
+      }>('/api/entrevistas/confirmar-enquete', {
+        method: 'POST',
+        body: { enqueteId },
+      });
+      setAcaoStatus(
+        r.jaExistia
+          ? 'Esta enquete já tinha uma entrevista confirmada.'
+          : `Entrevista confirmada no Teams! Convite enviado por e-mail${
+              r.whatsappEnviado ? ' e WhatsApp' : ''
+            }.`,
+      );
+      await Promise.all([carregar(), carregarEnquetes()]);
+    } catch (err) {
+      setAcaoStatus(
+        err instanceof ApiError
+          ? err.message
+          : 'Falha ao confirmar a entrevista no Teams.',
+      );
+    } finally {
+      setConfirmandoTeams(false);
     }
   }
 
@@ -511,21 +546,35 @@ export default function CandidaturaPage({
                   {enquetes[0].opcao_escolhida ??
                     formatarDataHora(enquetes[0].inicio_escolhido)}
                 </div>
-                <button
-                  type="button"
-                  className="btn-primary text-xs"
-                  onClick={() => {
-                    setSlotAgendar({
-                      inicio: enquetes[0].inicio_escolhido!,
-                      fim:
-                        enquetes[0].fim_escolhido ??
-                        enquetes[0].inicio_escolhido!,
-                    });
-                    setModalAgendar(true);
-                  }}
-                >
-                  Agendar neste horário
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="btn-primary text-xs"
+                    disabled={confirmandoTeams}
+                    onClick={() => void confirmarEnqueteTeams(enquetes[0].id)}
+                    title="Cria a reunião no Teams, bloqueia a agenda do recrutador e convida o candidato por e-mail (Outlook) e WhatsApp."
+                  >
+                    {confirmandoTeams
+                      ? 'Confirmando…'
+                      : '✓ Confirmar no Teams'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    onClick={() => {
+                      setSlotAgendar({
+                        inicio: enquetes[0].inicio_escolhido!,
+                        fim:
+                          enquetes[0].fim_escolhido ??
+                          enquetes[0].inicio_escolhido!,
+                      });
+                      setModalAgendar(true);
+                    }}
+                    title="Agendar manualmente colando o link de vídeo (Meet/Teams)."
+                  >
+                    Agendar manual
+                  </button>
+                </div>
               </div>
             ) : enquetes[0].status === 'AGUARDANDO' ? (
               <div className="text-sm text-grafite-600">
