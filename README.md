@@ -453,7 +453,7 @@ Após subir, abra `http://localhost:3000/dashboard` (X-Api-Key acima) e escaneie
                  ├─ Falha 5xx/429 → re-tentativa com backoff
                  └─ atualiza `mensagens.status` = ENVIADO/FALHADO
 [webhook /webhooks/waha]
-  → HMAC-SHA256 validado → atualiza status (ENTREGUE/LIDO/RESPONDIDO)
+  → HMAC-SHA512 validado → atualiza status (ENTREGUE/LIDO/RESPONDIDO)
 [webhook /webhooks/sendgrid]
   → ECDSA P-256 validado → atualiza status (delivered/open/click/bounce)
 ```
@@ -497,7 +497,7 @@ O agendamento de entrevista baseado na disponibilidade do Teams (Microsoft Graph
 | `WAHA_BASE_URL` | `http://localhost:3000` | URL do WAHA. |
 | `WAHA_API_KEY` | — | X-Api-Key configurada no container. |
 | `WAHA_SESSION` | `default` | Nome da sessão (Plus permite várias). |
-| `WAHA_WEBHOOK_SECRET` | — opcional | HMAC-SHA256 dos webhooks. **Defina em produção.** |
+| `WAHA_WEBHOOK_SECRET` | — opcional | HMAC-SHA512 dos webhooks. **Defina em produção.** |
 | `WAHA_TIMEOUT_MS` | `20000` | Timeout HTTP. |
 | `WAHA_RETRY_MAX` | `3` | Re-tentativas (somente em 429/5xx). |
 | `WAHA_TYPING_MS` | `1500` | Simulação de "digitando..." (anti-ban). |
