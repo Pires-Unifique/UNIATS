@@ -26,7 +26,7 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
  *  - `session.status` — útil para alertar quando a sessão é desconectada.
  *
  * Segurança:
- *  - HMAC-SHA256 sobre o RAW body se WAHA_WEBHOOK_SECRET estiver configurado.
+ *  - HMAC-SHA512 sobre o RAW body se WAHA_WEBHOOK_SECRET estiver configurado.
  *  - Idempotência via tabela `webhooks_recebidos` (provider="waha", external_id=event id).
  *  - FORA do prefixo /api — endpoint público, autenticado por HMAC.
  */
@@ -118,7 +118,9 @@ export class WahaWebhookController {
         'Configuração de raw body ausente para /webhooks/waha.',
       );
     }
-    const esperado = createHmac('sha256', this.secret!)
+    // WAHA assina o webhook com HMAC-SHA512 (header X-Webhook-Hmac-Algorithm: sha512),
+    // não SHA-256. Usar o algoritmo errado faz TODA assinatura falhar silenciosamente.
+    const esperado = createHmac('sha512', this.secret!)
       .update(raw)
       .digest('hex');
 
