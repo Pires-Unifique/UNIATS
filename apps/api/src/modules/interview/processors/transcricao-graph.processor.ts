@@ -93,8 +93,16 @@ export class TranscricaoGraphProcessor extends WorkerHost {
     const joinUrl = entrevista.teams_join_url ?? entrevista.meet_url;
     if (!joinUrl) throw new Error(`Entrevista ${entrevistaId} sem joinUrl do Teams.`);
 
+    this.logger.log(
+      `Graph pull INÍCIO: entrevista=${entrevistaId} organizador=${organizador} ` +
+        `joinUrl=${joinUrl.slice(0, 70)}…`,
+    );
+
     // 1. joinUrl → onlineMeetingId
     const meetingId = await this.graph.resolverOnlineMeetingId(organizador, joinUrl);
+    this.logger.log(
+      `Graph pull resolve: entrevista=${entrevistaId} meetingId=${meetingId ?? 'NULL'}`,
+    );
     if (!meetingId) {
       throw new TranscriptIndisponivelError(
         `onlineMeeting não encontrado p/ entrevista ${entrevistaId} (organizador=${organizador}).`,
@@ -103,6 +111,9 @@ export class TranscricaoGraphProcessor extends WorkerHost {
 
     // 2. lista transcripts (vazio enquanto o Teams indexa ~12 min)
     const transcripts = await this.graph.listarTranscripts(organizador, meetingId);
+    this.logger.log(
+      `Graph pull transcripts: entrevista=${entrevistaId} count=${transcripts.length}`,
+    );
     if (transcripts.length === 0) {
       throw new TranscriptIndisponivelError(
         `Sem transcript ainda p/ meeting ${meetingId} — Teams indexando.`,

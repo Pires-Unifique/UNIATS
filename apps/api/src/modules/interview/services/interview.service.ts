@@ -522,11 +522,15 @@ export class InterviewService {
     if (!entrevista.teams_join_url && !entrevista.meet_url) {
       throw new BadRequestException('Entrevista sem joinUrl do Teams.');
     }
+    // Remove qualquer job anterior (mesmo failed/completed) para garantir um run
+    // FRESCO — senão o BullMQ faz dedup pelo jobId e o disparo manual vira no-op.
+    const jobId = `graph-transcript-${entrevistaId}`;
+    await this.filaGraph.remove(jobId).catch(() => undefined);
     await this.filaGraph.add(
       'transcrever-graph',
       { entrevistaId },
       {
-        jobId: `graph-transcript-${entrevistaId}`,
+        jobId,
         attempts: 12,
         backoff: { type: 'fixed', delay: 180_000 }, // re-tenta a cada 3 min (~36 min)
       },
