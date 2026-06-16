@@ -205,15 +205,37 @@ const EnvSchema = z.object({
 
 export type AppEnv = z.infer<typeof EnvSchema>;
 
+/**
+ * Normaliza um valor de ambiente como o dotenv faria: remove espaços/`\r`/`\n`
+ * nas pontas e UM par de aspas externas. Em produção os valores chegam via
+ * `env_file` do Docker direto no process.env (SEM passar pelo dotenv), então um
+ * `.env` salvo no Windows (CRLF) ou com aspas contaminava segredos — ex.: uma
+ * `ANTHROPIC_API_KEY="sk-ant-…"` ou com `\r` no fim virava 401 "invalid x-api-key"
+ * mesmo com a chave "certa". Aqui replicamos essa higiene no caminho de produção.
+ */
+function normalizarValor(v: string): string {
+  let s = v.trim();
+  if (
+    s.length >= 2 &&
+    ((s[0] === '"' && s[s.length - 1] === '"') ||
+      (s[0] === "'" && s[s.length - 1] === "'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
 export function validateEnv(raw: Record<string, unknown>): AppEnv {
   // Variáveis presentes mas vazias ("") no .env equivalem a "não definidas":
   // removê-las deixa os campos .optional()/.default() funcionarem como esperado.
   const limpo: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
     if (typeof v === 'string') {
-      const t = v.trim();
+      const s = normalizarValor(v);
       // "", "undefined" e "null" significam "não definido" no .env.
-      if (t === '' || t === 'undefined' || t === 'null') continue;
+      if (s === '' || s === 'undefined' || s === 'null') continue;
+      limpo[k] = s;
+      continue;
     }
     limpo[k] = v;
   }
