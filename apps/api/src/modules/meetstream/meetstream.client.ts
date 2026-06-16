@@ -91,12 +91,13 @@ export class MeetStreamClient {
   private readonly http: AxiosInstance;
   private readonly paths = {
     criarBot: '/api/v1/bots/create_bot',
-    statusBot: (id: string) => `/api/v1/bots/${encodeURIComponent(id)}`,
-    pararBot: (id: string) => `/api/v1/bots/${encodeURIComponent(id)}/stop`,
+    statusBot: (id: string) => `/api/v1/bots/${encodeURIComponent(id)}/status`,
+    pararBot: (id: string) =>
+      `/api/v1/bots/${encodeURIComponent(id)}/remove_bot`,
     gravacao: (id: string) =>
-      `/api/v1/bots/${encodeURIComponent(id)}/recording`,
+      `/api/v1/bots/${encodeURIComponent(id)}/get_audio`,
     transcript: (id: string) =>
-      `/api/v1/bots/${encodeURIComponent(id)}/transcript`,
+      `/api/v1/bots/${encodeURIComponent(id)}/transcriptions`,
   };
 
   constructor(private readonly config: ConfigService) {
@@ -168,8 +169,11 @@ export class MeetStreamClient {
 
   async pararBot(botId: string): Promise<void> {
     try {
-      await this.http.post(this.paths.pararBot(botId), {});
+      // MeetStream expõe a remoção do bot como GET /remove_bot (devolve {message}).
+      await this.http.get(this.paths.pararBot(botId));
     } catch (err) {
+      // 404 = bot já removido/encerrado — trata como no-op (idempotente).
+      if (isAxiosError(err) && err.response?.status === 404) return;
       throw this.normalizarErro(err, 'pararBot');
     }
   }
@@ -199,11 +203,40 @@ export class MeetStreamClient {
    */
   async obterTranscript(botId: string): Promise<TranscriptMeta | null> {
     try {
+      // 1. Lista as transcrições do bot. O texto NÃO vem inline: cada item traz
+      //    download_urls (S3 pré-assinada) quando status = Success.
       const resp = await this.http.get(this.paths.transcript(botId));
-      const meta = this.normalizarTranscript(resp.data);
+      const lista = ((resp.data as { transcriptions?: unknown })
+        ?.transcriptions ?? []) as Array<Record<string, unknown>>;
+      const pronta = lista.find(
+        (t) => String(t.status ?? '').toLowerCase() === 'success',
+      );
+      if (!pronta) return null; // ainda processando — o processor re-tenta
+
+      const urls = (pronta.download_urls ?? {}) as Record<string, string>;
+      const url = urls.processed_transcript ?? urls.raw_transcript;
+      if (!url) return null;
+
+      // 2. Baixa o conteúdo da URL pré-assinada (sem header de auth) e normaliza.
+      //    Pode vir JSON ou texto/VTT — tentamos JSON, senão tratamos como string.
+      const conteudo = await this.http.get<string>(url, {
+        responseType: 'text',
+        headers: { Authorization: '' },
+        transformResponse: [(d) => d as string],
+        maxContentLength: 50 * 1024 * 1024,
+      });
+      let dados: unknown = conteudo.data;
+      if (typeof dados === 'string') {
+        try {
+          dados = JSON.parse(dados);
+        } catch {
+          /* texto puro/VTT — normalizarTranscript trata como string */
+        }
+      }
+      const meta = this.normalizarTranscript(dados);
       this.logger.debug(
-        `MeetStream transcript bot=${botId} segmentos=${meta.segmentos.length} ` +
-          `chars=${meta.texto.length} raw=${JSON.stringify(resp.data).slice(0, 600)}`,
+        `MeetStream transcript bot=${botId} provider=${String(pronta.provider)} ` +
+          `segmentos=${meta.segmentos.length} chars=${meta.texto.length}`,
       );
       return meta;
     } catch (err) {
@@ -229,12 +262,15 @@ export class MeetStreamClient {
     }
     const obj = data as Record<string, unknown>;
 
-    const arr =
-      this.primeiroArray(obj.segments) ??
-      this.primeiroArray(obj.utterances) ??
-      this.primeiroArray(obj.transcript) ??
-      this.primeiroArray(obj.results) ??
-      this.primeiroArray(obj.words);
+    // O conteúdo pode ser um array de segmentos no topo, ou um objeto com uma
+    // das chaves conhecidas apontando para o array.
+    const arr = Array.isArray(data)
+      ? (data as unknown[])
+      : (this.primeiroArray(obj.segments) ??
+        this.primeiroArray(obj.utterances) ??
+        this.primeiroArray(obj.transcript) ??
+        this.primeiroArray(obj.results) ??
+        this.primeiroArray(obj.words));
 
     if (arr) {
       const segmentos: TranscriptSegmento[] = arr
