@@ -84,6 +84,8 @@ export interface CriarEventoTeamsInput {
   corpoHtml: string;
   /** Candidato convidado — recebe o convite nativo do Outlook. */
   convidado: { email: string; nome?: string };
+  /** Convidados adicionais (ex.: o recrutador, quando o organizador é uma conta de serviço). */
+  convidadosExtra?: Array<{ email: string; nome?: string }>;
   /** Gera link Teams (default true). Se false, cria só o bloqueio/convite. */
   teams?: boolean;
 }
@@ -199,6 +201,10 @@ export class GraphClient {
           },
           type: 'required',
         },
+        ...(input.convidadosExtra ?? []).map((c) => ({
+          emailAddress: { address: c.email, name: c.nome ?? c.email },
+          type: 'required' as const,
+        })),
       ],
       showAs: 'busy',
       isReminderOn: true,
@@ -280,7 +286,35 @@ export class GraphClient {
       const parsed = OnlineMeetingListSchema.parse(resp.data);
       return parsed.value[0]?.id ?? null;
     } catch (err) {
+      // 404/UnknownError no filtro = reunião não encontrada sob este usuário
+      // (organizador divergente ou ainda não indexada) → tratamos como "não achou".
+      if (isAxiosError(err) && err.response?.status === 404) return null;
       throw this.normalizarErro(err, 'resolverOnlineMeetingId');
+    }
+  }
+
+  /**
+   * Liga gravação + transcrição automáticas no onlineMeeting (PATCH). Deve ser
+   * chamado ANTES da reunião começar — se já houver humanos na sala, o Teams
+   * ignora o flag. Requer OnlineMeetings.ReadWrite.All. Best-effort.
+   */
+  async habilitarTranscricaoAutomatica(
+    organizadorEmail: string,
+    meetingId: string,
+  ): Promise<void> {
+    this.garantirHabilitado();
+    const token = await this.obterToken();
+    try {
+      await this.http.patch(
+        `${this.paths.onlineMeetings(organizadorEmail)}/${encodeURIComponent(meetingId)}`,
+        { allowTranscription: true, recordAutomatically: true },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      this.logger.log(
+        `Auto-transcrição habilitada: organizador=${organizadorEmail} meeting=${meetingId}`,
+      );
+    } catch (err) {
+      throw this.normalizarErro(err, 'habilitarTranscricaoAutomatica');
     }
   }
 

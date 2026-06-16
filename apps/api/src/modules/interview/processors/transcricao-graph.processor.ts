@@ -78,7 +78,10 @@ export class TranscricaoGraphProcessor extends WorkerHost {
       return { entrevistaId, ok: true };
     }
 
+    // Mesmo organizador usado no agendamento: a conta fixa tem prioridade
+    // (é sob ela que o transcript existe no Graph).
     const organizador =
+      this.config.get<string>('INTERVIEW_ORGANIZER_EMAIL') ??
       entrevista.candidatura.vaga?.recrutador?.email ??
       entrevista.entrevistador?.email ??
       this.config.get<string>('AGENDA_ORGANIZADOR_FALLBACK_EMAIL');

@@ -240,15 +240,26 @@ export class InterviewService {
       );
     }
 
+    const recrutadorEmail = enquete.candidatura.vaga?.recrutador?.email ?? null;
+    // Organizador FIXO (conta de serviço) tem prioridade: garante que o transcript
+    // via Graph seja sempre acessível sob um único usuário. Sem ele, cai no
+    // recrutador (comportamento antigo).
+    const organizadorFixo = this.config.get<string>('INTERVIEW_ORGANIZER_EMAIL');
     const organizadorEmail =
-      enquete.candidatura.vaga?.recrutador?.email ??
+      organizadorFixo ??
+      recrutadorEmail ??
       this.config.get<string>('AGENDA_ORGANIZADOR_FALLBACK_EMAIL');
     if (!organizadorEmail) {
       throw new BadRequestException(
-        'Vaga sem recrutador vinculado e sem AGENDA_ORGANIZADOR_FALLBACK_EMAIL — ' +
-          'defina o organizador da reunião.',
+        'Sem organizador definido — configure INTERVIEW_ORGANIZER_EMAIL ou vincule ' +
+          'um recrutador à vaga (ou AGENDA_ORGANIZADOR_FALLBACK_EMAIL).',
       );
     }
+    // Quando o organizador é a conta de serviço, o recrutador entra como convidado.
+    const convidadosExtra =
+      recrutadorEmail && recrutadorEmail !== organizadorEmail
+        ? [{ email: recrutadorEmail }]
+        : [];
 
     if (provedor === 'teams' && !this.graph.enabled) {
       throw new ServiceUnavailableException(
@@ -279,6 +290,7 @@ export class InterviewService {
         email: enquete.candidato.email,
         nome: enquete.candidato.nome_completo ?? undefined,
       },
+      convidadosExtra,
       teams: true,
     });
 
@@ -293,6 +305,27 @@ export class InterviewService {
         );
       throw new ServiceUnavailableException(
         'O Graph criou o evento mas não devolveu o link do Teams — tente novamente.',
+      );
+    }
+
+    // Liga gravação+transcrição automáticas (best-effort): resolve o onlineMeetingId
+    // e faz o PATCH ANTES da reunião começar. Falha aqui não impede o agendamento —
+    // só significa que a transcrição talvez precise ser iniciada manualmente.
+    try {
+      const meetingId = await this.graph.resolverOnlineMeetingId(
+        organizadorEmail,
+        joinUrl,
+      );
+      if (meetingId) {
+        await this.graph.habilitarTranscricaoAutomatica(organizadorEmail, meetingId);
+      } else {
+        this.logger.warn(
+          `Auto-transcrição: onlineMeetingId ainda não resolvido p/ evento ${eventId} — seguirá sem PATCH.`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao habilitar auto-transcrição (não crítico): ${(err as Error).message}`,
       );
     }
 

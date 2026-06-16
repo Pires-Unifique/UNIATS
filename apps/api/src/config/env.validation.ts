@@ -129,6 +129,12 @@ const EnvSchema = z.object({
   // Worker de mensageria
   MENSAGEM_CONCURRENCY: z.coerce.number().int().positive().default(2),
 
+  // Organizador fixo das reuniões de entrevista (conta de serviço). Quando
+  // definido, TODAS as reuniões são criadas sob esta conta (recrutador/candidato
+  // viram convidados) — garante que o transcript via Graph seja sempre acessível
+  // sob um único usuário (Application Access Policy escopada a ele).
+  INTERVIEW_ORGANIZER_EMAIL: z.string().email().optional(),
+
   // Auto-join do bot em reuniões agendadas (scheduler).
   // Desligado por padrão; ligar em homolog/prod para o bot entrar sozinho.
   BOT_AUTOSTART_ENABLED: z.coerce.boolean().default(false),
