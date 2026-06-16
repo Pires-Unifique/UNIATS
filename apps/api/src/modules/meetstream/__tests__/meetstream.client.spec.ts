@@ -59,7 +59,8 @@ describe('MeetStreamClient', () => {
         .post('/api/v1/bots/create_bot', (body) => {
           expect(body.meeting_link).toMatch(/^https:\/\/meet\.google\.com/);
           expect(body.audio_required).toBe(true);
-          expect(body.transcript_required).toBe(false);
+          // BAKE-OFF: transcript interno do MeetStream ligado p/ comparar com AssemblyAI.
+          expect(body.transcript_required).toBe(true);
           return true;
         })
         .matchHeader('authorization', /^Token tok-/)

@@ -113,6 +113,19 @@ export class InterviewController {
     return this.service.obter(id);
   }
 
+  /**
+   * ⚠️ BAKE-OFF TEMPORÁRIO — REMOVER quando o provedor de transcrição for
+   * decidido. Devolve os transcripts/ATAs dos provedores (assemblyai x
+   * meetstream) lado a lado, com métricas, para avaliação A/B.
+   */
+  @Get(':id/comparacao')
+  async comparacao(@Param('id') id: string) {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('id deve ser UUID.');
+    }
+    return this.service.compararTranscricoes(id);
+  }
+
   @Get()
   async listar(
     @Query('candidaturaId') candidaturaId?: string,

@@ -548,6 +548,50 @@ export class InterviewService {
     return resto;
   }
 
+  /**
+   * ⚠️ BAKE-OFF TEMPORÁRIO — REMOVER quando o provedor de transcrição for
+   * decidido (ver memória/[[bake-off-transcricao-remover]] e o banner em
+   * schema.prisma). Devolve os resultados de cada provedor lado a lado, com
+   * métricas, para a avaliação A/B (assemblyai x meetstream).
+   */
+  async compararTranscricoes(entrevistaId: string) {
+    const entrevista = await this.prisma.entrevista.findUnique({
+      where: { id: entrevistaId },
+      select: { id: true, status: true, agendada_para: true },
+    });
+    if (!entrevista) {
+      throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
+    }
+    const linhas = await this.prisma.transcricaoBench.findMany({
+      where: { entrevista_id: entrevistaId },
+      orderBy: { provider: 'asc' },
+      select: {
+        provider: true,
+        status: true,
+        idioma: true,
+        texto_completo: true,
+        resumo: true,
+        topicos: true,
+        palavras: true,
+        segmentos_count: true,
+        latencia_ms: true,
+        tokens_entrada: true,
+        tokens_saida: true,
+        provider_ref: true,
+        erro: true,
+        atualizado_em: true,
+      },
+    });
+    const porProvedor = (p: string) => linhas.find((l) => l.provider === p) ?? null;
+    return {
+      entrevistaId: entrevista.id,
+      status: entrevista.status,
+      // chaves explícitas facilitam o diff no front; null = ainda não processado
+      assemblyai: porProvedor('assemblyai'),
+      meetstream: porProvedor('meetstream'),
+    };
+  }
+
   async listarPorCandidatura(candidaturaId: string) {
     return this.prisma.entrevista.findMany({
       where: { candidatura_id: candidaturaId },

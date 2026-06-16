@@ -3,11 +3,13 @@ import { Module } from '@nestjs/common';
 import { AnaliseVozProcessor } from './processors/analise-voz.processor.js';
 import { AudioProcessProcessor } from './processors/audio-process.processor.js';
 import { AssemblyAIWebhookController } from './webhooks/assemblyai-webhook.controller.js';
+import { BotAutostartService } from './services/bot-autostart.service.js';
 import { BotStartProcessor } from './processors/bot-start.processor.js';
 import { InterviewController } from './interview.controller.js';
 import { InterviewService } from './services/interview.service.js';
 import { MeetStreamWebhookController } from './webhooks/meetstream-webhook.controller.js';
 import { RetencaoLGPDService } from './services/retencao-lgpd.service.js';
+import { TranscricaoBenchProcessor } from './processors/transcricao-bench.processor.js';
 import { TranscricaoProcessor } from './processors/transcricao.processor.js';
 
 /**
@@ -34,10 +36,12 @@ import { TranscricaoProcessor } from './processors/transcricao.processor.js';
   providers: [
     InterviewService,
     RetencaoLGPDService,
+    BotAutostartService,
     BotStartProcessor,
     AudioProcessProcessor,
     TranscricaoProcessor,
     AnaliseVozProcessor,
+    TranscricaoBenchProcessor, // BAKE-OFF temporário — remover com TranscricaoBench
   ],
   exports: [InterviewService],
 })

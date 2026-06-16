@@ -72,6 +72,19 @@ export interface GravacaoMeta {
   mimeType?: string;
 }
 
+/** Segmento normalizado de transcript (shape comum a assembly/meetstream). */
+export interface TranscriptSegmento {
+  inicio_ms?: number;
+  fim_ms?: number;
+  falante?: string;
+  texto: string;
+}
+
+export interface TranscriptMeta {
+  texto: string;
+  segmentos: TranscriptSegmento[];
+}
+
 @Injectable()
 export class MeetStreamClient {
   private readonly logger = new Logger(MeetStreamClient.name);
@@ -82,6 +95,8 @@ export class MeetStreamClient {
     pararBot: (id: string) => `/api/v1/bots/${encodeURIComponent(id)}/stop`,
     gravacao: (id: string) =>
       `/api/v1/bots/${encodeURIComponent(id)}/recording`,
+    transcript: (id: string) =>
+      `/api/v1/bots/${encodeURIComponent(id)}/transcript`,
   };
 
   constructor(private readonly config: ConfigService) {
@@ -129,9 +144,9 @@ export class MeetStreamClient {
         bot_name: input.nomeExibido ?? 'Bot Unifique — Recrutamento',
         language: input.idioma ?? 'pt-BR',
         audio_required: true,
-        // diarização externa (vamos rodar AssemblyAI com speaker_labels) —
-        // mantemos transcrição interna desabilitada para reduzir custo.
-        transcript_required: false,
+        // BAKE-OFF: ligamos o transcript interno do MeetStream para compará-lo
+        // com o AssemblyAI (que roda sobre o áudio). Ver TranscricaoBench.
+        transcript_required: true,
       });
       const parsed = CreateBotResponseSchema.parse(resp.data);
       this.logger.log(`Bot MeetStream criado: ${parsed.bot_id}`);
@@ -174,6 +189,99 @@ export class MeetStreamClient {
       if (isAxiosError(err) && err.response?.status === 404) return null;
       throw this.normalizarErro(err, 'obterGravacao');
     }
+  }
+
+  /**
+   * Busca o transcript interno do MeetStream (BAKE-OFF — comparação com o
+   * AssemblyAI). A forma exata da resposta não é documentada de forma estável,
+   * então normalizamos de forma permissiva e logamos o cru no 1º uso para
+   * ajuste fino. Retorna `null` se o transcript ainda não está pronto (404).
+   */
+  async obterTranscript(botId: string): Promise<TranscriptMeta | null> {
+    try {
+      const resp = await this.http.get(this.paths.transcript(botId));
+      const meta = this.normalizarTranscript(resp.data);
+      this.logger.debug(
+        `MeetStream transcript bot=${botId} segmentos=${meta.segmentos.length} ` +
+          `chars=${meta.texto.length} raw=${JSON.stringify(resp.data).slice(0, 600)}`,
+      );
+      return meta;
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 404) return null;
+      throw this.normalizarErro(err, 'obterTranscript');
+    }
+  }
+
+  /**
+   * Normaliza shapes conhecidos/prováveis do transcript do MeetStream:
+   *   - { transcript: "texto..." }
+   *   - { transcript: [ {speaker, text, start, end}, ... ] }
+   *   - { segments|utterances|words: [ ... ] }
+   *   - "texto..." (string pura)
+   * Campos de tempo aceitam ms ou segundos (heurística: < 10000 ⇒ segundos).
+   */
+  private normalizarTranscript(data: unknown): TranscriptMeta {
+    if (typeof data === 'string') {
+      return { texto: data.trim(), segmentos: [] };
+    }
+    if (!data || typeof data !== 'object') {
+      return { texto: '', segmentos: [] };
+    }
+    const obj = data as Record<string, unknown>;
+
+    const arr =
+      this.primeiroArray(obj.segments) ??
+      this.primeiroArray(obj.utterances) ??
+      this.primeiroArray(obj.transcript) ??
+      this.primeiroArray(obj.results) ??
+      this.primeiroArray(obj.words);
+
+    if (arr) {
+      const segmentos: TranscriptSegmento[] = arr
+        .map((s) => this.normalizarSegmento(s))
+        .filter((s): s is TranscriptSegmento => s !== null);
+      const texto = segmentos
+        .map((s) => (s.falante ? `${s.falante}: ${s.texto}` : s.texto))
+        .join('\n')
+        .trim();
+      return { texto, segmentos };
+    }
+
+    // Sem array de segmentos: tenta um campo de texto plano.
+    const textoPlano =
+      (typeof obj.transcript === 'string' && obj.transcript) ||
+      (typeof obj.text === 'string' && obj.text) ||
+      (typeof obj.full_text === 'string' && obj.full_text) ||
+      '';
+    return { texto: String(textoPlano).trim(), segmentos: [] };
+  }
+
+  private primeiroArray(v: unknown): unknown[] | null {
+    return Array.isArray(v) && v.length > 0 ? v : null;
+  }
+
+  private normalizarSegmento(s: unknown): TranscriptSegmento | null {
+    if (!s || typeof s !== 'object') return null;
+    const o = s as Record<string, unknown>;
+    const texto = String(o.text ?? o.transcript ?? o.content ?? o.word ?? '').trim();
+    if (!texto) return null;
+    const falante =
+      (o.speaker as string | undefined) ??
+      (o.speaker_label as string | undefined) ??
+      (o.speaker_name as string | undefined) ??
+      undefined;
+    return {
+      texto,
+      falante: falante != null ? String(falante) : undefined,
+      inicio_ms: this.paraMs(o.start ?? o.start_ms ?? o.start_time ?? o.begin),
+      fim_ms: this.paraMs(o.end ?? o.end_ms ?? o.end_time),
+    };
+  }
+
+  private paraMs(v: unknown): number | undefined {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+    // Heurística: valores pequenos provavelmente estão em segundos.
+    return v < 10_000 ? Math.round(v * 1000) : Math.round(v);
   }
 
   /**

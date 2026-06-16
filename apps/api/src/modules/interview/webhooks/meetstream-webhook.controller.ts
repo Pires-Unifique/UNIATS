@@ -42,6 +42,9 @@ export class MeetStreamWebhookController {
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUE_NAMES.AUDIO_PROCESS)
     private readonly filaAudio: Queue,
+    // BAKE-OFF temporário — remover junto com TranscricaoBench.
+    @InjectQueue(QUEUE_NAMES.TRANSCRICAO_BENCH)
+    private readonly filaBench: Queue,
   ) {
     this.secret = config.get<string>('MEETSTREAM_WEBHOOK_SECRET');
     if (!this.secret) {
@@ -138,6 +141,33 @@ export class MeetStreamWebhookController {
     };
   }
 
+  /**
+   * BAKE-OFF temporário — enfileira a comparação A/B de transcrição (um job por
+   * provedor). Como o transcript (AssemblyAI ou MeetStream) só fica pronto
+   * alguns minutos após a reunião, usamos backoff fixo longo: o processor
+   * re-tenta enquanto o transcript não está disponível.
+   * REMOVER junto com TranscricaoBench quando o provedor for decidido.
+   */
+  private async dispararBench(entrevistaId: string, botId: string): Promise<void> {
+    const enfileiradoEm = Date.now();
+    const opts = {
+      attempts: 20,
+      backoff: { type: 'fixed' as const, delay: 60_000 }, // re-tenta de 1 em 1 min, até ~20 min
+    };
+    await Promise.all([
+      this.filaBench.add(
+        'bench',
+        { entrevistaId, provider: 'meetstream', botId, enfileiradoEm },
+        { jobId: `bench-meetstream-${entrevistaId}`, ...opts },
+      ),
+      this.filaBench.add(
+        'bench',
+        { entrevistaId, provider: 'assemblyai', botId, enfileiradoEm },
+        { jobId: `bench-assemblyai-${entrevistaId}`, ...opts },
+      ),
+    ]);
+  }
+
   private async processar(evento: {
     type: string;
     botId?: string;
@@ -188,6 +218,10 @@ export class MeetStreamWebhookController {
             { jobId: `audio-${entrevista.id}` },
           );
         }
+        // BAKE-OFF temporário (remover com TranscricaoBench): dispara a comparação
+        // A/B. O lado 'assemblyai' lê o transcript que o pipeline acima produz; o
+        // lado 'meetstream' busca o transcript interno do bot. Jobs idempotentes.
+        await this.dispararBench(entrevista.id, evento.botId);
         break;
 
       case 'bot.failed':

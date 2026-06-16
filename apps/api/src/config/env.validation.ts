@@ -129,6 +129,15 @@ const EnvSchema = z.object({
   // Worker de mensageria
   MENSAGEM_CONCURRENCY: z.coerce.number().int().positive().default(2),
 
+  // Auto-join do bot em reuniões agendadas (scheduler).
+  // Desligado por padrão; ligar em homolog/prod para o bot entrar sozinho.
+  BOT_AUTOSTART_ENABLED: z.coerce.boolean().default(false),
+  // Quantos minutos ANTES do horário marcado o bot já pode entrar.
+  BOT_AUTOSTART_LEAD_MIN: z.coerce.number().int().nonnegative().default(5),
+  // Janela de tolerância DEPOIS do horário (pega entrevistas recém-iniciadas que
+  // ainda não tiveram o bot disparado, ex.: deploy reiniciou no meio).
+  BOT_AUTOSTART_GRACE_MIN: z.coerce.number().int().nonnegative().default(10),
+
   // MeetStream (Camada 4b — bot de entrevista)
   MEETSTREAM_API_KEY: z.string().min(8).optional(),
   MEETSTREAM_BASE_URL: z.string().url().default('https://api.meetstream.ai'),
