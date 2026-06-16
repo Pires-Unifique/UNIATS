@@ -129,6 +129,14 @@ const EnvSchema = z.object({
   // Worker de mensageria
   MENSAGEM_CONCURRENCY: z.coerce.number().int().positive().default(2),
 
+  // Agendador automático do transcript oficial via Graph (pull pós-reunião).
+  // Ligado por padrão; só age se o Graph estiver configurado.
+  GRAPH_TRANSCRICAO_AUTO_ENABLED: z.coerce.boolean().default(true),
+  // Minutos APÓS o fim estimado da reunião antes de tentar baixar (Teams indexa ~12 min).
+  GRAPH_TRANSCRICAO_DELAY_MIN: z.coerce.number().int().nonnegative().default(13),
+  // Janela máxima (min) após o fim em que ainda tentamos — evita re-tentar p/ sempre.
+  GRAPH_TRANSCRICAO_MAX_WINDOW_MIN: z.coerce.number().int().positive().default(180),
+
   // Organizador fixo das reuniões de entrevista (conta de serviço). Quando
   // definido, TODAS as reuniões são criadas sob esta conta (recrutador/candidato
   // viram convidados) — garante que o transcript via Graph seja sempre acessível
