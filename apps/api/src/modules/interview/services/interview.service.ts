@@ -270,6 +270,15 @@ export class InterviewService {
 
     const inicio = enquete.inicio_escolhido;
     const fim = enquete.fim_escolhido;
+    // Valida o horário ANTES de criar a reunião no Teams. Se o horário escolhido
+    // já passou, não dá para agendar — e criar o evento aqui deixaria reunião
+    // órfã + agenda bloqueada, pois o agendar() abaixo rejeitaria depois do POST
+    // ao Graph. Mensagem acionável: o recrutador reenvia a enquete.
+    if (inicio.getTime() < Date.now() - 5 * 60_000) {
+      throw new BadRequestException(
+        'O horário escolhido pelo candidato já passou. Envie uma nova enquete de horários.',
+      );
+    }
     const titulo = enquete.candidatura.vaga?.titulo ?? 'Entrevista';
     const nomeCandidato = enquete.candidato.nome_completo ?? 'candidato(a)';
     const quando = this.formatarDataHora(inicio);
@@ -329,22 +338,36 @@ export class InterviewService {
       );
     }
 
-    const entrevista = await this.agendar({
-      candidaturaId: enquete.candidatura_id,
-      agendadaPara: inicio,
-      meetUrl: joinUrl,
-      duracaoEstimadaMin:
-        input.duracaoEstimadaMin ??
-        Math.max(
-          5,
-          Math.round((fim.getTime() - inicio.getTime()) / 60_000),
-        ),
-      entrevistadorId: enquete.candidatura.vaga?.recrutador?.id,
-      graphEventId: eventId,
-      teamsJoinUrl: joinUrl,
-      provedorVideo: 'teams',
-      consentirGravacao: input.consentirGravacao,
-    });
+    let entrevista: { id: string; status: string; agendada_para: Date };
+    try {
+      entrevista = await this.agendar({
+        candidaturaId: enquete.candidatura_id,
+        agendadaPara: inicio,
+        meetUrl: joinUrl,
+        duracaoEstimadaMin:
+          input.duracaoEstimadaMin ??
+          Math.max(
+            5,
+            Math.round((fim.getTime() - inicio.getTime()) / 60_000),
+          ),
+        entrevistadorId: enquete.candidatura.vaga?.recrutador?.id,
+        graphEventId: eventId,
+        teamsJoinUrl: joinUrl,
+        provedorVideo: 'teams',
+        consentirGravacao: input.consentirGravacao,
+      });
+    } catch (err) {
+      // Reverte a reunião/bloqueio criados no Graph para não deixar evento órfão
+      // (a validação de horário acima já cobre o caso comum; isto blinda os demais).
+      await this.graph
+        .removerEvento(organizadorEmail, eventId)
+        .catch((e) =>
+          this.logger.warn(
+            `Falha ao reverter evento ${eventId} após erro no agendar: ${(e as Error).message}`,
+          ),
+        );
+      throw err;
+    }
 
     // Vincula a enquete à entrevista (trava idempotência).
     await this.prisma.enqueteHorario.update({
