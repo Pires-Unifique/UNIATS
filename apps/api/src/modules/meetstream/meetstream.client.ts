@@ -138,16 +138,35 @@ export class MeetStreamClient {
     this.validarMeetUrl(input.meetUrl);
     this.validarWebhookUrl(input.webhookUrl);
 
+    // Provider de transcrição do MeetStream (lado "meetstream" do bake-off).
+    // 'meeting_captions' (legendas nativas do Teams) é o default mais robusto;
+    // configurável via env para testar outros (meetstream, deepgram, etc.).
+    const provider =
+      this.config.get<string>('MEETSTREAM_TRANSCRIPT_PROVIDER') ??
+      'meeting_captions';
+    const lang =
+      input.idioma ??
+      this.config.get<string>('MEETSTREAM_TRANSCRIPT_LANGUAGE') ??
+      'pt';
+    const providerCfg =
+      provider === 'meeting_captions' ? {} : { language_code: lang };
+
     try {
       const resp = await this.http.post(this.paths.criarBot, {
         meeting_link: input.meetUrl,
-        webhook_url: input.webhookUrl,
         bot_name: input.nomeExibido ?? 'Bot Unifique — Recrutamento',
-        language: input.idioma ?? 'pt-BR',
-        audio_required: true,
-        // BAKE-OFF: ligamos o transcript interno do MeetStream para compará-lo
-        // com o AssemblyAI (que roda sobre o áudio). Ver TranscricaoBench.
-        transcript_required: true,
+        // callback_url (NÃO "webhook_url") — é o que registra o webhook de eventos.
+        callback_url: input.webhookUrl,
+        recording_config: {
+          retention: { type: 'timed', hours: 24 },
+          // Liga a transcrição do MeetStream (lado do bake-off). A gravação de
+          // áudio fica disponível via get_audio para o lado AssemblyAI.
+          transcript: { provider: { [provider]: providerCfg } },
+        },
+        automatic_leave: {
+          // Sai sozinho ~60s depois que todos saem (o "safety hangup").
+          everyone_left_timeout: 60,
+        },
       });
       const parsed = CreateBotResponseSchema.parse(resp.data);
       this.logger.log(`Bot MeetStream criado: ${parsed.bot_id}`);

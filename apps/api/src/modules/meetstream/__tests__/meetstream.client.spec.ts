@@ -58,9 +58,14 @@ describe('MeetStreamClient', () => {
       nock(HOST)
         .post('/api/v1/bots/create_bot', (body) => {
           expect(body.meeting_link).toMatch(/^https:\/\/meet\.google\.com/);
-          expect(body.audio_required).toBe(true);
-          // BAKE-OFF: transcript interno do MeetStream ligado p/ comparar com AssemblyAI.
-          expect(body.transcript_required).toBe(true);
+          // callback_url (não webhook_url) é o que registra o webhook de eventos.
+          expect(body.callback_url).toBe(
+            'https://api.example.com/webhooks/meetstream',
+          );
+          // Transcrição configurada via recording_config.transcript.provider.
+          expect(body.recording_config?.transcript?.provider).toBeDefined();
+          expect(body.audio_required).toBeUndefined();
+          expect(body.transcript_required).toBeUndefined();
           return true;
         })
         .matchHeader('authorization', /^Token tok-/)
