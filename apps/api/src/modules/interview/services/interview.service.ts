@@ -54,6 +54,8 @@ export class InterviewService {
     private readonly config: ConfigService,
     @InjectQueue(QUEUE_NAMES.BOT_ENTREVISTA)
     private readonly filaBot: Queue,
+    @InjectQueue(QUEUE_NAMES.TRANSCRICAO_GRAPH)
+    private readonly filaGraph: Queue,
   ) {
     this.publicBaseUrl =
       this.config.get<string>('PUBLIC_BASE_URL') ??
@@ -443,6 +445,39 @@ export class InterviewService {
     return { entrevistaId, status: 'enfileirado' };
   }
 
+  /**
+   * Enfileira a busca do transcript OFICIAL do Teams via Graph (pull). Idempotente.
+   * Re-tenta por ~36 min enquanto o Teams indexa o transcript (~12 min de espera).
+   * Não coloca bot na sala — só baixa o transcript que o Teams já gerou.
+   */
+  async transcreverViaGraph(
+    entrevistaId: string,
+  ): Promise<{ entrevistaId: string; status: string }> {
+    const entrevista = await this.prisma.entrevista.findUnique({
+      where: { id: entrevistaId },
+      select: { id: true, teams_join_url: true, meet_url: true },
+    });
+    if (!entrevista) {
+      throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
+    }
+    if (!this.graph.enabled) {
+      throw new ServiceUnavailableException('Microsoft Graph não configurado.');
+    }
+    if (!entrevista.teams_join_url && !entrevista.meet_url) {
+      throw new BadRequestException('Entrevista sem joinUrl do Teams.');
+    }
+    await this.filaGraph.add(
+      'transcrever-graph',
+      { entrevistaId },
+      {
+        jobId: `graph-transcript-${entrevistaId}`,
+        attempts: 12,
+        backoff: { type: 'fixed', delay: 180_000 }, // re-tenta a cada 3 min (~36 min)
+      },
+    );
+    return { entrevistaId, status: 'enfileirado' };
+  }
+
   async encerrarBot(entrevistaId: string): Promise<{ ok: boolean }> {
     const entrevista = await this.prisma.entrevista.findUnique({
       where: { id: entrevistaId },
@@ -546,50 +581,6 @@ export class InterviewService {
     // acessível via endpoint dedicado com auditoria.
     const { audio_url, ...resto } = e;
     return resto;
-  }
-
-  /**
-   * ⚠️ BAKE-OFF TEMPORÁRIO — REMOVER quando o provedor de transcrição for
-   * decidido (ver memória/[[bake-off-transcricao-remover]] e o banner em
-   * schema.prisma). Devolve os resultados de cada provedor lado a lado, com
-   * métricas, para a avaliação A/B (assemblyai x meetstream).
-   */
-  async compararTranscricoes(entrevistaId: string) {
-    const entrevista = await this.prisma.entrevista.findUnique({
-      where: { id: entrevistaId },
-      select: { id: true, status: true, agendada_para: true },
-    });
-    if (!entrevista) {
-      throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
-    }
-    const linhas = await this.prisma.transcricaoBench.findMany({
-      where: { entrevista_id: entrevistaId },
-      orderBy: { provider: 'asc' },
-      select: {
-        provider: true,
-        status: true,
-        idioma: true,
-        texto_completo: true,
-        resumo: true,
-        topicos: true,
-        palavras: true,
-        segmentos_count: true,
-        latencia_ms: true,
-        tokens_entrada: true,
-        tokens_saida: true,
-        provider_ref: true,
-        erro: true,
-        atualizado_em: true,
-      },
-    });
-    const porProvedor = (p: string) => linhas.find((l) => l.provider === p) ?? null;
-    return {
-      entrevistaId: entrevista.id,
-      status: entrevista.status,
-      // chaves explícitas facilitam o diff no front; null = ainda não processado
-      assemblyai: porProvedor('assemblyai'),
-      meetstream: porProvedor('meetstream'),
-    };
   }
 
   async listarPorCandidatura(candidaturaId: string) {

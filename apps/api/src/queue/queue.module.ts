@@ -14,9 +14,8 @@ export const QUEUE_NAMES = {
   AUDIO_PROCESS: 'audio-process',
   TRANSCRICAO: 'transcricao',
   ANALISE_VOZ: 'analise-voz',
-  // BAKE-OFF (temporário): comparação A/B de transcrição assemblyai x meetstream.
-  // REMOVER junto com TranscricaoBench quando o provedor for decidido.
-  TRANSCRICAO_BENCH: 'transcricao-bench',
+  // Transcript oficial do Teams via Graph (pull). Processa pós-reunião com retry.
+  TRANSCRICAO_GRAPH: 'transcricao-graph',
 } as const;
 
 @Global()
@@ -53,7 +52,7 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.AUDIO_PROCESS },
       { name: QUEUE_NAMES.TRANSCRICAO },
       { name: QUEUE_NAMES.ANALISE_VOZ },
-      { name: QUEUE_NAMES.TRANSCRICAO_BENCH }, // BAKE-OFF temporário — remover depois
+      { name: QUEUE_NAMES.TRANSCRICAO_GRAPH },
     ),
   ],
   exports: [BullModule],

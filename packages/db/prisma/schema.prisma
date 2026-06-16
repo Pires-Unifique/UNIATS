@@ -427,7 +427,6 @@ model Entrevista {
 
   transcricao         Transcricao?
   analise_voz         AnaliseVoz?
-  transcricoes_bench  TranscricaoBench[]            // bake-off: transcript por provedor (avaliação)
   perguntas           PerguntaEntrevista[]
   avaliacoes          AvaliacaoEntrevista[]
   enquete_horario     EnqueteHorario?               // enquete que originou esta entrevista (se houver)
@@ -550,60 +549,6 @@ model Transcricao {
   entrevista      Entrevista @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
 
   @@map("transcricoes")
-}
-
-// =====================================================================
-// ⚠️ TABELA TEMPORÁRIA — REMOVER ANTES DE IR PARA PRODUÇÃO ⚠️
-// =====================================================================
-// BAKE-OFF DE TRANSCRIÇÃO — avaliação A/B (assemblyai x meetstream)
-//
-// Tabela temporária de comparação: para a MESMA entrevista guarda o
-// transcript de cada provedor lado a lado, cada um com a ATA gerada pelo
-// Claude (mesmo prompt) e métricas de eficiência. NÃO substitui a tabela
-// `transcricoes` de produção.
-//
-// 🚩 OBRIGAÇÃO DE LIMPEZA — assim que a equipe decidir qual provedor de
-//    transcrição vamos adotar, ESTE bloco e toda a infra de bench DEVEM
-//    ser removidos. Não pode existir em produção. Itens a apagar:
-//      1. Este model `TranscricaoBench` + a relação `transcricoes_bench`
-//         em `Entrevista` (+ migração de DROP TABLE).
-//      2. Fila QUEUE_NAMES.TRANSCRICAO_BENCH (queue.module.ts).
-//      3. TranscricaoBenchProcessor + registro no InterviewModule.
-//      4. Disparo dos jobs de bench no meetstream-webhook.controller.ts.
-//      5. Endpoint GET /api/entrevistas/:id/comparacao + método no service.
-//    Marcador para busca: grep "BAKE-OFF" / "TranscricaoBench".
-// =====================================================================
-model TranscricaoBench {
-  id              String   @id @default(uuid()) @db.Uuid
-  entrevista_id   String   @db.Uuid
-
-  provider        String                              // "assemblyai" | "meetstream"
-  status          String   @default("pendente")       // "pendente" | "ok" | "erro"
-  idioma          String   @default("pt-BR")
-  texto_completo  String   @default("") @db.Text
-  segmentos       Json     @default("[]")              // shape normalizado [{inicio_ms?, fim_ms?, falante?, texto}]
-
-  // ATA gerada pelo Claude sobre ESTE transcript (mesmo prompt nos dois lados).
-  resumo          String?  @db.Text
-  topicos         String[]
-
-  // Métricas para comparar eficiência entre os provedores.
-  palavras            Int?                             // contagem de palavras do transcript
-  segmentos_count     Int?
-  latencia_ms         Int?                             // do início do job de bench até concluir
-  tokens_entrada      Int?                             // ATA Claude
-  tokens_saida        Int?
-  provider_ref        String?                          // transcript_id (assembly) / botId (meetstream)
-  erro                String?  @db.Text
-
-  criado_em       DateTime @default(now())
-  atualizado_em   DateTime @updatedAt
-
-  entrevista      Entrevista @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
-
-  @@unique([entrevista_id, provider])
-  @@index([entrevista_id])
-  @@map("transcricoes_bench")
 }
 
 // ---------------------------------------------------------------------

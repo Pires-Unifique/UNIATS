@@ -46,6 +46,34 @@ const EventoResponseSchema = z
   })
   .passthrough();
 
+const OnlineMeetingListSchema = z
+  .object({
+    value: z
+      .array(z.object({ id: z.string().min(1) }).passthrough())
+      .default([]),
+  })
+  .passthrough();
+
+const TranscriptListSchema = z
+  .object({
+    value: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            createdDateTime: z.string().optional(),
+          })
+          .passthrough(),
+      )
+      .default([]),
+  })
+  .passthrough();
+
+export interface TranscriptInfo {
+  id: string;
+  criadoEm?: string;
+}
+
 export interface CriarEventoTeamsInput {
   /** UPN/e-mail do recrutador dono da agenda (organizador). */
   organizadorEmail: string;
@@ -84,6 +112,12 @@ export class GraphClient {
       `/users/${encodeURIComponent(email)}/events`,
     evento: (email: string, eventId: string) =>
       `/users/${encodeURIComponent(email)}/events/${encodeURIComponent(eventId)}`,
+    onlineMeetings: (email: string) =>
+      `/users/${encodeURIComponent(email)}/onlineMeetings`,
+    transcripts: (email: string, meetingId: string) =>
+      `/users/${encodeURIComponent(email)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts`,
+    transcriptContent: (email: string, meetingId: string, transcriptId: string) =>
+      `/users/${encodeURIComponent(email)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}/content`,
   };
 
   constructor(private readonly config: ConfigService) {
@@ -214,6 +248,88 @@ export class GraphClient {
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 404) return;
       throw this.normalizarErro(err, 'removerEvento');
+    }
+  }
+
+  /** ----------------------------------------------------------------------
+   *  Transcript oficial (PULL — sem callback público; tudo saída p/ o Graph)
+   *  Requer OnlineMeetingTranscript.Read.All + Application Access Policy.
+   *  --------------------------------------------------------------------- */
+
+  /**
+   * Resolve o `onlineMeetingId` a partir do joinUrl do Teams, no contexto do
+   * organizador. Devolve null se não encontrar (ex.: policy ausente devolve 403,
+   * tratado em normalizarErro). O filtro usa JoinWebUrl eq '<joinUrl>'.
+   */
+  async resolverOnlineMeetingId(
+    organizadorEmail: string,
+    joinUrl: string,
+  ): Promise<string | null> {
+    this.garantirHabilitado();
+    this.validarEmail(organizadorEmail, 'organizadorEmail');
+    const token = await this.obterToken();
+    try {
+      const resp = await this.http.get(
+        this.paths.onlineMeetings(organizadorEmail),
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          // O Graph exige a string entre aspas simples no $filter.
+          params: { $filter: `JoinWebUrl eq '${joinUrl}'` },
+        },
+      );
+      const parsed = OnlineMeetingListSchema.parse(resp.data);
+      return parsed.value[0]?.id ?? null;
+    } catch (err) {
+      throw this.normalizarErro(err, 'resolverOnlineMeetingId');
+    }
+  }
+
+  /** Lista os transcripts disponíveis da reunião (vazio enquanto o Teams indexa). */
+  async listarTranscripts(
+    organizadorEmail: string,
+    meetingId: string,
+  ): Promise<TranscriptInfo[]> {
+    this.garantirHabilitado();
+    const token = await this.obterToken();
+    try {
+      const resp = await this.http.get(
+        this.paths.transcripts(organizadorEmail, meetingId),
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const parsed = TranscriptListSchema.parse(resp.data);
+      return parsed.value.map((t) => ({ id: t.id, criadoEm: t.createdDateTime }));
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 404) return [];
+      throw this.normalizarErro(err, 'listarTranscripts');
+    }
+  }
+
+  /**
+   * Baixa o conteúdo do transcript em VTT (texto). Devolve null em 404 (ainda
+   * não disponível). O parsing do VTT → segmentos fica fora do client.
+   */
+  async baixarTranscriptVtt(
+    organizadorEmail: string,
+    meetingId: string,
+    transcriptId: string,
+  ): Promise<string | null> {
+    this.garantirHabilitado();
+    const token = await this.obterToken();
+    try {
+      const resp = await this.http.get<string>(
+        this.paths.transcriptContent(organizadorEmail, meetingId, transcriptId),
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { $format: 'text/vtt' },
+          responseType: 'text',
+          transformResponse: [(d) => d as string],
+        },
+      );
+      const vtt = String(resp.data ?? '').trim();
+      return vtt.length > 0 ? vtt : null;
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 404) return null;
+      throw this.normalizarErro(err, 'baixarTranscriptVtt');
     }
   }
 

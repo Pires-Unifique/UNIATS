@@ -72,19 +72,6 @@ export interface GravacaoMeta {
   mimeType?: string;
 }
 
-/** Segmento normalizado de transcript (shape comum a assembly/meetstream). */
-export interface TranscriptSegmento {
-  inicio_ms?: number;
-  fim_ms?: number;
-  falante?: string;
-  texto: string;
-}
-
-export interface TranscriptMeta {
-  texto: string;
-  segmentos: TranscriptSegmento[];
-}
-
 @Injectable()
 export class MeetStreamClient {
   private readonly logger = new Logger(MeetStreamClient.name);
@@ -96,8 +83,6 @@ export class MeetStreamClient {
       `/api/v1/bots/${encodeURIComponent(id)}/remove_bot`,
     gravacao: (id: string) =>
       `/api/v1/bots/${encodeURIComponent(id)}/get_audio`,
-    transcript: (id: string) =>
-      `/api/v1/bots/${encodeURIComponent(id)}/transcriptions`,
   };
 
   constructor(private readonly config: ConfigService) {
@@ -212,131 +197,6 @@ export class MeetStreamClient {
       if (isAxiosError(err) && err.response?.status === 404) return null;
       throw this.normalizarErro(err, 'obterGravacao');
     }
-  }
-
-  /**
-   * Busca o transcript interno do MeetStream (BAKE-OFF — comparação com o
-   * AssemblyAI). A forma exata da resposta não é documentada de forma estável,
-   * então normalizamos de forma permissiva e logamos o cru no 1º uso para
-   * ajuste fino. Retorna `null` se o transcript ainda não está pronto (404).
-   */
-  async obterTranscript(botId: string): Promise<TranscriptMeta | null> {
-    try {
-      // 1. Lista as transcrições do bot. O texto NÃO vem inline: cada item traz
-      //    download_urls (S3 pré-assinada) quando status = Success.
-      const resp = await this.http.get(this.paths.transcript(botId));
-      const lista = ((resp.data as { transcriptions?: unknown })
-        ?.transcriptions ?? []) as Array<Record<string, unknown>>;
-      const pronta = lista.find(
-        (t) => String(t.status ?? '').toLowerCase() === 'success',
-      );
-      if (!pronta) return null; // ainda processando — o processor re-tenta
-
-      const urls = (pronta.download_urls ?? {}) as Record<string, string>;
-      const url = urls.processed_transcript ?? urls.raw_transcript;
-      if (!url) return null;
-
-      // 2. Baixa o conteúdo da URL pré-assinada (sem header de auth) e normaliza.
-      //    Pode vir JSON ou texto/VTT — tentamos JSON, senão tratamos como string.
-      const conteudo = await this.http.get<string>(url, {
-        responseType: 'text',
-        headers: { Authorization: '' },
-        transformResponse: [(d) => d as string],
-        maxContentLength: 50 * 1024 * 1024,
-      });
-      let dados: unknown = conteudo.data;
-      if (typeof dados === 'string') {
-        try {
-          dados = JSON.parse(dados);
-        } catch {
-          /* texto puro/VTT — normalizarTranscript trata como string */
-        }
-      }
-      const meta = this.normalizarTranscript(dados);
-      this.logger.debug(
-        `MeetStream transcript bot=${botId} provider=${String(pronta.provider)} ` +
-          `segmentos=${meta.segmentos.length} chars=${meta.texto.length}`,
-      );
-      return meta;
-    } catch (err) {
-      if (isAxiosError(err) && err.response?.status === 404) return null;
-      throw this.normalizarErro(err, 'obterTranscript');
-    }
-  }
-
-  /**
-   * Normaliza shapes conhecidos/prováveis do transcript do MeetStream:
-   *   - { transcript: "texto..." }
-   *   - { transcript: [ {speaker, text, start, end}, ... ] }
-   *   - { segments|utterances|words: [ ... ] }
-   *   - "texto..." (string pura)
-   * Campos de tempo aceitam ms ou segundos (heurística: < 10000 ⇒ segundos).
-   */
-  private normalizarTranscript(data: unknown): TranscriptMeta {
-    if (typeof data === 'string') {
-      return { texto: data.trim(), segmentos: [] };
-    }
-    if (!data || typeof data !== 'object') {
-      return { texto: '', segmentos: [] };
-    }
-    const obj = data as Record<string, unknown>;
-
-    // O conteúdo pode ser um array de segmentos no topo, ou um objeto com uma
-    // das chaves conhecidas apontando para o array.
-    const arr = Array.isArray(data)
-      ? (data as unknown[])
-      : (this.primeiroArray(obj.segments) ??
-        this.primeiroArray(obj.utterances) ??
-        this.primeiroArray(obj.transcript) ??
-        this.primeiroArray(obj.results) ??
-        this.primeiroArray(obj.words));
-
-    if (arr) {
-      const segmentos: TranscriptSegmento[] = arr
-        .map((s) => this.normalizarSegmento(s))
-        .filter((s): s is TranscriptSegmento => s !== null);
-      const texto = segmentos
-        .map((s) => (s.falante ? `${s.falante}: ${s.texto}` : s.texto))
-        .join('\n')
-        .trim();
-      return { texto, segmentos };
-    }
-
-    // Sem array de segmentos: tenta um campo de texto plano.
-    const textoPlano =
-      (typeof obj.transcript === 'string' && obj.transcript) ||
-      (typeof obj.text === 'string' && obj.text) ||
-      (typeof obj.full_text === 'string' && obj.full_text) ||
-      '';
-    return { texto: String(textoPlano).trim(), segmentos: [] };
-  }
-
-  private primeiroArray(v: unknown): unknown[] | null {
-    return Array.isArray(v) && v.length > 0 ? v : null;
-  }
-
-  private normalizarSegmento(s: unknown): TranscriptSegmento | null {
-    if (!s || typeof s !== 'object') return null;
-    const o = s as Record<string, unknown>;
-    const texto = String(o.text ?? o.transcript ?? o.content ?? o.word ?? '').trim();
-    if (!texto) return null;
-    const falante =
-      (o.speaker as string | undefined) ??
-      (o.speaker_label as string | undefined) ??
-      (o.speaker_name as string | undefined) ??
-      undefined;
-    return {
-      texto,
-      falante: falante != null ? String(falante) : undefined,
-      inicio_ms: this.paraMs(o.start ?? o.start_ms ?? o.start_time ?? o.begin),
-      fim_ms: this.paraMs(o.end ?? o.end_ms ?? o.end_time),
-    };
-  }
-
-  private paraMs(v: unknown): number | undefined {
-    if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
-    // Heurística: valores pequenos provavelmente estão em segundos.
-    return v < 10_000 ? Math.round(v * 1000) : Math.round(v);
   }
 
   /**

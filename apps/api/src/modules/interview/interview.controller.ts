@@ -113,19 +113,6 @@ export class InterviewController {
     return this.service.obter(id);
   }
 
-  /**
-   * ⚠️ BAKE-OFF TEMPORÁRIO — REMOVER quando o provedor de transcrição for
-   * decidido. Devolve os transcripts/ATAs dos provedores (assemblyai x
-   * meetstream) lado a lado, com métricas, para avaliação A/B.
-   */
-  @Get(':id/comparacao')
-  async comparacao(@Param('id') id: string) {
-    if (!UUID_REGEX.test(id)) {
-      throw new BadRequestException('id deve ser UUID.');
-    }
-    return this.service.compararTranscricoes(id);
-  }
-
   @Get()
   async listar(
     @Query('candidaturaId') candidaturaId?: string,
@@ -157,6 +144,19 @@ export class InterviewController {
       throw new BadRequestException('id deve ser UUID.');
     }
     return this.service.iniciarBot(id);
+  }
+
+  /**
+   * Dispara a busca do transcript oficial do Teams via Graph (pull). Útil pra
+   * processar manualmente após a reunião enquanto o agendador automático não
+   * está ligado; idempotente e com retry interno.
+   */
+  @Post(':id/transcrever-graph')
+  async transcreverGraph(@Param('id') id: string) {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('id deve ser UUID.');
+    }
+    return this.service.transcreverViaGraph(id);
   }
 
   @Post(':id/encerrar')
