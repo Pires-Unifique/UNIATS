@@ -222,6 +222,13 @@ export class RankingService {
 
   // Vagas com classificação em andamento (in-memory; suficiente p/ 1 instância).
   private readonly classificando = new Set<string>();
+  // Resultado da última classificação por vaga (in-memory) — para expor erros ao
+  // operador via `statusClassificacao`. Sem isto, falhas do Claude (chave/modelo/
+  // TLS) ficam invisíveis na UI e o operador só vê "sem nota".
+  private readonly ultimaClassificacao = new Map<
+    string,
+    { erros: number; ultimoErro: string | null; em: string }
+  >();
 
   /**
    * Dispara a classificação da vaga em BACKGROUND e retorna na hora.
@@ -249,14 +256,31 @@ export class RankingService {
     }
 
     this.classificando.add(vagaId);
-    // Fire-and-forget: não await. Erros são logados; o Set é liberado no fim.
+    // Fire-and-forget: não await. Guardamos o resultado (erros + motivo) para o
+    // operador conseguir ver via `statusClassificacao` por que ficou "sem nota".
     void this.matching
       .classificarVagaLLM(vagaId, somentePendentes)
-      .catch((err) =>
-        this.logger.error(
-          `Classificação da vaga ${vagaId} falhou: ${(err as Error).message}`,
-        ),
-      )
+      .then((res) => {
+        this.ultimaClassificacao.set(vagaId, {
+          erros: res.erros,
+          ultimoErro: res.ultimoErro,
+          em: new Date().toISOString(),
+        });
+        if (res.erros > 0) {
+          this.logger.error(
+            `Classificação da vaga ${vagaId}: ${res.erros} erro(s). Último: ${res.ultimoErro}`,
+          );
+        }
+      })
+      .catch((err) => {
+        const msg = (err as Error).message;
+        this.ultimaClassificacao.set(vagaId, {
+          erros: -1,
+          ultimoErro: msg,
+          em: new Date().toISOString(),
+        });
+        this.logger.error(`Classificação da vaga ${vagaId} falhou: ${msg}`);
+      })
       .finally(() => this.classificando.delete(vagaId));
 
     return { iniciado: true, jaEmAndamento: false, ...status };
@@ -267,6 +291,10 @@ export class RankingService {
     total: number;
     classificados: number;
     emAndamento: boolean;
+    /** Nº de candidaturas que falharam na última classificação (0 = ok). */
+    erros: number;
+    /** Motivo da última falha (chave/modelo/TLS) — null quando não houve. */
+    ultimoErro: string | null;
   }> {
     const [total, classificados] = await Promise.all([
       this.prisma.candidatura.count({
@@ -280,7 +308,14 @@ export class RankingService {
         },
       }),
     ]);
-    return { total, classificados, emAndamento: this.classificando.has(vagaId) };
+    const ultima = this.ultimaClassificacao.get(vagaId);
+    return {
+      total,
+      classificados,
+      emAndamento: this.classificando.has(vagaId),
+      erros: ultima?.erros ?? 0,
+      ultimoErro: ultima?.ultimoErro ?? null,
+    };
   }
 
   /**

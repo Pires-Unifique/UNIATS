@@ -232,7 +232,17 @@ export default function CandidatosVagaPage({
       });
       await carregarCandidaturas(busca);
       setPendentesLLM(r.pendentesLLM);
-      if (r.avaliadosAgora === 0) {
+      if (r.avaliadosAgora === 0 && r.embedados === 0) {
+        // Nada avaliado E nenhum CV embedado → o passo vetorial (Voyage) não
+        // produziu vetores. O fluxo completo depende deles; oriente a usar o
+        // caminho que NÃO depende de embeddings.
+        setAviso(null);
+        setErro(
+          'Nenhum currículo pôde ser lido para comparação (etapa de embeddings vazia — ' +
+            'verifique a chave da Voyage). Use “Avaliar quem está sem nota”, que avalia ' +
+            'direto com a IA sem depender dessa etapa.',
+        );
+      } else if (r.avaliadosAgora === 0) {
         setAviso('Todos os currículos já foram avaliados — não há mais nenhum sem nota.');
       } else {
         setAviso(
@@ -273,12 +283,25 @@ export default function CandidatosVagaPage({
           total: number;
           classificados: number;
           emAndamento: boolean;
+          erros: number;
+          ultimoErro: string | null;
         }>(`/api/vagas/${vagaId}/classificar/status`);
         await carregarCandidaturas(busca);
         if (!st.emAndamento) {
-          setAviso(
-            `Pronto! ${st.classificados}/${st.total} currículo(s) com nota.`,
-          );
+          // Houve falhas na avaliação (Claude indisponível, chave/modelo/TLS):
+          // mostramos o motivo em vez de fingir sucesso — senão o operador só vê
+          // "sem nota" sem saber o porquê.
+          if (st.erros && st.erros !== 0) {
+            setAviso(null);
+            setErro(
+              `Não foi possível avaliar com IA. ${st.classificados}/${st.total} com nota. ` +
+                `Motivo: ${st.ultimoErro ?? 'erro desconhecido'}.`,
+            );
+          } else {
+            setAviso(
+              `Pronto! ${st.classificados}/${st.total} currículo(s) com nota.`,
+            );
+          }
           break;
         }
         setAviso(

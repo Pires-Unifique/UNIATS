@@ -215,6 +215,12 @@ export class VagasController {
     const itens = cands.map((c) => {
       const consolidado = c.scores.find((s) => s.tipo === 'CONSOLIDADO');
       const rankingCv = c.scores.find((s) => s.tipo === 'RANKING_CV');
+      // Nota IA exibida = melhor disponível: CONSOLIDADO (preferido) e, na sua
+      // ausência, RANKING_CV. Candidaturas que têm só o RANKING_CV (estado
+      // parcial conhecido na base) tinham nota mas apareciam como "sem nota" —
+      // o que escondia a avaliação dos demais usuários. O fallback corrige isso
+      // sem mudar a regra de "pendente" (que continua olhando o CONSOLIDADO).
+      const notaIA = consolidado ?? rankingCv;
       return {
         candidaturaId: c.id,
         candidatoNome: c.candidato.nome_completo,
@@ -227,7 +233,7 @@ export class VagasController {
         inscritoEm: c.inscrito_em,
         anosExperiencia: c.curriculo?.anos_experiencia ?? null,
         temCurriculo: c.curriculo != null,
-        score: consolidado ? Number(consolidado.valor) : null,
+        score: notaIA ? Number(notaIA.valor) : null,
         justificativa: (rankingCv ?? consolidado)?.justificativa ?? null,
       };
     });

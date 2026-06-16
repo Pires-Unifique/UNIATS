@@ -47,7 +47,7 @@ export interface GradeAgenda {
 export interface OpcoesDisponibilidade {
   /** Duração de cada janela em minutos (30 ou 60). */
   duracaoMin: number;
-  /** Quantos dias úteis olhar a partir de amanhã. */
+  /** Quantos dias úteis olhar a partir de hoje. */
   diasUteis: number;
   /** Início do expediente (hora local, 0-23). */
   horaInicio: number;
@@ -133,7 +133,8 @@ export function gerarSlotsLivres(
     minute: '2-digit',
   });
 
-  // Itera dia a dia (a partir de amanhã), pulando fim de semana.
+  // Itera dia a dia (a partir de hoje), pulando fim de semana.
+  const agora = Date.now();
   const base = new Date(janelaInicio);
   for (let dia = 0; dia < opts.diasUteis + 7; dia++) {
     const d = new Date(base);
@@ -150,6 +151,7 @@ export function gerarSlotsLivres(
       const inicio = new Date(d);
       inicio.setHours(0, 0, 0, 0);
       inicio.setMinutes(h);
+      if (inicio.getTime() < agora) continue; // horário já passou (hoje)
       const idx = Math.round(
         (inicio.getTime() - janelaInicio.getTime()) / (intervalo * 60_000),
       );
@@ -198,6 +200,10 @@ export function gerarGradeDisponibilidade(
     horarios.push(`${pad(Math.floor(h / 60))}:${pad(h % 60)}`);
   }
 
+  // Horários já passados (de hoje) não podem ser propostos: marcamos como
+  // ocupado para que apareçam na grade mas fiquem não-selecionáveis.
+  const agora = Date.now();
+
   // Colunas: dias úteis (pula fim de semana, respeita o limite de dias úteis).
   const dias: DiaAgenda[] = [];
   const base = new Date(janelaInicio);
@@ -224,6 +230,8 @@ export function gerarGradeDisponibilidade(
       if (idx >= 0 && idx < availabilityView.length) {
         status = availabilityView[idx] === '0' ? 'livre' : 'ocupado';
       }
+      // Mascara horários no passado (ex.: manhã de hoje): não dá para propor.
+      if (inicio.getTime() < agora) status = 'ocupado';
       return { inicio: isoLocal(inicio), fim: isoLocal(fim), status };
     });
 
@@ -295,9 +303,10 @@ async function buscarViewConjunta(
     }
   }
 
-  // Janela: de amanhã 00:00 até diasUteis+7 dias depois, no expediente.
+  // Janela: de HOJE no início do expediente até diasUteis+7 dias depois.
+  // (Antes começava amanhã — o dia de hoje também deve poder ser proposto;
+  // os horários de hoje que já passaram são mascarados na geração da grade.)
   const inicio = new Date();
-  inicio.setDate(inicio.getDate() + 1);
   inicio.setHours(opts.horaInicio, 0, 0, 0);
   const fim = new Date(inicio);
   fim.setDate(inicio.getDate() + opts.diasUteis + 7);

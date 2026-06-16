@@ -280,7 +280,13 @@ export class MatchingService {
   async classificarVagaLLM(
     vagaId: string,
     somentePendentes = false,
-  ): Promise<{ vagaId: string; total: number; classificados: number; erros: number }> {
+  ): Promise<{
+    vagaId: string;
+    total: number;
+    classificados: number;
+    erros: number;
+    ultimoErro: string | null;
+  }> {
     const vaga = await this.prisma.vaga.findUnique({
       where: { id: vagaId },
       select: { id: true },
@@ -302,6 +308,7 @@ export class MatchingService {
 
     let classificados = 0;
     let erros = 0;
+    let ultimoErro: string | null = null;
     // Processa em lotes concorrentes para acelerar (o SDK trata rate-limit/retry).
     const CONCORRENCIA = 4;
     for (let i = 0; i < candidaturas.length; i += CONCORRENCIA) {
@@ -315,10 +322,12 @@ export class MatchingService {
           classificados++;
         } else {
           erros++;
+          // Guarda o motivo da última falha para que a UI/`statusClassificacao`
+          // possa exibi-lo — sem isso o operador só vê "sem nota" e não sabe
+          // que o Claude falhou (chave/modelo/TLS) nem por quê.
+          ultimoErro = (r.reason as Error)?.message ?? String(r.reason);
           this.logger.warn(
-            `Falha ao classificar candidatura ${lote[j].id}: ${
-              (r.reason as Error)?.message ?? r.reason
-            }`,
+            `Falha ao classificar candidatura ${lote[j].id}: ${ultimoErro}`,
           );
         }
       }
@@ -332,6 +341,7 @@ export class MatchingService {
       total: candidaturas.length,
       classificados,
       erros,
+      ultimoErro,
     };
   }
 
@@ -667,16 +677,29 @@ export class MatchingService {
         ],
       });
     } catch (err) {
-      const e = err as InstanceType<typeof Anthropic.APIError>;
+      const e = err as InstanceType<typeof Anthropic.APIError> & {
+        cause?: { code?: string; message?: string };
+      };
+      // Erros de rede (TLS/DNS/conexão) chegam como APIConnectionError sem
+      // `status`; a causa real (ex.: SELF_SIGNED_CERT_IN_CHAIN, ECONNREFUSED)
+      // fica em `cause`. Incluímos no detalhe para o motivo ser diagnosticável
+      // na UI/logs (sem isso, "Falha ao chamar Claude" não diz nada em homol).
+      const causa = e?.cause?.code ?? e?.cause?.message;
+      const detalhe = [
+        e?.status != null ? `status=${e.status}` : 'rede',
+        e?.message,
+        causa,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
       if (e?.status === 429 || (e?.status && e.status >= 500)) {
         throw new ServiceUnavailableException(
-          'LLM indisponível para ranking — job será re-tentado.',
+          `LLM indisponível para ranking (${detalhe}) — job será re-tentado.`,
         );
       }
-      this.logger.error(
-        `Claude ranking falhou: status=${e?.status} ${e?.message}`,
-      );
-      throw new InternalServerErrorException('Falha ao chamar Claude.');
+      this.logger.error(`Claude ranking falhou: ${detalhe}`);
+      throw new InternalServerErrorException(`Falha ao chamar Claude (${detalhe}).`);
     }
 
     const tool = resp.content.find(
