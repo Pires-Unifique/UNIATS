@@ -8,6 +8,9 @@ import { BotStartProcessor } from './processors/bot-start.processor.js';
 import { InterviewController } from './interview.controller.js';
 import { InterviewService } from './services/interview.service.js';
 import { MeetStreamWebhookController } from './webhooks/meetstream-webhook.controller.js';
+import { PlaywrightAutostartService } from './services/playwright-autostart.service.js';
+import { PlaywrightCallbackController } from './webhooks/playwright-callback.controller.js';
+import { PlaywrightTranscricaoProcessor } from './processors/playwright-transcricao.processor.js';
 import { RetencaoLGPDService } from './services/retencao-lgpd.service.js';
 import { TranscricaoGraphProcessor } from './processors/transcricao-graph.processor.js';
 import { TranscricaoGraphSchedulerService } from './services/transcricao-graph-scheduler.service.js';
@@ -33,17 +36,20 @@ import { TranscricaoProcessor } from './processors/transcricao.processor.js';
     InterviewController,
     MeetStreamWebhookController,
     AssemblyAIWebhookController,
+    PlaywrightCallbackController,
   ],
   providers: [
     InterviewService,
     RetencaoLGPDService,
     BotAutostartService,
     TranscricaoGraphSchedulerService,
+    PlaywrightAutostartService,
     BotStartProcessor,
     AudioProcessProcessor,
     TranscricaoProcessor,
     AnaliseVozProcessor,
     TranscricaoGraphProcessor,
+    PlaywrightTranscricaoProcessor,
   ],
   exports: [InterviewService],
 })

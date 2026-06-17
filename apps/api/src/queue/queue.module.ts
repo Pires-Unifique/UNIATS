@@ -16,6 +16,11 @@ export const QUEUE_NAMES = {
   ANALISE_VOZ: 'analise-voz',
   // Transcript oficial do Teams via Graph (pull). Processa pós-reunião com retry.
   TRANSCRICAO_GRAPH: 'transcricao-graph',
+  // Fallback: bot Playwright entra na reunião e captura legendas. Consumida pelo
+  // serviço externo `services/playwright-bot` (mesmo Redis/prefixo).
+  PLAYWRIGHT_JOIN: 'playwright-join',
+  // Persistência da transcrição devolvida pelo bot (callback → processor + ATA).
+  PLAYWRIGHT_TRANSCRICAO: 'playwright-transcricao',
 } as const;
 
 @Global()
@@ -53,6 +58,8 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.TRANSCRICAO },
       { name: QUEUE_NAMES.ANALISE_VOZ },
       { name: QUEUE_NAMES.TRANSCRICAO_GRAPH },
+      { name: QUEUE_NAMES.PLAYWRIGHT_JOIN },
+      { name: QUEUE_NAMES.PLAYWRIGHT_TRANSCRICAO },
     ),
   ],
   exports: [BullModule],

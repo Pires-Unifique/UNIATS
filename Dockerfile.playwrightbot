@@ -1,0 +1,29 @@
+# =====================================================================
+# Bot Playwright (fallback de transcrição) — UniATS  •  context = raiz do monorepo
+# Standalone (fora do workspace pnpm): instala com npm e usa os navegadores já
+# embutidos na imagem oficial do Playwright (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1).
+# A versão do pacote `playwright` DEVE casar com a tag da imagem base.
+# Build: docker build -f Dockerfile.playwrightbot --target runtime -t uniats-playwright-bot .
+# =====================================================================
+
+# ---- build: instala deps + compila TS ----------------------------------------------
+FROM mcr.microsoft.com/playwright:v1.48.0-jammy AS build
+WORKDIR /app
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+COPY services/playwright-bot/package.json services/playwright-bot/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY services/playwright-bot/tsconfig.json ./
+COPY services/playwright-bot/src ./src
+RUN npm run build
+
+# ---- runtime: só deps de produção + dist --------------------------------------------
+FROM mcr.microsoft.com/playwright:v1.48.0-jammy AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+COPY services/playwright-bot/package.json services/playwright-bot/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY --from=build /app/dist ./dist
+# xvfb-run dá um display virtual: funciona tanto headless quanto headful (Teams web
+# às vezes recusa headless puro — basta PLAYWRIGHT_HEADLESS=false pra rodar headful).
+CMD ["xvfb-run", "--auto-servernum", "--", "node", "dist/index.js"]

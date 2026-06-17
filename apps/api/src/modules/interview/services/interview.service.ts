@@ -60,6 +60,8 @@ export class InterviewService {
     private readonly filaBot: Queue,
     @InjectQueue(QUEUE_NAMES.TRANSCRICAO_GRAPH)
     private readonly filaGraph: Queue,
+    @InjectQueue(QUEUE_NAMES.PLAYWRIGHT_JOIN)
+    private readonly filaPlaywright: Queue,
   ) {
     this.publicBaseUrl =
       this.config.get<string>('PUBLIC_BASE_URL') ??
@@ -550,6 +552,47 @@ export class InterviewService {
         backoff: { type: 'fixed', delay: 180_000 }, // re-tenta a cada 3 min (~36 min)
       },
     );
+    return { entrevistaId, status: 'enfileirado' };
+  }
+
+  /**
+   * Dispara o bot Playwright (fallback) para entrar na reunião AGORA e capturar
+   * as legendas. Útil pra testar sem esperar o cron de auto-join. O serviço
+   * externo playwright-bot consome o job; o resultado volta pelo callback interno.
+   */
+  async transcreverViaPlaywright(
+    entrevistaId: string,
+  ): Promise<{ entrevistaId: string; status: string }> {
+    const entrevista = await this.prisma.entrevista.findUnique({
+      where: { id: entrevistaId },
+      select: { id: true, teams_join_url: true, duracao_estimada_min: true },
+    });
+    if (!entrevista) {
+      throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
+    }
+    if (!entrevista.teams_join_url) {
+      throw new BadRequestException('Entrevista sem joinUrl do Teams.');
+    }
+    const maxDuracaoMin =
+      this.config.get<number>('PLAYWRIGHT_MAX_DURACAO_MIN') ?? 180;
+    const jobId = `playwright-join-${entrevistaId}`;
+    await this.filaPlaywright.remove(jobId).catch(() => undefined);
+    await this.filaPlaywright.add(
+      'join',
+      {
+        entrevistaId,
+        joinUrl: entrevista.teams_join_url,
+        maxDuracaoMin: Math.min(
+          maxDuracaoMin,
+          (entrevista.duracao_estimada_min ?? 30) + 30,
+        ),
+      },
+      { jobId, attempts: 2, backoff: { type: 'fixed', delay: 30_000 } },
+    );
+    await this.prisma.entrevista.update({
+      where: { id: entrevistaId },
+      data: { bot_session_id: jobId, bot_provider: 'playwright', bot_status: 'dispatched' },
+    });
     return { entrevistaId, status: 'enfileirado' };
   }
 

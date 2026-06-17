@@ -152,6 +152,19 @@ const EnvSchema = z.object({
   // ainda não tiveram o bot disparado, ex.: deploy reiniciou no meio).
   BOT_AUTOSTART_GRACE_MIN: z.coerce.number().int().nonnegative().default(10),
 
+  // Bot Playwright (fallback de transcrição — captura legendas do Teams web).
+  // Independe de Application Access Policy / de ser o organizador (entra como
+  // convidado). O job de join é consumido pelo serviço externo playwright-bot.
+  PLAYWRIGHT_BOT_ENABLED: z.coerce.boolean().default(false),
+  // Minutos ANTES do horário marcado em que o bot já pode entrar (entra cedo p/ lobby).
+  PLAYWRIGHT_AUTOSTART_LEAD_MIN: z.coerce.number().int().nonnegative().default(2),
+  // Tolerância DEPOIS do horário (pega entrevistas recém-iniciadas sem bot disparado).
+  PLAYWRIGHT_AUTOSTART_GRACE_MIN: z.coerce.number().int().nonnegative().default(15),
+  // Teto de duração que mandamos pro bot permanecer na sala (min).
+  PLAYWRIGHT_MAX_DURACAO_MIN: z.coerce.number().int().positive().default(180),
+  // Segredo compartilhado do callback interno do bot (header x-playwright-secret).
+  PLAYWRIGHT_CALLBACK_SECRET: z.string().min(8).optional(),
+
   // MeetStream (Camada 4b — bot de entrevista)
   MEETSTREAM_API_KEY: z.string().min(8).optional(),
   MEETSTREAM_BASE_URL: z.string().url().default('https://api.meetstream.ai'),

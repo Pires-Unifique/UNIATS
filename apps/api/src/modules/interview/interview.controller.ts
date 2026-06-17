@@ -159,6 +159,18 @@ export class InterviewController {
     return this.service.transcreverViaGraph(id);
   }
 
+  /**
+   * Dispara o bot Playwright (fallback) para entrar na reunião AGORA e capturar
+   * as legendas ao vivo. Útil para testar o bot sem esperar o cron de auto-join.
+   */
+  @Post(':id/transcrever-playwright')
+  async transcreverPlaywright(@Param('id') id: string) {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('id deve ser UUID.');
+    }
+    return this.service.transcreverViaPlaywright(id);
+  }
+
   @Post(':id/encerrar')
   async encerrar(@Param('id') id: string) {
     if (!UUID_REGEX.test(id)) {
