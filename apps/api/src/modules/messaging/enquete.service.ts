@@ -269,6 +269,9 @@ export class EnqueteService {
         fim_escolhido: true,
         respondido_em: true,
         criado_em: true,
+        // Quando preenchido, a enquete já virou entrevista — a UI usa isto para
+        // esconder o botão "Confirmar no Teams" e mostrar "Confirmada".
+        entrevista_id: true,
       },
     });
   }
