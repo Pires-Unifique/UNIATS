@@ -176,7 +176,15 @@ export class EmbeddingService {
 
     const textoVaga = montarTextoCanonicoVaga(vaga);
     if (textoVaga.trim()) {
-      itens.push({ alvo: 'vaga', alvoId: vaga.id, texto: textoVaga });
+      // Pula o embedding da vaga se ela já tem vetor (a menos que reembedar):
+      // sem isto, cada chamada repetida do loop do front re-embeda a vaga e
+      // desperdiça uma janela do throttle (≈22s no trial) que deveria ir p/ CVs.
+      const vagaJaEmbedada =
+        !opts.reembedar &&
+        (await this.prisma.embedding.count({ where: { vaga_id: vaga.id } })) > 0;
+      if (!vagaJaEmbedada) {
+        itens.push({ alvo: 'vaga', alvoId: vaga.id, texto: textoVaga });
+      }
     }
 
     // CVs estruturados da vaga. Por padrão ignora candidaturas descartadas
@@ -295,7 +303,26 @@ export class EmbeddingService {
     let interrompido = false;
     let erro: unknown = null;
 
+    // Orçamento de tempo POR REQUISIÇÃO: processa lotes até ~BUDGET e devolve
+    // parcial (interrompido=true) se sobrar. Sem isto, uma vaga grande processa
+    // TODOS os lotes numa única chamada (minutos, throttle do Voyage) e estoura o
+    // timeout do proxy reverso — que o browser reporta como erro de CORS (a
+    // resposta de gateway não traz Access-Control-Allow-Origin). O front re-chama
+    // em loop e, como pulamos o que já embedou, continua de onde parou.
+    // Adapta ao tier: trial (lento) faz ~1 lote/chamada; tier pago faz vários.
+    const BUDGET_MS = Math.max(
+      5_000,
+      Number(process.env.EMBEDDING_LOTE_BUDGET_MS ?? 20_000),
+    );
+    const inicioMs = Date.now();
+    let lotesFeitos = 0;
+
     for (const lote of lotes) {
+      // Depois de ao menos 1 lote, respeita o orçamento de tempo da requisição.
+      if (lotesFeitos > 0 && Date.now() - inicioMs >= BUDGET_MS) {
+        interrompido = true;
+        break;
+      }
       let out: { vetores: number[][]; modelo: string };
       try {
         out = await this.provider.embed({
@@ -349,6 +376,7 @@ export class EmbeddingService {
 
       temVaga = temVaga || lote.some((i) => i.alvo === 'vaga');
       curriculos += lote.filter((i) => i.alvo === 'curriculo').length;
+      lotesFeitos++;
     }
 
     // Se NADA foi gravado e houve erro, propaga (usuário vê a falha). Se houve
