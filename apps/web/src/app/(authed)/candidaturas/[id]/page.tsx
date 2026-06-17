@@ -36,6 +36,8 @@ interface EnqueteHorario {
   fim_escolhido: string | null;
   respondido_em: string | null;
   criado_em: string;
+  /** Preenchido quando a enquete já virou entrevista (confirmada). */
+  entrevista_id: string | null;
 }
 
 interface Score {
@@ -538,8 +540,26 @@ export default function CandidaturaPage({
         {/* Enquete de horários — escolha do candidato (quando houver) */}
         {enquetes[0] && (
           <div className="mb-3 rounded-md border border-grafite-200 p-3">
-            {enquetes[0].status === 'RESPONDIDA' &&
-            enquetes[0].inicio_escolhido ? (
+            {enquetes[0].entrevista_id ? (
+              // Já confirmada: a enquete virou entrevista. Não mostra mais o botão
+              // de confirmar (era o que ficava preso na tela ao reconfirmar).
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm text-grafite-700">
+                  <span className="badge-green mr-2">Entrevista confirmada</span>
+                  {enquetes[0].opcao_escolhida ??
+                    (enquetes[0].inicio_escolhido
+                      ? formatarDataHora(enquetes[0].inicio_escolhido)
+                      : '')}
+                </div>
+                <Link
+                  href={`/entrevistas/${enquetes[0].entrevista_id}`}
+                  className="btn-secondary text-xs"
+                >
+                  Ver entrevista →
+                </Link>
+              </div>
+            ) : enquetes[0].status === 'RESPONDIDA' &&
+              enquetes[0].inicio_escolhido ? (
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm text-grafite-700">
                   <span className="badge-green mr-2">Candidato escolheu</span>
