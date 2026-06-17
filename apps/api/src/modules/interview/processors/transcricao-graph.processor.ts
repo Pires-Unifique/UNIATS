@@ -61,6 +61,8 @@ export class TranscricaoGraphProcessor extends WorkerHost {
         id: true,
         teams_join_url: true,
         meet_url: true,
+        graph_online_meeting_id: true,
+        graph_organizador_email: true,
         entrevistador: { select: { email: true } },
         candidatura: {
           select: { vaga: { select: { recrutador: { select: { email: true } } } } },
@@ -78,9 +80,11 @@ export class TranscricaoGraphProcessor extends WorkerHost {
       return { entrevistaId, ok: true };
     }
 
-    // Mesmo organizador usado no agendamento: a conta fixa tem prioridade
-    // (é sob ela que o transcript existe no Graph).
+    // Plano B: usa a conta que REALMENTE criou a reunião (gravada na entrevista) —
+    // é sob ela que o transcript existe no Graph. Para entrevistas antigas (sem o
+    // campo), cai na derivação por env, com a conta fixa em prioridade.
     const organizador =
+      entrevista.graph_organizador_email ??
       this.config.get<string>('INTERVIEW_ORGANIZER_EMAIL') ??
       entrevista.candidatura.vaga?.recrutador?.email ??
       entrevista.entrevistador?.email ??
@@ -98,11 +102,20 @@ export class TranscricaoGraphProcessor extends WorkerHost {
         `joinUrl=${joinUrl.slice(0, 70)}…`,
     );
 
-    // 1. joinUrl → onlineMeetingId
-    const meetingId = await this.graph.resolverOnlineMeetingId(organizador, joinUrl);
-    this.logger.log(
-      `Graph pull resolve: entrevista=${entrevistaId} meetingId=${meetingId ?? 'NULL'}`,
-    );
+    // 1. onlineMeetingId — Plano B: usa o id gravado na criação (pull direto, sem
+    // redescobrir por JoinWebUrl). Fallback: resolve pelo joinUrl (entrevistas
+    // antigas, ou quando o id não foi resolvido na criação — ex.: policy ausente).
+    let meetingId = entrevista.graph_online_meeting_id ?? null;
+    if (meetingId) {
+      this.logger.log(
+        `Graph pull resolve: entrevista=${entrevistaId} meetingId=${meetingId} (persistido)`,
+      );
+    } else {
+      meetingId = await this.graph.resolverOnlineMeetingId(organizador, joinUrl);
+      this.logger.log(
+        `Graph pull resolve: entrevista=${entrevistaId} meetingId=${meetingId ?? 'NULL'} (via joinUrl)`,
+      );
+    }
     if (!meetingId) {
       throw new TranscriptIndisponivelError(
         `onlineMeeting não encontrado p/ entrevista ${entrevistaId} (organizador=${organizador}).`,

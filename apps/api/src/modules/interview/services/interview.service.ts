@@ -29,6 +29,10 @@ export interface AgendarEntrevistaInput {
   teamsJoinUrl?: string;
   /** "teams" | "google_meet". */
   provedorVideo?: string;
+  /** onlineMeetingId no Graph (resolvido na criação — pull direto, sem redescobrir). */
+  graphOnlineMeetingId?: string | null;
+  /** Conta organizadora sob a qual o transcript existe no Graph. */
+  graphOrganizadorEmail?: string | null;
   /** Registra consentimento de gravação do candidato no ato do agendamento. */
   consentirGravacao?: boolean;
 }
@@ -132,6 +136,8 @@ export class InterviewService {
         graph_event_id: input.graphEventId,
         teams_join_url: input.teamsJoinUrl,
         provedor_video: input.provedorVideo,
+        graph_online_meeting_id: input.graphOnlineMeetingId,
+        graph_organizador_email: input.graphOrganizadorEmail,
         status: 'AGENDADA',
       },
       select: {
@@ -320,13 +326,20 @@ export class InterviewService {
     // Liga gravação+transcrição automáticas (best-effort): resolve o onlineMeetingId
     // e faz o PATCH ANTES da reunião começar. Falha aqui não impede o agendamento —
     // só significa que a transcrição talvez precise ser iniciada manualmente.
+    // Plano B: o id resolvido aqui é persistido na entrevista, pra o pull do
+    // transcript usar direto depois (sem redescobrir por JoinWebUrl). Fica null se
+    // a policy ainda não propagou — o processor cai no fallback de resolução.
+    let onlineMeetingId: string | null = null;
     try {
-      const meetingId = await this.graph.resolverOnlineMeetingId(
+      onlineMeetingId = await this.graph.resolverOnlineMeetingId(
         organizadorEmail,
         joinUrl,
       );
-      if (meetingId) {
-        await this.graph.habilitarTranscricaoAutomatica(organizadorEmail, meetingId);
+      if (onlineMeetingId) {
+        await this.graph.habilitarTranscricaoAutomatica(
+          organizadorEmail,
+          onlineMeetingId,
+        );
       } else {
         this.logger.warn(
           `Auto-transcrição: onlineMeetingId ainda não resolvido p/ evento ${eventId} — seguirá sem PATCH.`,
@@ -354,6 +367,8 @@ export class InterviewService {
         graphEventId: eventId,
         teamsJoinUrl: joinUrl,
         provedorVideo: 'teams',
+        graphOnlineMeetingId: onlineMeetingId,
+        graphOrganizadorEmail: organizadorEmail,
         consentirGravacao: input.consentirGravacao,
       });
     } catch (err) {

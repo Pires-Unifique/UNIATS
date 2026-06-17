@@ -284,11 +284,35 @@ export class GraphClient {
         },
       );
       const parsed = OnlineMeetingListSchema.parse(resp.data);
+      // Diagnóstico: status 200 + count distingue "policy ok mas URL não casou"
+      // (count=0) de "achou" (count>=1).
+      this.logger.log(
+        `resolverOnlineMeetingId: status=${resp.status} count=${parsed.value.length} ` +
+          `user=${organizadorEmail}` +
+          (parsed.value.length === 0
+            ? ` — 200 vazio: JoinWebUrl não casou (provável encoding/contexto do link).`
+            : ''),
+      );
       return parsed.value[0]?.id ?? null;
     } catch (err) {
-      // 404/UnknownError no filtro = reunião não encontrada sob este usuário
-      // (organizador divergente ou ainda não indexada) → tratamos como "não achou".
-      if (isAxiosError(err) && err.response?.status === 404) return null;
+      const status = isAxiosError(err) ? err.response?.status : undefined;
+      // 403 = ForbiddenByAppAccessPolicy → Application Access Policy não cobre o app
+      // para este organizador. 404/UnknownError = reunião não encontrada sob este
+      // usuário. Ambos viram "não achou" (best-effort), mas logamos a causa provável.
+      if (status === 403) {
+        this.logger.warn(
+          `resolverOnlineMeetingId: 403 p/ ${organizadorEmail} — provável Application ` +
+            `Access Policy ausente (app não autorizado a ler reuniões deste usuário).`,
+        );
+        return null;
+      }
+      if (status === 404) {
+        this.logger.warn(
+          `resolverOnlineMeetingId: 404 p/ ${organizadorEmail} — onlineMeeting não ` +
+            `encontrado (organizador divergente, link inválido ou ainda não indexado).`,
+        );
+        return null;
+      }
       throw this.normalizarErro(err, 'resolverOnlineMeetingId');
     }
   }

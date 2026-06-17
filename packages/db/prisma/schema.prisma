@@ -399,6 +399,10 @@ model Entrevista {
   graph_event_id      String?                       // id do evento no Outlook (p/ cancelar)
   teams_join_url      String?                       // joinUrl quando provedor = teams
   provedor_video      String?                       // "teams" | "google_meet"
+  // Resolvidos na CRIAÇÃO da reunião (Plano B) — o pull do transcript usa o id
+  // direto, sem redescobrir por `$filter=JoinWebUrl eq` (match exato e frágil).
+  graph_online_meeting_id String?                   // onlineMeetingId no Graph
+  graph_organizador_email String?                   // conta sob a qual o transcript existe
 
   status              StatusEntrevista @default(AGENDADA)
   bot_provider        String?                       // "meetstream"
