@@ -1,0 +1,6 @@
+node_modules
+dist
+*.log
+# Artefatos de teste local (diagnóstico do bot)
+debug-*.png
+resultado-local.json

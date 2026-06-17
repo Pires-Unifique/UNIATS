@@ -77,9 +77,21 @@ const SEL = {
     'div[role="menuitem"]:has-text("Language and speech")',
   ],
   itemLigarLegendas: [
+    '#closed-captions-button',
+    'div[role="menuitem"][aria-label="Legendas"]',
+    '[title="Mostrar legendas ao vivo"]',
     '[data-tid="closed-caption-cc-button"]',
     'div[role="menuitem"]:has-text("Ativar legendas")',
     'div[role="menuitem"]:has-text("Turn on live captions")',
+  ],
+  // Configurações de legenda + combobox de idioma falado.
+  settingsLegenda: [
+    '[data-tid="closed-captions-settings-menu-trigger-button"]',
+    '[aria-label*="Configurações da Legenda" i]',
+  ],
+  comboIdioma: [
+    '[data-tid="callingCaptions-subtitlesLanguages"]',
+    '[role="combobox"][aria-label*="idioma" i]',
   ],
   // Container e itens das legendas ao vivo.
   legendaContainer: [
@@ -153,6 +165,10 @@ export async function capturarReuniao(
   try {
     browser = await chromium.launch({
       headless: opts.headless,
+      // PLAYWRIGHT_CHANNEL usa um navegador JÁ INSTALADO (ex.: 'msedge'/'chrome')
+      // em vez do Chromium embutido — útil pra rodar local sem baixar nada. No
+      // container (imagem oficial do Playwright) fica vazio → usa o Chromium da imagem.
+      channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
       args: [
         // Concede mídia falsa para não travar no pedido de permissão de mic/câmera.
         '--use-fake-ui-for-media-stream',
@@ -211,13 +227,51 @@ export async function capturarReuniao(
       return false;
     });
 
+    const debug = !!process.env.PLAYWRIGHT_DEBUG_DOM;
+    if (debug) {
+      await dumpDom(page, logger, 'pos-admissao');
+      // Abre o painel de Configurações de Legenda pra capturar os seletores do
+      // idioma falado (pra automatizar PT depois), e fecha em seguida.
+      await clicarPrimeiro(
+        page,
+        [
+          '[data-tid="closed-captions-settings-menu-trigger-button"]',
+          '[aria-label*="Configurações da Legenda" i]',
+        ],
+        4_000,
+      ).catch(() => false);
+      await page.waitForTimeout(1_200);
+      await dumpDom(page, logger, 'settings-pane');
+      await clicarPrimeiro(
+        page,
+        [
+          '[data-tid="closed-captions-settings-menu-trigger-button"]',
+          '[aria-label*="Configurações da Legenda" i]',
+        ],
+        2_000,
+      ).catch(() => false);
+    }
+
     // Loop de captura.
     const t0 = Date.now();
     const fimMax = t0 + opts.maxDuracaoMin * 60_000;
     let ultimaCapturaEm = Date.now();
-    const parciais = new Map<string, { texto: string; inicio_ms: number }>();
+    let ultimoDump = 0;
+    // Dedup: o Teams mostra uma janela rolante das últimas ~3 legendas. Rastreamos
+    // apenas a ÚLTIMA linha (a em andamento) e commitamos quando ela MUDA — assim
+    // não re-gravamos as linhas que continuam visíveis na janela.
+    const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
+    // Comparação "mesma fala": ignora caixa e pontuação (o Teams reescreve a linha
+    // pontuada como versão final — ex.: "fala magma" → "Fala Magma.").
+    const canon = (s: string): string =>
+      norm(s).toLowerCase().replace(/[.,!?;:…"']/g, '').replace(/\s+/g, ' ').trim();
+    let atual: { autor: string; texto: string; inicio_ms: number } | null = null;
 
     while (Date.now() < fimMax) {
+      if (debug && Date.now() - ultimoDump > 15_000) {
+        await dumpDom(page, logger, `loop+${Math.round((Date.now() - t0) / 1000)}s`);
+        ultimoDump = Date.now();
+      }
       // Reunião encerrou?
       const encerrou = await page
         .locator(SEL.chamadaEncerrada.join(', '))
@@ -234,27 +288,34 @@ export async function capturarReuniao(
         break;
       }
 
-      const linhas = await lerLegendas(page);
+      const linhas = (await lerLegendas(page)).filter((l) => norm(l.texto));
       const agoraMs = Date.now() - t0;
-      for (const { autor, texto } of linhas) {
-        if (!texto.trim()) continue;
-        const chave = autor || 'Desconhecido';
-        const ant = parciais.get(chave);
-        if (ant && texto.startsWith(ant.texto)) {
-          // Mesma fala crescendo (legenda parcial → final): atualiza.
-          ant.texto = texto;
-        } else if (ant && ant.texto.startsWith(texto)) {
-          // Releitura mais curta — ignora.
+      if (linhas.length > 0) ultimaCapturaEm = Date.now();
+      // Só a ÚLTIMA legenda importa (as anteriores já foram commitadas quando eram
+      // a "última"). Enquanto cresce/corrige, atualiza; quando troca de fala, commita.
+      const ultima = linhas[linhas.length - 1];
+      if (ultima) {
+        const autor = ultima.autor || 'Desconhecido';
+        const texto = norm(ultima.texto);
+        const ca = canon(texto);
+        const cb = atual ? canon(atual.texto) : '';
+        if (!atual) {
+          atual = { autor, texto, inicio_ms: agoraMs };
+        } else if (
+          autor === atual.autor &&
+          (ca.startsWith(cb) || cb.startsWith(ca))
+        ) {
+          // mesma fala evoluindo/refinada — mantém a versão mais longa
+          if (texto.length >= atual.texto.length) atual.texto = texto;
         } else {
-          // Linha nova: comita a anterior e começa outra.
-          if (ant) {
-            segmentos.push({ inicio_ms: ant.inicio_ms, falante: chave, texto: ant.texto });
-          }
-          parciais.set(chave, { texto, inicio_ms: agoraMs });
-          ultimaCapturaEm = Date.now();
+          segmentos.push({
+            inicio_ms: atual.inicio_ms,
+            falante: atual.autor,
+            texto: atual.texto,
+          });
+          atual = { autor, texto, inicio_ms: agoraMs };
         }
       }
-      if (linhas.length > 0) ultimaCapturaEm = Date.now();
 
       // Ociosidade: sem legenda nova por muito tempo → assume fim.
       if (Date.now() - ultimaCapturaEm > opts.ociosidadeMin * 60_000) {
@@ -264,9 +325,13 @@ export async function capturarReuniao(
       await page.waitForTimeout(2_000);
     }
 
-    // Comita parciais remanescentes.
-    for (const [falante, p] of parciais) {
-      segmentos.push({ inicio_ms: p.inicio_ms, falante, texto: p.texto });
+    // Comita a última legenda em andamento.
+    if (atual) {
+      segmentos.push({
+        inicio_ms: atual.inicio_ms,
+        falante: atual.autor,
+        texto: atual.texto,
+      });
     }
     segmentos.sort((a, b) => a.inicio_ms - b.inicio_ms);
 
@@ -342,6 +407,71 @@ async function lerLegendas(
       },
     )
     .catch(() => [] as Array<{ autor: string; texto: string }>);
+}
+
+/**
+ * DIAGNÓSTICO (PLAYWRIGHT_DEBUG_DOM=1): tira screenshot e loga elementos candidatos
+ * a legenda, pra descobrir os seletores reais do Teams web do tenant.
+ */
+async function dumpDom(page: Page, logger: Logger, tag: string): Promise<void> {
+  try {
+    await page.screenshot({ path: `debug-${tag}.png` }).catch(() => undefined);
+    const info = await page.evaluate(() => {
+      const amostra = (sel: string) =>
+        Array.from(document.querySelectorAll(sel))
+          .slice(0, 2)
+          .map((e) => ({
+            tag: e.tagName,
+            tid: e.getAttribute('data-tid'),
+            id: (e as HTMLElement).id || null,
+            cls: String((e as HTMLElement).className || '').slice(0, 140),
+            text: (e.textContent || '').trim().slice(0, 120),
+            html: e.outerHTML.slice(0, 2500),
+          }));
+      const seletores = [
+        '[data-tid*="caption" i]',
+        '[data-tid*="closed-caption" i]',
+        '[class*="caption" i]',
+        '[class*="Caption"]',
+        '[data-tid*="cc-" i]',
+        '[aria-label*="legenda" i]',
+        '[aria-label*="caption" i]',
+        // Probes do painel de configurações de legenda (idioma falado).
+        '[data-tid*="language" i]',
+        '[data-tid*="spoken" i]',
+        '[aria-label*="idioma" i]',
+        'button[role="combobox"]',
+        '[role="menuitemradio"]',
+      ];
+      const out: Record<string, { count: number; amostras: unknown[] }> = {};
+      for (const s of seletores) {
+        out[s] = { count: document.querySelectorAll(s).length, amostras: amostra(s) };
+      }
+      // Busca por TEXTO: controles ligados a idioma (pra automatizar o PT).
+      const kw = /portugu|inglês|english|idioma|spoken|espanhol|language|brasil/i;
+      const idioma = Array.from(
+        document.querySelectorAll(
+          'button,[role="menuitem"],[role="menuitemradio"],[role="option"],[role="combobox"],a',
+        ),
+      )
+        .filter((e) => {
+          const t = (e.textContent || '').trim();
+          return kw.test(t) && t.length < 50;
+        })
+        .slice(0, 20)
+        .map((e) => ({
+          tag: e.tagName,
+          tid: e.getAttribute('data-tid'),
+          role: e.getAttribute('role'),
+          aria: e.getAttribute('aria-label'),
+          text: (e.textContent || '').trim().slice(0, 50),
+        }));
+      return { selectors: out, idioma };
+    });
+    logger.info({ tag, dom: info }, 'DEBUG-DOM');
+  } catch (e) {
+    logger.warn({ err: String(e) }, 'Falha no dumpDom.');
+  }
 }
 
 /** Sai da reunião (clica no encerrar). Best-effort. */
