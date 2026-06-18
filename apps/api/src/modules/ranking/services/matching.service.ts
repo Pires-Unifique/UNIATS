@@ -466,7 +466,20 @@ export class MatchingService {
     const ids = await this.proximosSemLLM(vagaId, n, incluirReprovados);
     const avaliados: ItemRanking[] = [];
     const CONC = 4;
+    // Orçamento de tempo por requisição: avalia lotes (cada lote = CONC chamadas
+    // Claude) até ~BUDGET e devolve parcial. Sem isto, avaliar N=10 leva 30-45s
+    // (latência do Claude) e estoura o timeout do proxy reverso — que o browser
+    // reporta como erro de CORS, embora os scores já tenham sido gravados. O front
+    // mostra "faltam Y" + "Continuar avaliação" e segue de onde parou (idempotente:
+    // proximosSemLLM só pega quem ainda não tem CONSOLIDADO).
+    const BUDGET_MS = Math.max(
+      5_000,
+      Number(process.env.AVALIAR_PROXIMOS_BUDGET_MS ?? 15_000),
+    );
+    const inicioMs = Date.now();
     for (let i = 0; i < ids.length; i += CONC) {
+      // Depois de ao menos um lote, respeita o orçamento de tempo da requisição.
+      if (i > 0 && Date.now() - inicioMs >= BUDGET_MS) break;
       const lote = ids.slice(i, i + CONC);
       const res = await Promise.allSettled(
         lote.map((id) => this.scorearCandidatura(id)),
