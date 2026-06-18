@@ -465,16 +465,23 @@ export class MatchingService {
 
     const ids = await this.proximosSemLLM(vagaId, n, incluirReprovados);
     const avaliados: ItemRanking[] = [];
-    const CONC = 4;
-    // Orçamento de tempo por requisição: avalia lotes (cada lote = CONC chamadas
-    // Claude) até ~BUDGET e devolve parcial. Sem isto, avaliar N=10 leva 30-45s
-    // (latência do Claude) e estoura o timeout do proxy reverso — que o browser
-    // reporta como erro de CORS, embora os scores já tenham sido gravados. O front
-    // mostra "faltam Y" + "Continuar avaliação" e segue de onde parou (idempotente:
-    // proximosSemLLM só pega quem ainda não tem CONSOLIDADO).
+    // Concorrência alta DE PROPÓSITO: avaliamos os ~N (10) candidatos do lote em
+    // UMA rodada paralela, em vez de N/4 rodadas sequenciais. Assim cada clique
+    // avalia o lote inteiro (≥10) em ~uma latência de chamada do Claude (~15-20s),
+    // cabendo no timeout do proxy. Sem rate limit do Voyage aqui (a Fase 2 é só
+    // pgvector + Claude). Ajustável por env se o Claude reclamar de concorrência.
+    const CONC = Math.min(
+      Math.max(1, ids.length),
+      Math.max(1, Number(process.env.AVALIAR_PROXIMOS_CONC ?? 10)),
+    );
+    // Orçamento de tempo por requisição: para lotes adicionais (quando N > CONC)
+    // e devolve parcial, evitando estourar o timeout do proxy — o front mostra
+    // "faltam Y" + "Continuar avaliação" e segue de onde parou (idempotente:
+    // proximosSemLLM só pega quem ainda não tem CONSOLIDADO). Para N=10 e CONC=10
+    // é uma rodada só, então o orçamento nem chega a cortar.
     const BUDGET_MS = Math.max(
       5_000,
-      Number(process.env.AVALIAR_PROXIMOS_BUDGET_MS ?? 15_000),
+      Number(process.env.AVALIAR_PROXIMOS_BUDGET_MS ?? 25_000),
     );
     const inicioMs = Date.now();
     for (let i = 0; i < ids.length; i += CONC) {
