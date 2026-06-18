@@ -105,9 +105,10 @@ const EnvSchema = z.object({
   EMBEDDING_RECONCILE_ENABLED: z.coerce.boolean().default(true),
   EMBEDDING_RECONCILE_BATCH: z.coerce.number().int().positive().default(3),
   // Lote adaptativo de embedding por ORÇAMENTO DE TOKENS (limite real do Voyage).
-  // EMBEDDING_TOKEN_BUDGET: tokens estimados por requisição (trial ~6000; tier pago
-  // pode subir muito). EMBEDDING_BATCH_SIZE: teto de inputs por requisição (máx 128).
-  EMBEDDING_TOKEN_BUDGET: z.coerce.number().int().positive().default(6000),
+  // EMBEDDING_TOKEN_BUDGET: tokens estimados por requisição. Default 3300 é seguro
+  // pro free tier (RPM 3 × 3300 ≈ 9.9K < ~10K TPM, evita 429); tier pago sobe muito.
+  // EMBEDDING_BATCH_SIZE: teto de inputs por requisição (máx 128).
+  EMBEDDING_TOKEN_BUDGET: z.coerce.number().int().positive().default(3300),
   EMBEDDING_BATCH_SIZE: z.coerce.number().int().positive().max(128).default(128),
 
   // WAHA — WhatsApp HTTP API (Camada 4)

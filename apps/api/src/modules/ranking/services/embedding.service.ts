@@ -174,6 +174,24 @@ export class EmbeddingService {
     type Item = { alvo: EmbeddingAlvo; alvoId: string; texto: string };
     const itens: Item[] = [];
 
+    // Limite de tokens por requisição. No free tier (TPM baixo) precisa caber em
+    // RPM × budget ≤ TPM (ex.: 3 RPM × 3300 ≈ 9.9K < 10K TPM). Default conservador
+    // pro free; tier pago sobe via EMBEDDING_TOKEN_BUDGET no env.
+    const TOKEN_BUDGET = Math.max(
+      500,
+      Number(process.env.EMBEDDING_TOKEN_BUDGET ?? 3300),
+    );
+    const MAX_INPUTS = Math.min(
+      128,
+      Math.max(1, Number(process.env.EMBEDDING_BATCH_SIZE ?? 128)),
+    );
+    const estTokens = (t: string) => Math.ceil(t.length / 4);
+    // Teto por item: nem um CV isolado pode passar do budget — senão um currículo
+    // muito grande, mandado sozinho (chunk de 1), estoura o TPM. ~4 chars/token.
+    const maxCharsPorItem = TOKEN_BUDGET * 4;
+    const capTexto = (t: string) =>
+      t.length > maxCharsPorItem ? t.slice(0, maxCharsPorItem) : t;
+
     const textoVaga = montarTextoCanonicoVaga(vaga);
     if (textoVaga.trim()) {
       // Pula o embedding da vaga se ela já tem vetor (a menos que reembedar):
@@ -183,7 +201,7 @@ export class EmbeddingService {
         !opts.reembedar &&
         (await this.prisma.embedding.count({ where: { vaga_id: vaga.id } })) > 0;
       if (!vagaJaEmbedada) {
-        itens.push({ alvo: 'vaga', alvoId: vaga.id, texto: textoVaga });
+        itens.push({ alvo: 'vaga', alvoId: vaga.id, texto: capTexto(textoVaga) });
       }
     }
 
@@ -253,29 +271,17 @@ export class EmbeddingService {
         pulados++;
         continue;
       }
-      itens.push({ alvo: 'curriculo', alvoId: cv.id, texto });
+      itens.push({ alvo: 'curriculo', alvoId: cv.id, texto: capTexto(texto) });
     }
 
     if (!itens.length) {
       return { vaga: false, curriculos: 0, pulados, interrompido: false, restantes: 0 };
     }
 
-    // Lotes ADAPTATIVOS por orçamento de tokens: o limite real do Voyage é
-    // tokens/requisição (trial = baixo), não nº de CVs. Empacotamos itens até
-    // chegar perto de EMBEDDING_TOKEN_BUDGET (ou do teto de EMBEDDING_BATCH_SIZE
-    // inputs), o que packa muitos CVs curtos ou poucos longos sem estourar 429.
-    // Estimativa conservadora ~4 chars/token (PT-BR costuma ser 4-5 → superestima
-    // tokens, gerando lotes menores = mais seguro). O throttle espaça as chamadas.
-    const TOKEN_BUDGET = Math.max(
-      500,
-      Number(process.env.EMBEDDING_TOKEN_BUDGET ?? 6000),
-    );
-    const MAX_INPUTS = Math.min(
-      128,
-      Math.max(1, Number(process.env.EMBEDDING_BATCH_SIZE ?? 128)),
-    );
-    const estTokens = (t: string) => Math.ceil(t.length / 4);
-
+    // Lotes ADAPTATIVOS por orçamento de tokens (TOKEN_BUDGET, definido no topo):
+    // o limite real do Voyage é tokens/requisição, não nº de CVs. Empacotamos
+    // itens até perto do budget (ou do teto de MAX_INPUTS). O throttle espaça as
+    // chamadas; ~4 chars/token superestima (PT-BR 4-5) → lotes menores = seguro.
     const lotes: Item[][] = [];
     let atual: Item[] = [];
     let tokensAtual = 0;
