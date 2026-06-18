@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { EnqueteService } from './enquete.service.js';
 import { MensagemProcessor } from './processors/mensagem.processor.js';
 import { MessagingController } from './messaging.controller.js';
@@ -20,6 +21,7 @@ import { WahaWebhookController } from './webhooks/waha-webhook.controller.js';
  * Depende dos módulos globais WahaModule + SendGridModule.
  */
 @Module({
+  imports: [AuthModule],
   controllers: [
     MessagingController,
     WahaWebhookController,

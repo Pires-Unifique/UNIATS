@@ -17,6 +17,9 @@ import {
   ResultadoExameAdmissional,
 } from '@uniats/db';
 
+import { Areas } from '../auth/areas.decorator.js';
+import { AreasGuard } from '../auth/areas.guard.js';
+import { AuthGuard } from '../auth/auth.guard.js';
 import { AdmissaoService } from './admissao.service.js';
 
 const UUID_REGEX =
@@ -41,8 +44,10 @@ function assertEnum<T extends Record<string, string>>(
   return valor as T[keyof T];
 }
 
+// Admissão é uma EQUIPE separada do recrutamento → área própria 'admissao'.
 @Controller('api/admissoes')
-@UseGuards(ThrottlerGuard)
+@UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
+@Areas('admissao')
 export class AdmissaoController {
   constructor(private readonly service: AdmissaoService) {}
 

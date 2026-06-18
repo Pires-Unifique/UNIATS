@@ -29,7 +29,14 @@ model Usuario {
   azure_oid       String     @unique // Object ID do Azure AD (estável)
   email           String     @unique
   nome            String
+  // Legado/exibição. A AUTORIZAÇÃO usa `areas` (abaixo); papel não decide acesso.
   papel           PapelUsuario @default(RECRUTADOR)
+  // Áreas de acesso (módulos). Fonte de verdade da autorização. Conjunto, pois
+  // uma pessoa pode estar em +1 equipe. Valores: 'admin' | 'recrutamento' |
+  // 'admissao' | 'offboarding'. 'admin' = acesso a tudo. Gestor NÃO é uma área:
+  // o acesso dele vem da posse da vaga (gestor_id). Atribuição manual por ora;
+  // futuramente mapeada de grupos de AD (App Roles → claim `roles`).
+  areas           String[]   @default([])
   ativo           Boolean    @default(true)
   ultimo_login_em DateTime?
   criado_em       DateTime   @default(now())
@@ -78,6 +85,12 @@ model Vaga {
   recrutador          Usuario?   @relation("VagaRecrutador", fields: [recrutador_id], references: [id])
   gestor              Usuario?   @relation("VagaGestor",    fields: [gestor_id],     references: [id])
 
+  // Espelho (lower/trim) de gupy_payload.managerEmail / recruiterEmail. Materializado
+  // e indexado para o AUTO-VÍNCULO gestor↔vaga por e-mail (escopo de acesso por papel):
+  // no login casamos o e-mail do usuário com gestor_email; no sync casamos no sentido inverso.
+  gestor_email        String?
+  recrutador_email    String?
+
   // Requisitos preenchidos pelo líder em campos customizados
   // Estrutura flexível em JSON (validada por Zod no app) + cópia textual
   requisitos_json     Json?
@@ -98,6 +111,8 @@ model Vaga {
 
   @@index([status])
   @@index([data_publicacao])
+  @@index([gestor_email])
+  @@index([recrutador_email])
   @@index([titulo(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("vagas")
 }

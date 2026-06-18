@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { GupyModule } from '../gupy/gupy.module.js';
 import { CurriculoController } from './curriculo.controller.js';
 import { CurriculoService } from './curriculo.service.js';
@@ -23,7 +24,7 @@ import { PdfParser } from './parsers/pdf.parser.js';
  * fonte que sabe SSRF guards, rate limit e errback do provedor).
  */
 @Module({
-  imports: [GupyModule],
+  imports: [GupyModule, AuthModule],
   controllers: [CurriculoController],
   providers: [
     CurriculoService,

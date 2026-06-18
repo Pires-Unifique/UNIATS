@@ -10,10 +10,27 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { AuthGuard } from '../auth/auth.guard.js';
+import type { UsuarioAutenticado } from '../auth/auth.types.js';
+import { UsuarioAtual } from '../auth/usuario-atual.decorator.js';
 import { traduzirTipoContrato } from '../gupy/mappers/gupy.mapper.js';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Escopo de leitura por ÁREA: quem tem 'admin' ou 'recrutamento' enxerga TODAS
+ * as vagas; os demais (ex.: gestor) só as vagas em que são o gestor (gestor_id).
+ * Retorna o fragmento `where` a mesclar (ou null = sem restrição).
+ */
+function escopoPorArea(
+  usuario: UsuarioAutenticado,
+): { gestor_id: string } | null {
+  if (usuario.areas.includes('admin') || usuario.areas.includes('recrutamento')) {
+    return null;
+  }
+  return { gestor_id: usuario.id };
+}
 
 /**
  * Monta { nome, email } a partir do que a Gupy mandou no payload. Usado como
@@ -41,12 +58,13 @@ function strDoPayload(valor: unknown): string | null {
  * direto da Gupy), aqui retornamos só o que está no nosso banco.
  */
 @Controller('api/vagas')
-@UseGuards(ThrottlerGuard)
+@UseGuards(ThrottlerGuard, AuthGuard)
 export class VagasController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
   async listar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Query('status') status?: string,
     @Query('q') q?: string,
     @Query('limite') limiteStr?: string,
@@ -62,6 +80,9 @@ export class VagasController {
     const where: Record<string, unknown> = { excluido_em: null };
     if (status) where.status = status;
     if (q) where.titulo = { contains: q, mode: 'insensitive' };
+    // Gestor/visualizador: restringe às vagas dele.
+    const escopo = escopoPorArea(usuario);
+    if (escopo) where.gestor_id = escopo.gestor_id;
 
     const [vagas, totais] = await Promise.all([
       this.prisma.vaga.findMany({
@@ -107,12 +128,18 @@ export class VagasController {
   }
 
   @Get(':id')
-  async obter(@Param('id') id: string) {
+  async obter(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id inválido.');
     }
-    const v = await this.prisma.vaga.findUnique({
-      where: { id },
+    // Mescla o escopo no where: vaga de outro gestor → findFirst retorna null →
+    // 404 (mesma resposta de "não existe", para não vazar a existência da vaga).
+    const escopo = escopoPorArea(usuario);
+    const v = await this.prisma.vaga.findFirst({
+      where: { id, ...(escopo ?? {}) },
       include: {
         _count: { select: { candidaturas: true } },
       },
@@ -145,6 +172,7 @@ export class VagasController {
    */
   @Get(':id/candidaturas')
   async candidaturas(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id') id: string,
     @Query('limite') limiteStr?: string,
     @Query('q') q?: string,
@@ -162,8 +190,10 @@ export class VagasController {
       limite = n;
     }
 
-    const vaga = await this.prisma.vaga.findUnique({
-      where: { id },
+    // Mesmo escopo da leitura da vaga: gestor não acessa candidatos de vaga alheia.
+    const escopo = escopoPorArea(usuario);
+    const vaga = await this.prisma.vaga.findFirst({
+      where: { id, ...(escopo ?? {}) },
       select: { id: true, titulo: true, gupy_id: true },
     });
     if (!vaga) throw new NotFoundException(`Vaga ${id} não existe.`);

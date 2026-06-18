@@ -13,8 +13,11 @@ import {
   InteractionRequiredAuthError,
 } from '@azure/msal-browser';
 
-import { configurarTokenProvider } from './api';
+import { api, configurarTokenProvider } from './api';
 import { apiTokenRequest, authEnabled, getMsal, loginRequest } from './msal';
+
+/** Áreas de acesso (módulos). 'admin' libera tudo. Espelha o backend. */
+export type Area = 'admin' | 'recrutamento' | 'admissao' | 'offboarding';
 
 interface UsuarioInfo {
   nome: string;
@@ -25,6 +28,10 @@ interface UsuarioInfo {
 interface AuthCtx {
   pronto: boolean;
   usuario: UsuarioInfo | null;
+  /** Áreas do usuário, vindas de GET /api/auth/me (fonte de verdade do acesso). */
+  areas: Area[];
+  /** true = pode ver todas as vagas (admin/recrutamento); false = só as próprias (gestor). */
+  podeVerTudo: boolean;
   login: () => Promise<void>;
   /** Login local (sem SSO) — dev/teste. Retorna false se credenciais inválidas. */
   loginLocal: (usuario: string, senha: string) => Promise<boolean>;
@@ -76,6 +83,28 @@ export function useAuth(): AuthCtx {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [pronto, setPronto] = useState(false);
   const [usuario, setUsuario] = useState<UsuarioInfo | null>(null);
+  const [areas, setAreas] = useState<Area[]>([]);
+
+  // Carrega as áreas do backend (fonte de verdade) sempre que houver usuário.
+  // Funciona em todos os modos: com SSO usa o token; em dev/local o backend
+  // resolve o admin de desenvolvimento.
+  useEffect(() => {
+    if (!usuario) {
+      setAreas([]);
+      return;
+    }
+    let cancelado = false;
+    api<{ areas?: Area[] }>('/api/auth/me')
+      .then((me) => {
+        if (!cancelado) setAreas(me.areas ?? []);
+      })
+      .catch(() => {
+        if (!cancelado) setAreas([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [usuario?.oid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Inicialização — só no client.
   useEffect(() => {
@@ -163,6 +192,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       pronto,
       usuario,
+      areas,
+      podeVerTudo: areas.includes('admin') || areas.includes('recrutamento'),
       async login() {
         if (!authEnabled()) {
           // Sem SSO: se o login local é obrigatório, o botão "Microsoft" NÃO
@@ -216,7 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await getMsal().logoutRedirect();
       },
     }),
-    [pronto, usuario],
+    [pronto, usuario, areas],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

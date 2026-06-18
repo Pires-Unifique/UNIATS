@@ -12,16 +12,20 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { Areas } from '../auth/areas.decorator.js';
+import { AreasGuard } from '../auth/areas.guard.js';
+import { AuthGuard } from '../auth/auth.guard.js';
 import { GupyService } from './gupy.service.js';
 import { GupyClient } from './gupy.client.js';
 
 /**
- * Endpoints REST INTERNOS para o frontend (recrutador) acionar
- * sincronização sob demanda. Protegidos por SSO Azure AD + RBAC
- * — o AzureAdAuthGuard será implementado no módulo de auth (fora do MVP de Camada 1).
+ * Endpoints REST INTERNOS para o frontend (recrutador) acionar sincronização
+ * sob demanda. Integração com a Gupy é tarefa de recrutamento (área
+ * 'recrutamento'; admin incluso) — o gestor não sincroniza.
  */
 @Controller('api/gupy')
-@UseGuards(ThrottlerGuard) // rate-limit defensivo
+@UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
+@Areas('recrutamento')
 export class GupyController {
   constructor(
     private readonly service: GupyService,

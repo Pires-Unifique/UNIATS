@@ -10,6 +10,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { QueueModule } from './queue/queue.module.js';
 import { AdmissaoModule } from './modules/admissao/admissao.module.js';
 import { AnaliseModule } from './modules/analise/analise.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 import { AssemblyAIModule } from './modules/assemblyai/assemblyai.module.js';
 import { CandidaturasModule } from './modules/candidaturas/candidaturas.module.js';
 import { ClaudeModule } from './modules/claude/claude.module.js';
@@ -75,6 +76,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
     ]),
 
     PrismaModule,
+    AuthModule,
     QueueModule,
     StorageModule,
     CryptoModule,

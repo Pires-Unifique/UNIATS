@@ -23,7 +23,29 @@ const EnvSchema = z.object({
   AZURE_AD_TENANT_ID: z.string().min(1).optional(),
   AZURE_AD_CLIENT_ID: z.string().min(1).optional(),
   AZURE_AD_AUDIENCE: z.string().min(1).default('api://uniats-api'),
-  AZURE_AD_ALLOWED_DOMAIN: z.string().min(1).default('unifique.com.br'),
+  // Domínio(s) de e-mail aceitos no login SSO. Aceita LISTA (CSV) — o grupo usa
+  // mais de um domínio verificado (ex.: unifique.com.br E redeunifique.com.br).
+  AZURE_AD_ALLOWED_DOMAIN: z
+    .string()
+    .min(1)
+    .default('unifique.com.br,redeunifique.com.br'),
+
+  // Liga a validação REAL do token na API. Desligado por padrão: enquanto off, o
+  // AuthGuard injeta o admin de desenvolvimento e nada muda no fluxo atual.
+  // Ligar (=true) em homolog/prod, com o App Registration do Entra configurado.
+  // NB: usamos transform em vez de z.coerce.boolean() de propósito — coerce
+  // transformaria a string "false" em `true` (footgun), perigoso num flag de
+  // segurança. Aqui SÓ o literal "true" liga.
+  AUTH_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v.toLowerCase() === 'true'),
+  // Identidade usada quando AUTH_ENABLED=false (dev/local). Default = admin do seed.
+  AUTH_DEV_OID: z.string().min(1).default('00000000-0000-0000-0000-000000000001'),
+  AUTH_DEV_EMAIL: z.string().email().default('admin@unifique.com.br'),
+  // Lista (CSV) de e-mails que entram/permanecem como ADMIN geral no login SSO.
+  // Promoção deliberada e idempotente — reaplica o papel ADMIN a cada login.
+  AUTH_ADMIN_EMAILS: z.string().default('guilherme.viana@unifique.com.br'),
 
   // Microsoft Graph (app-only / client credentials) — agendamento de entrevista:
   // cria a reunião Teams, bloqueia a agenda do recrutador e convida o candidato
