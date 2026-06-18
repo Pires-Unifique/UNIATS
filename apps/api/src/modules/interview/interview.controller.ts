@@ -10,6 +10,10 @@ import {
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
+import { AuthGuard } from '../auth/auth.guard.js';
+import { AuthService } from '../auth/auth.service.js';
+import type { UsuarioAutenticado } from '../auth/auth.types.js';
+import { UsuarioAtual } from '../auth/usuario-atual.decorator.js';
 import { InterviewService } from './services/interview.service.js';
 
 const UUID_REGEX =
@@ -33,18 +37,25 @@ interface ConfirmarEnqueteBody {
 }
 
 @Controller('api/entrevistas')
-@UseGuards(ThrottlerGuard)
+@UseGuards(ThrottlerGuard, AuthGuard)
 export class InterviewController {
-  constructor(private readonly service: InterviewService) {}
+  constructor(
+    private readonly service: InterviewService,
+    private readonly auth: AuthService,
+  ) {}
 
   @Post()
-  async agendar(@Body() body: AgendarBody) {
+  async agendar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Body() body: AgendarBody,
+  ) {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('Body inválido.');
     }
     if (!UUID_REGEX.test(body.candidaturaId ?? '')) {
       throw new BadRequestException('candidaturaId deve ser UUID.');
     }
+    await this.auth.assertCandidaturaPermitida(usuario, body.candidaturaId);
     if (body.entrevistadorId && !UUID_REGEX.test(body.entrevistadorId)) {
       throw new BadRequestException('entrevistadorId deve ser UUID.');
     }
@@ -77,13 +88,17 @@ export class InterviewController {
    * e-mail (Outlook) e reforça por WhatsApp.
    */
   @Post('confirmar-enquete')
-  async confirmarEnquete(@Body() body: ConfirmarEnqueteBody) {
+  async confirmarEnquete(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Body() body: ConfirmarEnqueteBody,
+  ) {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('Body inválido.');
     }
     if (!UUID_REGEX.test(body.enqueteId ?? '')) {
       throw new BadRequestException('enqueteId deve ser UUID.');
     }
+    await this.auth.assertEnquetePermitida(usuario, body.enqueteId);
     if (body.provedor && body.provedor !== 'teams') {
       throw new BadRequestException(
         'provedor inválido — o fluxo automático suporta apenas "teams".',
@@ -106,24 +121,30 @@ export class InterviewController {
   }
 
   @Get(':id')
-  async obter(@Param('id') id: string) {
+  async obter(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id deve ser UUID.');
     }
+    await this.auth.assertEntrevistaPermitida(usuario, id);
     return this.service.obter(id);
   }
 
   @Get()
   async listar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Query('candidaturaId') candidaturaId?: string,
     @Query('status') status?: string,
   ) {
     // Com candidaturaId: histórico daquela candidatura (uso no detalhe do
-    // candidato). Sem candidaturaId: agenda geral de entrevistas.
+    // candidato). Sem candidaturaId: agenda — escopada às vagas do gestor.
     if (candidaturaId) {
       if (!UUID_REGEX.test(candidaturaId)) {
         throw new BadRequestException('candidaturaId deve ser UUID.');
       }
+      await this.auth.assertCandidaturaPermitida(usuario, candidaturaId);
       return this.service.listarPorCandidatura(candidaturaId);
     }
     const STATUS_VALIDOS = [
@@ -135,14 +156,19 @@ export class InterviewController {
     if (status && !STATUS_VALIDOS.includes(status)) {
       throw new BadRequestException('status inválido.');
     }
-    return this.service.listarAgenda(status);
+    // Gestor vê só a agenda das vagas dele; admin/recrutamento veem tudo.
+    return this.service.listarAgenda(status, this.auth.escopoGestorId(usuario));
   }
 
   @Post(':id/iniciar-bot')
-  async iniciar(@Param('id') id: string) {
+  async iniciar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id deve ser UUID.');
     }
+    await this.auth.assertEntrevistaPermitida(usuario, id);
     return this.service.iniciarBot(id);
   }
 
@@ -152,10 +178,14 @@ export class InterviewController {
    * está ligado; idempotente e com retry interno.
    */
   @Post(':id/transcrever-graph')
-  async transcreverGraph(@Param('id') id: string) {
+  async transcreverGraph(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id deve ser UUID.');
     }
+    await this.auth.assertEntrevistaPermitida(usuario, id);
     return this.service.transcreverViaGraph(id);
   }
 
@@ -164,29 +194,39 @@ export class InterviewController {
    * as legendas ao vivo. Útil para testar o bot sem esperar o cron de auto-join.
    */
   @Post(':id/transcrever-playwright')
-  async transcreverPlaywright(@Param('id') id: string) {
+  async transcreverPlaywright(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id deve ser UUID.');
     }
+    await this.auth.assertEntrevistaPermitida(usuario, id);
     return this.service.transcreverViaPlaywright(id);
   }
 
   @Post(':id/encerrar')
-  async encerrar(@Param('id') id: string) {
+  async encerrar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id deve ser UUID.');
     }
+    await this.auth.assertEntrevistaPermitida(usuario, id);
     return this.service.encerrarBot(id);
   }
 
   @Post(':id/cancelar')
   async cancelar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id') id: string,
     @Body() body: { motivo?: string },
   ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id deve ser UUID.');
     }
+    await this.auth.assertEntrevistaPermitida(usuario, id);
     await this.service.cancelar(id, body?.motivo);
     return { status: 'cancelada' };
   }

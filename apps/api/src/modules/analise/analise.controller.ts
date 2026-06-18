@@ -7,22 +7,22 @@ import {
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
+import { Areas } from '../auth/areas.decorator.js';
+import { AreasGuard } from '../auth/areas.guard.js';
+import { AuthGuard } from '../auth/auth.guard.js';
 import { AnaliseService, type FiltroInterno } from './analise.service.js';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Painel analítico do DHO — funil de recrutamento e métricas de gestão.
- * Tudo é leitura agregada do banco; um único endpoint `painel` devolve o
- * dashboard inteiro para manter o frontend simples (mesmo padrão de
- * `candidaturas.controller`).
- *
- * NOTA: a API ainda não possui guard de papel; quando houver, restringir
- * este controller a GESTOR/ADMIN (dados consolidados de gestão).
+ * Painel analítico do DHO — funil de recrutamento e métricas AGREGADAS de toda
+ * a operação. Por ser visão consolidada (não escopada a uma vaga), é restrito à
+ * área 'recrutamento' (admin incluso). Gestor não vê o painel global.
  */
 @Controller('api/analise')
-@UseGuards(ThrottlerGuard)
+@UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
+@Areas('recrutamento')
 export class AnaliseController {
   constructor(private readonly service: AnaliseService) {}
 

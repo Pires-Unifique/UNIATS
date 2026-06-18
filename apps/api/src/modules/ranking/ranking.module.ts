@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { EmbeddingService } from './services/embedding.service.js';
 import { EmbeddingProcessor } from './processors/embedding.processor.js';
 import { EmbeddingReconciliationService } from './services/embedding-reconciliation.service.js';
@@ -21,6 +22,7 @@ import { RankingService } from './ranking.service.js';
  * seus services automaticamente via @Global).
  */
 @Module({
+  imports: [AuthModule],
   controllers: [RankingController],
   providers: [
     EmbeddingService,

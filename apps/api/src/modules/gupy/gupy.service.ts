@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';
+import { AuthService } from '../auth/auth.service.js';
 import { GupyClient } from './gupy.client.js';
 import {
   paraUpsertCandidato,
@@ -19,6 +20,7 @@ export class GupyService {
   constructor(
     private readonly client: GupyClient,
     private readonly prisma: PrismaService,
+    private readonly auth: AuthService,
     @InjectQueue(QUEUE_NAMES.CV_DOWNLOAD)
     private readonly filaCV: Queue,
     @InjectQueue(QUEUE_NAMES.GUPY_SYNC)
@@ -33,6 +35,8 @@ export class GupyService {
     const vagaGupy = await this.client.obterVaga(gupyId);
     const upsert = paraUpsertVaga(vagaGupy);
     const vaga = await this.prisma.vaga.upsert(upsert);
+    // Liga ao gestor que já tenha logado (se o e-mail bater e a vaga estiver sem dono).
+    await this.auth.vincularGestorAoSincronizar(vaga.id, vaga.gestor_email);
     this.logger.log(`Vaga sincronizada: ${vaga.id} (gupy=${vagaGupy.id})`);
     return { id: vaga.id };
   }
@@ -44,7 +48,8 @@ export class GupyService {
   async sincronizarTodasAsVagas(): Promise<{ total: number }> {
     let total = 0;
     for await (const v of this.client.iterarVagas({ status: 'published' })) {
-      await this.prisma.vaga.upsert(paraUpsertVaga(v));
+      const vaga = await this.prisma.vaga.upsert(paraUpsertVaga(v));
+      await this.auth.vincularGestorAoSincronizar(vaga.id, vaga.gestor_email);
       total += 1;
     }
     this.logger.log(`Backfill de vagas concluído: total=${total}`);

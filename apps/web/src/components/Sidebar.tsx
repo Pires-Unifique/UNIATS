@@ -5,31 +5,52 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 
-type Item = { href: Route; label: string; icon: string };
+import { type Area, useAuth } from '../lib/auth';
 
-// Interfaces separadas por equipe. O permissionamento (grupo de AD) será
-// plugado depois — por ora só organizamos a navegação em duas áreas.
-const secoes: Array<{ titulo: string; itens: Item[] }> = [
+// `areas`: área(s) que liberam o item. `undefined` = qualquer usuário
+// autenticado (a própria API escopa os dados — ex.: o gestor só vê a vaga dele
+// em "Vagas"/"Agenda"). 'admin' enxerga tudo (tratado no filtro).
+type Item = { href: Route; label: string; icon: string; areas?: Area[] };
+
+const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
   {
     titulo: 'Recrutamento',
     itens: [
+      // Vagas e Agenda: visíveis a todos — o gestor vê só as vagas dele (a API escopa).
       { href: '/vagas' as Route, label: 'Vagas', icon: '📋' },
-      { href: '/vagas/publicar' as Route, label: 'Publicar vaga', icon: '➕' },
-      { href: '/entrevistas' as Route, label: 'Entrevistas', icon: '🎙️' },
-      { href: '/analise' as Route, label: 'Análise', icon: '📊' },
-      { href: '/configuracoes/templates' as Route, label: 'Templates', icon: '✉️' },
+      { href: '/entrevistas' as Route, label: 'Agenda', icon: '🗓️' },
+      // Ações globais de recrutamento: só quem tem a área 'recrutamento'.
+      { href: '/vagas/publicar' as Route, label: 'Publicar vaga', icon: '➕', areas: ['recrutamento'] },
+      { href: '/analise' as Route, label: 'Análise', icon: '📊', areas: ['recrutamento'] },
+      { href: '/configuracoes/templates' as Route, label: 'Templates', icon: '✉️', areas: ['recrutamento'] },
     ],
   },
   {
     titulo: 'Admissão',
+    areas: ['admissao'],
     itens: [
-      { href: '/admissao' as Route, label: 'Admissões', icon: '🧾' },
+      { href: '/admissao' as Route, label: 'Admissões', icon: '🧾', areas: ['admissao'] },
     ],
   },
 ];
 
+/** Item visível se não exige área, ou se o usuário tem 'admin' ou a área exigida. */
+function podeVer(itemAreas: Area[] | undefined, areas: Area[]): boolean {
+  if (!itemAreas || itemAreas.length === 0) return true;
+  if (areas.includes('admin')) return true;
+  return itemAreas.some((a) => areas.includes(a));
+}
+
 export function Sidebar() {
   const path = usePathname();
+  const { areas } = useAuth();
+
+  const secoesVisiveis = secoes
+    .map((secao) => ({
+      ...secao,
+      itens: secao.itens.filter((it) => podeVer(it.areas, areas)),
+    }))
+    .filter((secao) => secao.itens.length > 0);
 
   return (
     <aside className="w-56 shrink-0 border-r border-grafite-100 bg-white">
@@ -45,7 +66,7 @@ export function Sidebar() {
       </div>
 
       <nav className="p-2 space-y-4">
-        {secoes.map((secao) => (
+        {secoesVisiveis.map((secao) => (
           <div key={secao.titulo}>
             <p className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-grafite-400">
               {secao.titulo}

@@ -12,6 +12,9 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { PublicarVagaInputSchema } from '@uniats/shared';
 
+import { Areas } from '../auth/areas.decorator.js';
+import { AreasGuard } from '../auth/areas.guard.js';
+import { AuthGuard } from '../auth/auth.guard.js';
 import { TemplateParser } from './template-parser.js';
 import { VagaTemplateService } from './vaga-template.service.js';
 
@@ -28,7 +31,8 @@ const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
  *    publica se solicitado e persiste a Vaga local.
  */
 @Controller('api/vagas/template')
-@UseGuards(ThrottlerGuard)
+@UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
+@Areas('recrutamento')
 export class VagaTemplateController {
   constructor(private readonly service: VagaTemplateService) {}
 

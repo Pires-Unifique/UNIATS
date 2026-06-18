@@ -150,6 +150,12 @@ export function extrairRequisitos(
   return { json, texto: linhas.join('\n\n') };
 }
 
+/** Normaliza e-mail vindo da Gupy (lower/trim); vazio → null. */
+function normalizarEmail(valor: unknown): string | null {
+  const e = typeof valor === 'string' ? valor.trim().toLowerCase() : '';
+  return e || null;
+}
+
 export function paraUpsertVaga(vaga: VagaGupy): Prisma.VagaUpsertArgs {
   const { json: requisitosJson, texto: requisitosTexto } = extrairRequisitos(vaga);
   const base: Prisma.VagaUncheckedCreateInput = {
@@ -170,6 +176,9 @@ export function paraUpsertVaga(vaga: VagaGupy): Prisma.VagaUpsertArgs {
         ? new Date(vaga.publishedAt)
         : null,
     data_fechamento: vaga.closingDate ? new Date(vaga.closingDate) : null,
+    // Espelho dos e-mails p/ auto-vínculo (NÃO é a FK gestor_id/recrutador_id).
+    gestor_email: normalizarEmail(vaga.managerEmail),
+    recrutador_email: normalizarEmail(vaga.recruiterEmail),
     requisitos_json: requisitosJson,
     requisitos_texto: requisitosTexto,
     gupy_payload: vaga as unknown as Prisma.JsonObject,
@@ -181,7 +190,9 @@ export function paraUpsertVaga(vaga: VagaGupy): Prisma.VagaUpsertArgs {
     create: base,
     update: {
       ...base,
-      // Não sobrescreve associações internas (recrutador/gestor)
+      // base já reatualiza gestor_email/recrutador_email (espelho da Gupy).
+      // NÃO sobrescreve as associações INTERNAS gestor_id/recrutador_id (FKs),
+      // que não estão em `base` — o vínculo é feito pela camada de auth.
       gupy_sincronizado_em: new Date(),
     },
   };

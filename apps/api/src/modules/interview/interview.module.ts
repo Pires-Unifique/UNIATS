@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { AnaliseVozProcessor } from './processors/analise-voz.processor.js';
 import { AudioProcessProcessor } from './processors/audio-process.processor.js';
 import { AssemblyAIWebhookController } from './webhooks/assemblyai-webhook.controller.js';
@@ -32,6 +33,7 @@ import { TranscricaoProcessor } from './processors/transcricao.processor.js';
  * Depende dos módulos globais: CryptoModule, StorageModule, MeetStreamModule, AssemblyAIModule.
  */
 @Module({
+  imports: [AuthModule],
   controllers: [
     InterviewController,
     MeetStreamWebhookController,

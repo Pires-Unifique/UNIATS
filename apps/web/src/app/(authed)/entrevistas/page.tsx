@@ -52,8 +52,8 @@ export default function EntrevistasIndex() {
   return (
     <div>
       <PageHeader
-        titulo="Entrevistas"
-        subtitulo="Entrevistas agendadas pelos recrutadores."
+        titulo="Agenda"
+        subtitulo="Entrevistas agendadas — você vê as das suas vagas."
       />
 
       <div className="card p-4 mb-4 flex gap-3 items-center">

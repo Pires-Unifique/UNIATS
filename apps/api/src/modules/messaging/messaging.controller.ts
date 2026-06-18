@@ -12,6 +12,12 @@ import {
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
+import { Areas } from '../auth/areas.decorator.js';
+import { AreasGuard } from '../auth/areas.guard.js';
+import { AuthGuard } from '../auth/auth.guard.js';
+import { AuthService } from '../auth/auth.service.js';
+import type { UsuarioAutenticado } from '../auth/auth.types.js';
+import { UsuarioAtual } from '../auth/usuario-atual.decorator.js';
 import { EnqueteService } from './enquete.service.js';
 import { MessagingService } from './messaging.service.js';
 import { TemplatesService } from './templates/templates.service.js';
@@ -44,12 +50,13 @@ interface CriarTemplateBody {
 type EditarTemplateBody = Omit<CriarTemplateBody, 'codigo'>;
 
 @Controller('api/mensagens')
-@UseGuards(ThrottlerGuard)
+@UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
 export class MessagingController {
   constructor(
     private readonly service: MessagingService,
     private readonly templates: TemplatesService,
     private readonly enquetes: EnqueteService,
+    private readonly auth: AuthService,
   ) {}
 
   /** ----------------------------------------------------------------------
@@ -69,6 +76,7 @@ export class MessagingController {
   }
 
   @Post('templates')
+  @Areas('recrutamento')
   async criarTemplate(@Body() body: CriarTemplateBody) {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('Body inválido.');
@@ -97,6 +105,7 @@ export class MessagingController {
   }
 
   @Patch('templates/:codigo')
+  @Areas('recrutamento')
   async editarTemplate(
     @Param('codigo') codigo: string,
     @Body() body: EditarTemplateBody,
@@ -122,6 +131,7 @@ export class MessagingController {
   }
 
   @Delete('templates/:codigo')
+  @Areas('recrutamento')
   async desabilitarTemplate(@Param('codigo') codigo: string) {
     if (!CODIGO_REGEX.test(codigo)) {
       throw new BadRequestException('codigo inválido.');
@@ -131,10 +141,14 @@ export class MessagingController {
 
   /** Variáveis padrão de uma candidatura (pré-preenchimento da UI). */
   @Get('contexto/:candidaturaId')
-  async contexto(@Param('candidaturaId') candidaturaId: string) {
+  async contexto(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('candidaturaId') candidaturaId: string,
+  ) {
     if (!UUID_REGEX.test(candidaturaId)) {
       throw new BadRequestException('candidaturaId deve ser UUID válido.');
     }
+    await this.auth.assertCandidaturaPermitida(usuario, candidaturaId);
     return this.service.resolverContexto(candidaturaId);
   }
 
@@ -145,6 +159,7 @@ export class MessagingController {
   /** Envia uma enquete de horários para o candidato escolher. */
   @Post('enquete-horarios')
   async enviarEnquete(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Body()
     body: {
       candidaturaId?: string;
@@ -155,6 +170,7 @@ export class MessagingController {
     if (!body || !UUID_REGEX.test(body.candidaturaId ?? '')) {
       throw new BadRequestException('candidaturaId deve ser UUID.');
     }
+    await this.auth.assertCandidaturaPermitida(usuario, body.candidaturaId!);
     if (!Array.isArray(body.opcoes) || body.opcoes.length < 2) {
       throw new BadRequestException('Informe ao menos 2 opções de horário.');
     }
@@ -172,10 +188,14 @@ export class MessagingController {
 
   /** Lista as enquetes de horário de uma candidatura (status + escolha). */
   @Get('enquete-horarios/:candidaturaId')
-  async listarEnquetes(@Param('candidaturaId') candidaturaId: string) {
+  async listarEnquetes(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('candidaturaId') candidaturaId: string,
+  ) {
     if (!UUID_REGEX.test(candidaturaId)) {
       throw new BadRequestException('candidaturaId deve ser UUID válido.');
     }
+    await this.auth.assertCandidaturaPermitida(usuario, candidaturaId);
     return this.enquetes.listarPorCandidatura(candidaturaId);
   }
 
@@ -184,13 +204,17 @@ export class MessagingController {
    *  --------------------------------------------------------------------- */
 
   @Post('enviar')
-  async enviar(@Body() body: EnviarBody) {
+  async enviar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Body() body: EnviarBody,
+  ) {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('Body inválido.');
     }
     if (!UUID_REGEX.test(body.candidaturaId ?? '')) {
       throw new BadRequestException('candidaturaId deve ser UUID válido.');
     }
+    await this.auth.assertCandidaturaPermitida(usuario, body.candidaturaId);
     if (body.canal !== 'WHATSAPP' && body.canal !== 'EMAIL') {
       throw new BadRequestException('canal deve ser WHATSAPP ou EMAIL.');
     }
@@ -224,18 +248,26 @@ export class MessagingController {
   }
 
   @Get(':id')
-  async obter(@Param('id') id: string) {
+  async obter(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id deve ser UUID válido.');
     }
+    await this.auth.assertMensagemPermitida(usuario, id);
     return this.service.obter(id);
   }
 
   @Get()
-  async listar(@Query('candidaturaId') candidaturaId?: string) {
+  async listar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Query('candidaturaId') candidaturaId?: string,
+  ) {
     if (!candidaturaId || !UUID_REGEX.test(candidaturaId)) {
       throw new BadRequestException('candidaturaId é obrigatório (UUID).');
     }
+    await this.auth.assertCandidaturaPermitida(usuario, candidaturaId);
     return this.service.listarPorCandidatura(candidaturaId);
   }
 }

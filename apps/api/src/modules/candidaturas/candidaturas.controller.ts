@@ -11,6 +11,10 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { AuthGuard } from '../auth/auth.guard.js';
+import { AuthService } from '../auth/auth.service.js';
+import type { UsuarioAutenticado } from '../auth/auth.types.js';
+import { UsuarioAtual } from '../auth/usuario-atual.decorator.js';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,15 +24,23 @@ const UUID_REGEX =
  * entrevistas em uma só request. Mantém o frontend simples.
  */
 @Controller('api/candidaturas')
-@UseGuards(ThrottlerGuard)
+@UseGuards(ThrottlerGuard, AuthGuard)
 export class CandidaturasController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auth: AuthService,
+  ) {}
 
   @Get(':id')
-  async detalhe(@Param('id') id: string) {
+  async detalhe(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+  ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id inválido.');
     }
+    // Gestor só vê candidatura de vaga sua (senão 404).
+    await this.auth.assertCandidaturaPermitida(usuario, id);
     const c = await this.prisma.candidatura.findUnique({
       where: { id },
       include: {
@@ -121,6 +133,7 @@ export class CandidaturasController {
    */
   @Post(':id/consentimento-gravacao')
   async consentimentoGravacao(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id') id: string,
     @Body() body: { consentir?: boolean },
   ) {
@@ -130,6 +143,8 @@ export class CandidaturasController {
     if (typeof body?.consentir !== 'boolean') {
       throw new BadRequestException('consentir (boolean) é obrigatório.');
     }
+    // Gestor da vaga pode consentir pelos candidatos dela (mesmo poder do recrutador).
+    await this.auth.assertCandidaturaPermitida(usuario, id);
     const cand = await this.prisma.candidatura.findUnique({
       where: { id },
       select: { candidato_id: true },

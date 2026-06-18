@@ -720,13 +720,17 @@ export class InterviewService {
   }
 
   /**
-   * Agenda geral de entrevistas (todas as candidaturas) — alimenta a página
-   * "Entrevistas". Por padrão lista as AGENDADAS (próximas, ordem crescente);
-   * sem filtro de status lista todas em ordem decrescente.
+   * Agenda de entrevistas — alimenta a página "Agenda". Por padrão lista as
+   * AGENDADAS (próximas, ordem crescente); sem filtro de status lista todas em
+   * ordem decrescente. `gestorId` escopa às vagas daquele gestor (null = todas,
+   * usado por admin/recrutamento).
    */
-  async listarAgenda(status?: string) {
+  async listarAgenda(status?: string, gestorId?: string | null) {
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+    if (gestorId) where.candidatura = { vaga: { gestor_id: gestorId } };
     return this.prisma.entrevista.findMany({
-      where: status ? { status: status as never } : undefined,
+      where,
       orderBy: { agendada_para: status === 'AGENDADA' ? 'asc' : 'desc' },
       take: 200,
       select: {

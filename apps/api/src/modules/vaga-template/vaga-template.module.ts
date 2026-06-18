@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { GupyModule } from '../gupy/gupy.module.js';
 import { VagaTemplateController } from './vaga-template.controller.js';
 import { VagaTemplateService } from './vaga-template.service.js';
@@ -10,7 +11,7 @@ import { VagaTemplateService } from './vaga-template.service.js';
  * GupyClient vem do GupyModule (exportado).
  */
 @Module({
-  imports: [GupyModule],
+  imports: [GupyModule, AuthModule],
   controllers: [VagaTemplateController],
   providers: [VagaTemplateService],
 })

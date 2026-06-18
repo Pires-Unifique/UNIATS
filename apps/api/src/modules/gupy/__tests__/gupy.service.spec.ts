@@ -44,13 +44,17 @@ function montarMocks() {
     candidato: { upsert: jest.fn() },
     candidatura: { upsert: jest.fn() },
   };
+  const auth = {
+    vincularGestorAoSincronizar: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new GupyService(
     client as any,
     prisma as any,
+    auth as any,
     filaCV as any,
     filaSync as any,
   );
-  return { service, client, prisma, filaCV, filaSync };
+  return { service, client, prisma, auth, filaCV, filaSync };
 }
 
 async function* gen<T>(items: T[]): AsyncGenerator<T, void, void> {
