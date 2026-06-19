@@ -22,7 +22,8 @@ const UUID_REGEX =
 interface AgendarBody {
   candidaturaId: string;
   agendadaPara: string; // ISO-8601
-  meetUrl: string;
+  /** Opcional: se omitido/vazio, o sistema gera a sala no Teams automaticamente. */
+  meetUrl?: string;
   duracaoEstimadaMin?: number;
   entrevistadorId?: string;
   googleEventId?: string;
@@ -56,6 +57,23 @@ export class InterviewController {
       throw new BadRequestException('candidaturaId deve ser UUID.');
     }
     await this.auth.assertCandidaturaPermitida(usuario, body.candidaturaId);
+    // meetUrl é OPCIONAL: ou o recrutador informa o link, ou o sistema gera a sala
+    // no Teams (serviço). Quando informado, validamos https, formato e tamanho;
+    // depois ele é consumido pelo bot (Playwright navega até ele).
+    if (body.meetUrl != null && body.meetUrl !== '') {
+      if (typeof body.meetUrl !== 'string' || body.meetUrl.length > 2048) {
+        throw new BadRequestException('meetUrl inválido (máx. 2048 chars).');
+      }
+      let meetUrlParsed: URL;
+      try {
+        meetUrlParsed = new URL(body.meetUrl);
+      } catch {
+        throw new BadRequestException('meetUrl deve ser uma URL válida.');
+      }
+      if (meetUrlParsed.protocol !== 'https:') {
+        throw new BadRequestException('meetUrl deve usar https.');
+      }
+    }
     if (body.entrevistadorId && !UUID_REGEX.test(body.entrevistadorId)) {
       throw new BadRequestException('entrevistadorId deve ser UUID.');
     }
@@ -74,7 +92,7 @@ export class InterviewController {
     return this.service.agendar({
       candidaturaId: body.candidaturaId,
       agendadaPara: d,
-      meetUrl: body.meetUrl,
+      meetUrl: body.meetUrl || undefined,
       duracaoEstimadaMin: body.duracaoEstimadaMin,
       entrevistadorId: body.entrevistadorId,
       googleEventId: body.googleEventId,

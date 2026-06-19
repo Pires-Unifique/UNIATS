@@ -41,6 +41,40 @@ export class GupyApiError extends Error {
 }
 
 /**
+ * Detecta se um HOST é um IP literal em faixa privada/reservada (anti-SSRF).
+ * Cobre loopback, link-local (inclui metadados de nuvem 169.254.169.254),
+ * ranges privados RFC1918, CGNAT e equivalentes IPv6. Hostnames (não-IP) não
+ * são resolvidos aqui — ver nota de DNS rebinding em `assertUrlExternaSegura`.
+ */
+export function ehIpPrivadoOuReservado(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, ''); // tira colchetes de IPv6
+  if (h.includes(':')) {
+    // IPv6: ::1 (loopback), fc00::/7 (ULA), fe80::/10 (link-local).
+    return (
+      h === '::1' ||
+      h === '::' ||
+      h.startsWith('fc') ||
+      h.startsWith('fd') ||
+      h.startsWith('fe8') ||
+      h.startsWith('fe9') ||
+      h.startsWith('fea') ||
+      h.startsWith('feb')
+    );
+  }
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false; // não é IP literal
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  if ([a, b, Number(m[3]), Number(m[4])].some((n) => n > 255)) return true; // malformado → bloqueia
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true; // link-local + metadados de nuvem
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT (RFC 6598)
+  return false;
+}
+
+/**
  * Cliente HTTP único para a Gupy.
  *
  * Defesas em camada:
@@ -344,11 +378,9 @@ export class GupyClient {
    * IMPORTANTE: o resultado é binário — chamador é responsável por persistir.
    */
   async baixarCurriculo(url: string): Promise<{ data: Buffer; contentType: string }> {
-    // URL é validada pelo Zod no schema (z.string().url()).
-    // Bloqueamos qualquer URL que não seja https → defesa contra SSRF.
-    if (!url.startsWith('https://')) {
-      throw new GupyApiError('URL de currículo inválida (não-HTTPS)', 400);
-    }
+    // Anti-SSRF: valida esquema https, bloqueia hosts internos/IP privado e
+    // (se configurado) exige allowlist de domínio.
+    this.assertUrlExternaSegura(url);
     return await this.limiter.schedule(async () => {
       try {
         const resp = await this.http.get<ArrayBuffer>(url, {
@@ -356,6 +388,8 @@ export class GupyClient {
           // Token NÃO vai junto: URLs de CV costumam ser pre-signed.
           headers: { Authorization: '' },
           maxContentLength: 20 * 1024 * 1024, // 20 MB hard cap
+          // Sem redirects: impede um 30x apontar para alvo interno (bypass de SSRF).
+          maxRedirects: 0,
         });
         return {
           data: Buffer.from(resp.data),
@@ -365,6 +399,56 @@ export class GupyClient {
         throw this.normalizarErro(err, 'baixarCurriculo');
       }
     });
+  }
+
+  /**
+   * Valida que a URL de download é segura para um fetch server-side (anti-SSRF).
+   * Camadas: (1) só https; (2) bloqueia loopback/IP privado/metadados/`.internal`;
+   * (3) allowlist opcional de sufixos de domínio via CV_DOWNLOAD_ALLOWED_HOSTS.
+   *
+   * Limite conhecido: não resolvemos DNS aqui, então um host público que resolve
+   * para IP privado (DNS rebinding) não é coberto por esta checagem. Mitigado na
+   * prática pela origem confiável das URLs (Gupy/S3) + allowlist quando definida.
+   */
+  private assertUrlExternaSegura(url: string): void {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new GupyApiError('URL de currículo malformada', 400);
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new GupyApiError('URL de currículo inválida (não-HTTPS)', 400);
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.internal') ||
+      host.endsWith('.local') ||
+      ehIpPrivadoOuReservado(host)
+    ) {
+      throw new GupyApiError(
+        `Host de currículo não permitido (anti-SSRF): ${host}`,
+        400,
+      );
+    }
+    const allow = this.config.get<string>('CV_DOWNLOAD_ALLOWED_HOSTS');
+    if (allow) {
+      const sufixos = allow
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const ok = sufixos.some(
+        (suf) => host === suf || host.endsWith(`.${suf}`),
+      );
+      if (!ok) {
+        throw new GupyApiError(
+          `Host de currículo fora da allowlist (CV_DOWNLOAD_ALLOWED_HOSTS): ${host}`,
+          400,
+        );
+      }
+    }
   }
 
   /** ------------------------------------------------------------------
