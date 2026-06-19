@@ -35,7 +35,7 @@ export const AvaliacaoSchema = z.object({
     .describe('Score numérico de aderência (0 a 100).'),
   justificativa: z
     .string()
-    .min(20)
+    .min(1)
     .max(2000)
     .describe(
       'Resumo factual em 3 a 6 frases explicando o score. Sem adjetivos vagos.',

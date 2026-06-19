@@ -730,7 +730,9 @@ export class MatchingService {
         'Claude não chamou a ferramenta de avaliação.',
       );
     }
-    const parsed = AvaliacaoSchema.safeParse(tool.input);
+    const parsed = AvaliacaoSchema.safeParse(
+      this.sanitizarAvaliacaoBruta(tool.input),
+    );
     if (!parsed.success) {
       this.logger.error(
         `Avaliação inválida: ${parsed.error.issues.map((i) => i.path.join('.') + ':' + i.message).join('; ')}`,
@@ -740,6 +742,69 @@ export class MatchingService {
       );
     }
     return parsed.data;
+  }
+
+  /**
+   * Coage o input bruto da tool do Claude para o shape esperado ANTES do Zod.
+   * Objetivo: um campo AUXILIAR fora do padrão (trecho > 400, enum errado, item
+   * grande, score fora de 0–100) NÃO deve invalidar a avaliação inteira — só o
+   * essencial (score/justificativa) pode reprovar. Truncamos/descartamos o que
+   * não bate em vez de rejeitar tudo (antes, isso derrubava o candidato e ele
+   * voltava como "sem nota").
+   */
+  private sanitizarAvaliacaoBruta(input: unknown): unknown {
+    const o = (input ?? {}) as Record<string, unknown>;
+    const EIXOS = [
+      'requisitos_gestor',
+      'experiencia',
+      'competencias',
+      'formacao',
+      'outros',
+    ];
+    const IMPACTOS = ['positivo', 'negativo', 'neutro'];
+
+    const score = Number(o.score);
+    // Clamp 0–100 quando é número; senão deixa o Zod reprovar (score é essencial).
+    const scoreSan = Number.isFinite(score)
+      ? Math.max(0, Math.min(100, score))
+      : o.score;
+
+    const listaStr = (v: unknown): string[] =>
+      Array.isArray(v)
+        ? v
+            .filter((x): x is string => typeof x === 'string')
+            .map((x) => x.slice(0, 300))
+            .slice(0, 8)
+        : [];
+
+    const evidencias = Array.isArray(o.evidencias)
+      ? (o.evidencias as unknown[])
+          .filter(
+            (e): e is { eixo: string; trecho: string; impacto: string } =>
+              !!e &&
+              typeof e === 'object' &&
+              EIXOS.includes((e as { eixo?: unknown }).eixo as string) &&
+              IMPACTOS.includes((e as { impacto?: unknown }).impacto as string) &&
+              typeof (e as { trecho?: unknown }).trecho === 'string',
+          )
+          .map((e) => ({
+            eixo: e.eixo,
+            impacto: e.impacto,
+            trecho: e.trecho.slice(0, 400),
+          }))
+          .slice(0, 15)
+      : [];
+
+    return {
+      score: scoreSan,
+      justificativa:
+        typeof o.justificativa === 'string'
+          ? o.justificativa.slice(0, 2000)
+          : o.justificativa,
+      pontos_fortes: listaStr(o.pontos_fortes),
+      lacunas: listaStr(o.lacunas),
+      evidencias,
+    };
   }
 
   private sanitizar(texto: string): string {
