@@ -29,7 +29,8 @@ function minutosEntre(inicioIso: string, fimIso: string): number {
  * Formulário de agendamento de entrevista. Reusa POST /api/entrevistas.
  * O horário é escolhido DIRETO na agenda (Microsoft Graph) embutida — a grade
  * conecta sozinha, mostra livre/ocupado e permite convidar líderes técnicos
- * (a disponibilidade deles entra no cálculo). O link de vídeo é colado aqui.
+ * (a disponibilidade deles entra no cálculo). A sala pode ser gerada
+ * automaticamente no Teams ou informada manualmente por link.
  */
 export function AgendarEntrevistaModal({
   candidaturaId,
@@ -47,6 +48,8 @@ export function AgendarEntrevistaModal({
     slotInicial ? minutosEntre(slotInicial.inicio, slotInicial.fim) : 30,
   );
   const [meetUrl, setMeetUrl] = useState('');
+  // Sala: gerar automaticamente no Teams (padrão) ou informar um link manual.
+  const [modoSala, setModoSala] = useState<'gerar' | 'link'>('gerar');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   // Marcado por padrão: o convite já comunica que aceitar a reunião = consentir
@@ -67,7 +70,9 @@ export function AgendarEntrevistaModal({
   const urlValida = /^https:\/\//.test(meetUrl);
   const dataValida =
     Boolean(agendadaPara) && !Number.isNaN(new Date(agendadaPara).getTime());
-  const pode = urlValida && dataValida && !salvando;
+  // "gerar" não exige link; "link" exige https.
+  const salaValida = modoSala === 'gerar' || urlValida;
+  const pode = salaValida && dataValida && !salvando;
 
   async function agendar() {
     setSalvando(true);
@@ -79,7 +84,8 @@ export function AgendarEntrevistaModal({
           candidaturaId,
           agendadaPara: new Date(agendadaPara).toISOString(),
           duracaoEstimadaMin: duracao,
-          meetUrl,
+          // "gerar" → omite o meetUrl e o backend cria a sala no Teams.
+          meetUrl: modoSala === 'link' ? meetUrl : undefined,
           consentirGravacao: !consentimentoGravacao && registrarConsentimento,
         },
       });
@@ -153,24 +159,56 @@ export function AgendarEntrevistaModal({
             />
           </div>
 
-          {/* Link da reunião */}
-          <label className="block">
-            <span className="text-xs text-grafite-400">
-              Link da reunião (Google Meet ou Teams — HTTPS)
-            </span>
-            <input
-              type="url"
-              className="mt-1 w-full rounded-md border border-grafite-200 px-2 py-1.5 text-sm"
-              value={meetUrl}
-              onChange={(e) => setMeetUrl(e.target.value)}
-              placeholder="https://meet.google.com/… ou https://teams.microsoft.com/…"
-            />
-            {meetUrl && !urlValida && (
-              <span className="text-xs text-red-600">
-                O link deve começar com https://
-              </span>
+          {/* Sala da reunião: gerar no Teams ou informar link manualmente */}
+          <div>
+            <div className="mb-1 text-xs font-medium text-grafite-700">
+              Sala da reunião
+            </div>
+            <div className="flex flex-col gap-1.5 text-sm text-grafite-700">
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="modoSala"
+                  className="mt-0.5"
+                  checked={modoSala === 'gerar'}
+                  onChange={() => setModoSala('gerar')}
+                />
+                <span>
+                  <strong>Gerar automaticamente no Teams</strong> — cria a reunião,
+                  bloqueia a agenda e envia o convite ao candidato.
+                </span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="modoSala"
+                  className="mt-0.5"
+                  checked={modoSala === 'link'}
+                  onChange={() => setModoSala('link')}
+                />
+                <span>Informar um link manualmente (Google Meet ou Teams)</span>
+              </label>
+            </div>
+            {modoSala === 'link' && (
+              <label className="mt-2 block">
+                <span className="text-xs text-grafite-400">
+                  Link da reunião (HTTPS)
+                </span>
+                <input
+                  type="url"
+                  className="mt-1 w-full rounded-md border border-grafite-200 px-2 py-1.5 text-sm"
+                  value={meetUrl}
+                  onChange={(e) => setMeetUrl(e.target.value)}
+                  placeholder="https://meet.google.com/… ou https://teams.microsoft.com/…"
+                />
+                {meetUrl && !urlValida && (
+                  <span className="text-xs text-red-600">
+                    O link deve começar com https://
+                  </span>
+                )}
+              </label>
             )}
-          </label>
+          </div>
 
           {erro && (
             <div className="badge-red w-full justify-start px-3 py-2">{erro}</div>

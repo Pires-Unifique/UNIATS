@@ -19,7 +19,12 @@ import type { WahaChatId } from '../../waha/waha.types.js';
 export interface AgendarEntrevistaInput {
   candidaturaId: string;
   agendadaPara: Date;
-  meetUrl: string;
+  /**
+   * Link da reunião. OPCIONAL: se ausente, o sistema gera a sala no Teams (Graph)
+   * — convite + bloqueio de agenda + auto-transcrição. Quando informado, é usado
+   * como está (precisa ser https).
+   */
+  meetUrl?: string;
   duracaoEstimadaMin?: number;
   entrevistadorId?: string;
   googleEventId?: string;
@@ -81,7 +86,9 @@ export class InterviewService {
         'agendadaPara não pode estar a mais de 90 dias no futuro.',
       );
     }
-    if (!/^https:\/\//.test(input.meetUrl)) {
+    // meetUrl é OPCIONAL: ou o recrutador informa o link, ou o sistema gera a sala
+    // no Teams (abaixo). Quando informado, exigimos https.
+    if (input.meetUrl !== undefined && !/^https:\/\//.test(input.meetUrl)) {
       throw new BadRequestException('meetUrl deve ser HTTPS.');
     }
 
@@ -92,8 +99,16 @@ export class InterviewService {
         candidato_id: true,
         candidato: {
           select: {
+            nome_completo: true,
+            email: true,
             consentimento_gravacao_em: true,
             excluido_em: true,
+          },
+        },
+        vaga: {
+          select: {
+            titulo: true,
+            recrutador: { select: { id: true, email: true } },
           },
         },
       },
@@ -126,33 +141,183 @@ export class InterviewService {
       );
     }
 
-    const entrevista = await this.prisma.entrevista.create({
-      data: {
-        candidatura_id: input.candidaturaId,
-        candidato_id: candidatura.candidato_id,
-        entrevistador_id: input.entrevistadorId,
-        agendada_para: input.agendadaPara,
-        duracao_estimada_min: input.duracaoEstimadaMin ?? 30,
-        meet_url: input.meetUrl,
-        google_event_id: input.googleEventId,
-        graph_event_id: input.graphEventId,
-        teams_join_url: input.teamsJoinUrl,
-        provedor_video: input.provedorVideo,
-        graph_online_meeting_id: input.graphOnlineMeetingId,
-        graph_organizador_email: input.graphOrganizadorEmail,
-        status: 'AGENDADA',
-      },
-      select: {
-        id: true,
-        status: true,
-        agendada_para: true,
-      },
-    });
+    const duracaoMin = input.duracaoEstimadaMin ?? 30;
+
+    // Campos de vídeo partem do input. O fluxo "link informado" e o da enquete
+    // (que gera o Teams ANTES de chamar agendar) já trazem tudo preenchido aqui.
+    let meetUrl = input.meetUrl;
+    let teamsJoinUrl = input.teamsJoinUrl;
+    let provedorVideo = input.provedorVideo;
+    let graphEventId = input.graphEventId;
+    let graphOnlineMeetingId = input.graphOnlineMeetingId ?? null;
+    let graphOrganizadorEmail = input.graphOrganizadorEmail ?? null;
+    let entrevistadorId = input.entrevistadorId;
+    // Guardado p/ reverter o evento no Graph se a persistência falhar (evita órfão).
+    let salaGeradaEventId: string | null = null;
+
+    // SEM link informado → o sistema cria a sala no Teams (Graph).
+    if (!meetUrl) {
+      if (!candidatura.candidato.email) {
+        throw new BadRequestException(
+          'Para gerar a sala automaticamente é preciso o e-mail do candidato; ' +
+            'caso contrário, informe o meetUrl manualmente.',
+        );
+      }
+      const fim = new Date(input.agendadaPara.getTime() + duracaoMin * 60_000);
+      const sala = await this.criarReuniaoTeams({
+        candidatoEmail: candidatura.candidato.email,
+        candidatoNome: candidatura.candidato.nome_completo,
+        vagaTitulo: candidatura.vaga?.titulo ?? null,
+        recrutadorEmail: candidatura.vaga?.recrutador?.email ?? null,
+        inicio: input.agendadaPara,
+        fim,
+      });
+      meetUrl = sala.joinUrl;
+      teamsJoinUrl = sala.joinUrl;
+      provedorVideo = 'teams';
+      graphEventId = sala.eventId;
+      graphOnlineMeetingId = sala.onlineMeetingId;
+      graphOrganizadorEmail = sala.organizadorEmail;
+      entrevistadorId =
+        entrevistadorId ?? candidatura.vaga?.recrutador?.id ?? undefined;
+      salaGeradaEventId = sala.eventId;
+    }
+
+    let entrevista: { id: string; status: string; agendada_para: Date };
+    try {
+      entrevista = await this.prisma.entrevista.create({
+        data: {
+          candidatura_id: input.candidaturaId,
+          candidato_id: candidatura.candidato_id,
+          entrevistador_id: entrevistadorId,
+          agendada_para: input.agendadaPara,
+          duracao_estimada_min: duracaoMin,
+          meet_url: meetUrl,
+          google_event_id: input.googleEventId,
+          graph_event_id: graphEventId,
+          teams_join_url: teamsJoinUrl,
+          provedor_video: provedorVideo,
+          graph_online_meeting_id: graphOnlineMeetingId,
+          graph_organizador_email: graphOrganizadorEmail,
+          status: 'AGENDADA',
+        },
+        select: {
+          id: true,
+          status: true,
+          agendada_para: true,
+        },
+      });
+    } catch (err) {
+      if (salaGeradaEventId && graphOrganizadorEmail) {
+        await this.graph
+          .removerEvento(graphOrganizadorEmail, salaGeradaEventId)
+          .catch((e) =>
+            this.logger.warn(
+              `Falha ao reverter evento ${salaGeradaEventId} após erro no agendar: ${(e as Error).message}`,
+            ),
+          );
+      }
+      throw err;
+    }
 
     this.logger.log(
-      `Entrevista agendada: id=${entrevista.id} candidatura=${input.candidaturaId} para=${input.agendadaPara.toISOString()}`,
+      `Entrevista agendada: id=${entrevista.id} candidatura=${input.candidaturaId} ` +
+        `para=${input.agendadaPara.toISOString()} ` +
+        `sala=${salaGeradaEventId ? 'gerada(Teams)' : 'link informado'}`,
     );
     return entrevista;
+  }
+
+  /**
+   * Cria a reunião no Teams via Graph: evento + bloqueio de agenda + convite
+   * nativo ao candidato; resolve o onlineMeetingId e liga a transcrição automática
+   * (best-effort). Usado quando o agendamento NÃO recebe um meetUrl pronto.
+   * Mesma orquestração do fluxo de enquete (confirmarPorEnquete).
+   */
+  private async criarReuniaoTeams(args: {
+    candidatoEmail: string;
+    candidatoNome: string | null;
+    vagaTitulo: string | null;
+    recrutadorEmail: string | null;
+    inicio: Date;
+    fim: Date;
+  }): Promise<{
+    eventId: string;
+    joinUrl: string;
+    onlineMeetingId: string | null;
+    organizadorEmail: string;
+  }> {
+    if (!this.graph.enabled) {
+      throw new ServiceUnavailableException(
+        'Geração automática da sala no Teams indisponível: Microsoft Graph não ' +
+          'configurado (defina AZURE_AD_CLIENT_SECRET e as permissões de app). ' +
+          'Você ainda pode agendar informando o meetUrl manualmente.',
+      );
+    }
+    // Organizador FIXO (conta de serviço) tem prioridade — garante transcript
+    // acessível sob um único usuário; senão cai no recrutador / fallback.
+    const organizadorFixo = this.config.get<string>('INTERVIEW_ORGANIZER_EMAIL');
+    const organizadorEmail =
+      organizadorFixo ??
+      args.recrutadorEmail ??
+      this.config.get<string>('AGENDA_ORGANIZADOR_FALLBACK_EMAIL');
+    if (!organizadorEmail) {
+      throw new BadRequestException(
+        'Sem organizador definido — configure INTERVIEW_ORGANIZER_EMAIL ou vincule ' +
+          'um recrutador à vaga (ou AGENDA_ORGANIZADOR_FALLBACK_EMAIL).',
+      );
+    }
+    const convidadosExtra =
+      args.recrutadorEmail && args.recrutadorEmail !== organizadorEmail
+        ? [{ email: args.recrutadorEmail }]
+        : [];
+    const titulo = args.vagaTitulo ?? 'Entrevista';
+    const nomeCandidato = args.candidatoNome ?? 'candidato(a)';
+    const quando = this.formatarDataHora(args.inicio);
+
+    const { eventId, joinUrl } = await this.graph.criarEventoComTeams({
+      organizadorEmail,
+      inicio: args.inicio,
+      fim: args.fim,
+      assunto: `Entrevista — ${titulo}`,
+      corpoHtml: this.montarCorpoConvite({ nomeCandidato, titulo, quando }),
+      convidado: {
+        email: args.candidatoEmail,
+        nome: args.candidatoNome ?? undefined,
+      },
+      convidadosExtra,
+      teams: true,
+    });
+    if (!joinUrl) {
+      await this.graph
+        .removerEvento(organizadorEmail, eventId)
+        .catch((err) =>
+          this.logger.warn(
+            `Falha ao reverter evento ${eventId} sem joinUrl: ${(err as Error).message}`,
+          ),
+        );
+      throw new ServiceUnavailableException(
+        'O Graph criou o evento mas não devolveu o link do Teams — tente novamente.',
+      );
+    }
+    let onlineMeetingId: string | null = null;
+    try {
+      onlineMeetingId = await this.graph.resolverOnlineMeetingId(
+        organizadorEmail,
+        joinUrl,
+      );
+      if (onlineMeetingId) {
+        await this.graph.habilitarTranscricaoAutomatica(
+          organizadorEmail,
+          onlineMeetingId,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao habilitar auto-transcrição (não crítico): ${(err as Error).message}`,
+      );
+    }
+    return { eventId, joinUrl, onlineMeetingId, organizadorEmail };
   }
 
   /**
