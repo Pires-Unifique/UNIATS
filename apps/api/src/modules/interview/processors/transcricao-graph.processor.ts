@@ -97,9 +97,21 @@ export class TranscricaoGraphProcessor extends WorkerHost {
     const joinUrl = entrevista.teams_join_url ?? entrevista.meet_url;
     if (!joinUrl) throw new Error(`Entrevista ${entrevistaId} sem joinUrl do Teams.`);
 
+    // Os endpoints app-only de onlineMeetings/transcripts exigem o OBJECT ID do
+    // organizador no path (com UPN/e-mail o Graph devolve 404 vazio, e o app não
+    // tem User.Read.All p/ resolver e-mail→id). O object id vem no `?context` do
+    // joinUrl (`Oid`).
+    const organizadorOid = GraphClient.extrairOidDoJoinUrl(joinUrl);
+    if (!organizadorOid) {
+      throw new Error(
+        `Entrevista ${entrevistaId}: não consegui extrair o object id do organizador ` +
+          `do joinUrl (link sem ?context/Oid?).`,
+      );
+    }
+
     this.logger.log(
       `Graph pull INÍCIO: entrevista=${entrevistaId} organizador=${organizador} ` +
-        `joinUrl=${joinUrl.slice(0, 70)}…`,
+        `oid=${organizadorOid} joinUrl=${joinUrl.slice(0, 70)}…`,
     );
 
     // 1. onlineMeetingId — Plano B: usa o id gravado na criação (pull direto, sem
@@ -111,7 +123,7 @@ export class TranscricaoGraphProcessor extends WorkerHost {
         `Graph pull resolve: entrevista=${entrevistaId} meetingId=${meetingId} (persistido)`,
       );
     } else {
-      meetingId = await this.graph.resolverOnlineMeetingId(organizador, joinUrl);
+      meetingId = await this.graph.resolverOnlineMeetingId(organizadorOid, joinUrl);
       this.logger.log(
         `Graph pull resolve: entrevista=${entrevistaId} meetingId=${meetingId ?? 'NULL'} (via joinUrl)`,
       );
@@ -123,7 +135,7 @@ export class TranscricaoGraphProcessor extends WorkerHost {
     }
 
     // 2. lista transcripts (vazio enquanto o Teams indexa ~12 min)
-    const transcripts = await this.graph.listarTranscripts(organizador, meetingId);
+    const transcripts = await this.graph.listarTranscripts(organizadorOid, meetingId);
     this.logger.log(
       `Graph pull transcripts: entrevista=${entrevistaId} count=${transcripts.length}`,
     );
@@ -139,7 +151,7 @@ export class TranscricaoGraphProcessor extends WorkerHost {
 
     // 3. baixa o VTT
     const vtt = await this.graph.baixarTranscriptVtt(
-      organizador,
+      organizadorOid,
       meetingId,
       escolhido.id,
     );

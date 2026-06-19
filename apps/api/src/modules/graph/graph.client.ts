@@ -172,6 +172,25 @@ export class GraphClient {
   }
 
   /**
+   * Extrai o OBJECT ID (Azure AD) do ORGANIZADOR a partir do joinUrl do Teams —
+   * ele vem no `?context={"Tid":...,"Oid":...}`. É necessário porque os endpoints
+   * app-only de onlineMeetings/transcripts SÓ aceitam o object id no path (com UPN/
+   * e-mail devolvem 404 UnknownError vazio), e o app NÃO tem User.Read.All para
+   * resolver e-mail→id. Devolve null se o link não tiver o contexto (ex.: link
+   * pessoal `meet/...`).
+   */
+  static extrairOidDoJoinUrl(joinUrl: string): string | null {
+    try {
+      const ctx = new URL(joinUrl).searchParams.get('context');
+      if (!ctx) return null;
+      const oid = (JSON.parse(ctx) as { Oid?: string }).Oid;
+      return oid ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Cria o evento na agenda do recrutador (reunião Teams + bloqueio + convite ao
    * candidato em um único POST). Devolve o id do evento (p/ cancelar) e o joinUrl.
    */
@@ -268,15 +287,14 @@ export class GraphClient {
    * tratado em normalizarErro). O filtro usa JoinWebUrl eq '<joinUrl>'.
    */
   async resolverOnlineMeetingId(
-    organizadorEmail: string,
+    organizadorOid: string,
     joinUrl: string,
   ): Promise<string | null> {
     this.garantirHabilitado();
-    this.validarEmail(organizadorEmail, 'organizadorEmail');
     const token = await this.obterToken();
     try {
       const resp = await this.http.get(
-        this.paths.onlineMeetings(organizadorEmail),
+        this.paths.onlineMeetings(organizadorOid),
         {
           headers: { Authorization: `Bearer ${token}` },
           // O Graph exige a string entre aspas simples no $filter.
@@ -288,7 +306,7 @@ export class GraphClient {
       // (count=0) de "achou" (count>=1).
       this.logger.log(
         `resolverOnlineMeetingId: status=${resp.status} count=${parsed.value.length} ` +
-          `user=${organizadorEmail}` +
+          `user=${organizadorOid}` +
           (parsed.value.length === 0
             ? ` — 200 vazio: JoinWebUrl não casou (provável encoding/contexto do link).`
             : ''),
@@ -301,14 +319,14 @@ export class GraphClient {
       // usuário. Ambos viram "não achou" (best-effort), mas logamos a causa provável.
       if (status === 403) {
         this.logger.warn(
-          `resolverOnlineMeetingId: 403 p/ ${organizadorEmail} — provável Application ` +
+          `resolverOnlineMeetingId: 403 p/ ${organizadorOid} — provável Application ` +
             `Access Policy ausente (app não autorizado a ler reuniões deste usuário).`,
         );
         return null;
       }
       if (status === 404) {
         this.logger.warn(
-          `resolverOnlineMeetingId: 404 p/ ${organizadorEmail} — onlineMeeting não ` +
+          `resolverOnlineMeetingId: 404 p/ ${organizadorOid} — onlineMeeting não ` +
             `encontrado (organizador divergente, link inválido ou ainda não indexado).`,
         );
         return null;
@@ -323,19 +341,19 @@ export class GraphClient {
    * ignora o flag. Requer OnlineMeetings.ReadWrite.All. Best-effort.
    */
   async habilitarTranscricaoAutomatica(
-    organizadorEmail: string,
+    organizadorOid: string,
     meetingId: string,
   ): Promise<void> {
     this.garantirHabilitado();
     const token = await this.obterToken();
     try {
       await this.http.patch(
-        `${this.paths.onlineMeetings(organizadorEmail)}/${encodeURIComponent(meetingId)}`,
+        `${this.paths.onlineMeetings(organizadorOid)}/${encodeURIComponent(meetingId)}`,
         { allowTranscription: true, recordAutomatically: true },
         { headers: { Authorization: `Bearer ${token}` } },
       );
       this.logger.log(
-        `Auto-transcrição habilitada: organizador=${organizadorEmail} meeting=${meetingId}`,
+        `Auto-transcrição habilitada: organizador=${organizadorOid} meeting=${meetingId}`,
       );
     } catch (err) {
       throw this.normalizarErro(err, 'habilitarTranscricaoAutomatica');
@@ -344,14 +362,14 @@ export class GraphClient {
 
   /** Lista os transcripts disponíveis da reunião (vazio enquanto o Teams indexa). */
   async listarTranscripts(
-    organizadorEmail: string,
+    organizadorOid: string,
     meetingId: string,
   ): Promise<TranscriptInfo[]> {
     this.garantirHabilitado();
     const token = await this.obterToken();
     try {
       const resp = await this.http.get(
-        this.paths.transcripts(organizadorEmail, meetingId),
+        this.paths.transcripts(organizadorOid, meetingId),
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const parsed = TranscriptListSchema.parse(resp.data);
@@ -367,7 +385,7 @@ export class GraphClient {
    * não disponível). O parsing do VTT → segmentos fica fora do client.
    */
   async baixarTranscriptVtt(
-    organizadorEmail: string,
+    organizadorOid: string,
     meetingId: string,
     transcriptId: string,
   ): Promise<string | null> {
@@ -375,7 +393,7 @@ export class GraphClient {
     const token = await this.obterToken();
     try {
       const resp = await this.http.get<string>(
-        this.paths.transcriptContent(organizadorEmail, meetingId, transcriptId),
+        this.paths.transcriptContent(organizadorOid, meetingId, transcriptId),
         {
           headers: { Authorization: `Bearer ${token}` },
           params: { $format: 'text/vtt' },

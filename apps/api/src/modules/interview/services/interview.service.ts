@@ -302,14 +302,23 @@ export class InterviewService {
     }
     let onlineMeetingId: string | null = null;
     try {
-      onlineMeetingId = await this.graph.resolverOnlineMeetingId(
-        organizadorEmail,
-        joinUrl,
-      );
-      if (onlineMeetingId) {
-        await this.graph.habilitarTranscricaoAutomatica(
-          organizadorEmail,
-          onlineMeetingId,
+      // onlineMeetings/transcripts app-only exigem o OBJECT ID no path (UPN dá 404).
+      // O object id do organizador vem no `?context` (Oid) do joinUrl.
+      const organizadorOid = GraphClient.extrairOidDoJoinUrl(joinUrl);
+      if (organizadorOid) {
+        onlineMeetingId = await this.graph.resolverOnlineMeetingId(
+          organizadorOid,
+          joinUrl,
+        );
+        if (onlineMeetingId) {
+          await this.graph.habilitarTranscricaoAutomatica(
+            organizadorOid,
+            onlineMeetingId,
+          );
+        }
+      } else {
+        this.logger.warn(
+          `Auto-transcrição: joinUrl sem Oid p/ evento ${eventId} — seguirá sem PATCH.`,
         );
       }
     } catch (err) {
@@ -498,19 +507,28 @@ export class InterviewService {
     // a policy ainda não propagou — o processor cai no fallback de resolução.
     let onlineMeetingId: string | null = null;
     try {
-      onlineMeetingId = await this.graph.resolverOnlineMeetingId(
-        organizadorEmail,
-        joinUrl,
-      );
-      if (onlineMeetingId) {
-        await this.graph.habilitarTranscricaoAutomatica(
-          organizadorEmail,
-          onlineMeetingId,
+      // onlineMeetings/transcripts app-only exigem o OBJECT ID no path (UPN dá 404).
+      // O object id do organizador vem no `?context` (Oid) do joinUrl.
+      const organizadorOid = GraphClient.extrairOidDoJoinUrl(joinUrl);
+      if (!organizadorOid) {
+        this.logger.warn(
+          `Auto-transcrição: joinUrl sem Oid p/ evento ${eventId} — seguirá sem PATCH.`,
         );
       } else {
-        this.logger.warn(
-          `Auto-transcrição: onlineMeetingId ainda não resolvido p/ evento ${eventId} — seguirá sem PATCH.`,
+        onlineMeetingId = await this.graph.resolverOnlineMeetingId(
+          organizadorOid,
+          joinUrl,
         );
+        if (onlineMeetingId) {
+          await this.graph.habilitarTranscricaoAutomatica(
+            organizadorOid,
+            onlineMeetingId,
+          );
+        } else {
+          this.logger.warn(
+            `Auto-transcrição: onlineMeetingId ainda não resolvido p/ evento ${eventId} — seguirá sem PATCH.`,
+          );
+        }
       }
     } catch (err) {
       this.logger.warn(
