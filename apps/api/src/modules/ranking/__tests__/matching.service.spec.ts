@@ -214,7 +214,8 @@ describe('MatchingService.scorearCandidatura', () => {
     );
   });
 
-  it('rejeita avaliação que não bate com schema Zod', async () => {
+  // Helper: mocks mínimos para chegar até o parse da avaliação do Claude.
+  const prepararParaParse = (distancia = 1) => {
     prisma.candidatura.findUnique.mockResolvedValue({
       id: candidaturaId,
       vaga_id: 'v',
@@ -238,14 +239,65 @@ describe('MatchingService.scorearCandidatura', () => {
       requisitos_texto: null,
       requisitos_json: null,
     });
-    prisma.$queryRaw.mockResolvedValue([{ distancia: 1 }]);
+    prisma.$queryRaw.mockResolvedValue([{ distancia }]);
+    prisma.score.deleteMany.mockResolvedValue({ count: 0 });
+    prisma.score.createMany.mockResolvedValue({ count: 3 });
+  };
+
+  it('tolera avaliação fora do padrão: clampa score >100 e aceita justificativa curta', async () => {
+    prepararParaParse();
     createMock.mockResolvedValue({
       stop_reason: 'tool_use',
       content: [
         {
           type: 'tool_use',
           name: 'avaliar_aderencia',
-          input: { score: 150, justificativa: 'curta' }, // viola maximum=100 e minLength=20
+          // Antes derrubava o candidato (score>100 + justificativa curta);
+          // agora é coagido: score clampado p/ 100, justificativa aceita.
+          input: { score: 150, justificativa: 'curta' },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+
+    const out = await service.scorearCandidatura(candidaturaId);
+    expect(out.scoreRankingCv).toBe(100); // 150 → clampado
+  });
+
+  it('descarta evidência inválida (enum errado) sem reprovar a avaliação inteira', async () => {
+    prepararParaParse();
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'avaliar_aderencia',
+          input: {
+            score: 70,
+            justificativa: 'Atende parcialmente os requisitos da vaga.',
+            evidencias: [
+              { eixo: 'eixo_inexistente', trecho: 'x', impacto: 'positivo' }, // descartada
+              { eixo: 'competencias', trecho: 'ok', impacto: 'positivo' }, // mantida
+            ],
+          },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+
+    const out = await service.scorearCandidatura(candidaturaId);
+    expect(out.scoreRankingCv).toBe(70); // aceita apesar da evidência ruim
+  });
+
+  it('ainda rejeita quando o campo essencial (score) é irrecuperável', async () => {
+    prepararParaParse();
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'avaliar_aderencia',
+          input: { justificativa: 'sem score numérico', score: 'abc' }, // score não-numérico
         },
       ],
       usage: { input_tokens: 1, output_tokens: 1 },
