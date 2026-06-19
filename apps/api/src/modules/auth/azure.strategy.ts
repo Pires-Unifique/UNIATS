@@ -7,10 +7,16 @@ import { AuthService } from './auth.service.js';
 import type { UsuarioAutenticado } from './auth.types.js';
 
 /**
- * Valida o access token do Entra (Azure AD) usando a lib oficial da Microsoft.
+ * Valida o token do Entra (Azure AD) usando a lib oficial da Microsoft.
  * A BearerStrategy busca o JWKS do tenant e confere assinatura, `iss` e `aud`
  * automaticamente. Só é EXERCIDA quando o AuthGuard delega (AUTH_ENABLED=true);
  * em dev/local o guard usa o bypass e a estratégia nunca é chamada.
+ *
+ * MODELO DE TOKEN: o front envia o ID TOKEN (cujo `aud` = client id do app),
+ * pois NÃO expomos uma API própria no Entra (sem Application ID URI/scope). Por
+ * isso `clientId` PRECISA estar na lista de `audience` abaixo — não remova. Se um
+ * dia expor a API e migrar para access token de escopo próprio, aí sim adicione
+ * o App ID URI ao `audience`. A validação de assinatura/iss/exp é idêntica.
  */
 @Injectable()
 export class AzureStrategy extends PassportStrategy(BearerStrategy, 'azure-ad') {
@@ -33,7 +39,8 @@ export class AzureStrategy extends PassportStrategy(BearerStrategy, 'azure-ad') 
     super({
       identityMetadata: `https://login.microsoftonline.com/${tenant}/v2.0/.well-known/openid-configuration`,
       clientID: clientId,
-      // Token de API custom traz `aud` = App ID URI OU o clientID — aceitamos os dois.
+      // O ID token traz `aud` = clientID; um eventual access token de API custom
+      // traria `aud` = App ID URI. Aceitamos os dois — o clientID é o que vale hoje.
       audience: [audience, clientId],
       validateIssuer: true,
       passReqToCallback: false,
