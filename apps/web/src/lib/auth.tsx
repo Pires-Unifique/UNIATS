@@ -40,9 +40,14 @@ interface AuthCtx {
 
 /**
  * Login local (sem SSO) — APENAS para dev/teste, gated por env.
- * ⚠️ Desligar antes de produção (remover NEXT_PUBLIC_LOGIN_LOCAL do .env).
+ * Trava dupla: além do flag NEXT_PUBLIC_LOGIN_LOCAL, exigimos que o BUILD não
+ * seja de produção (`next build` define NODE_ENV=production). Assim, mesmo que o
+ * flag escape para o ambiente de produção, o backdoor admin/admin NUNCA chega ao
+ * bundle servido em prod — em produção o acesso é só via SSO (Entra).
  */
-const LOGIN_LOCAL_ATIVO = process.env.NEXT_PUBLIC_LOGIN_LOCAL === 'true';
+const LOGIN_LOCAL_ATIVO =
+  process.env.NEXT_PUBLIC_LOGIN_LOCAL === 'true' &&
+  process.env.NODE_ENV !== 'production';
 const LOCAL_SESSION_KEY = 'triagem.usuario_local';
 const USUARIO_LOCAL: UsuarioInfo = {
   nome: 'Admin (local)',

@@ -58,6 +58,18 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Visibilidade: deixa explícito no boot se a autenticação real está ligada.
+  // Em produção o boot já é barrado se estiver off (env.validation.ts), então
+  // este aviso só aparece em dev/homolog — onde o admin de dev é injetado.
+  if (config.get<boolean>('AUTH_ENABLED') !== true) {
+    app
+      .get(Logger)
+      .warn(
+        '⚠️  AUTH_ENABLED=false — autenticação real DESLIGADA (admin de dev ' +
+          'injetado em toda requisição). NÃO use com PII real de candidatos.',
+      );
+  }
+
   const port = config.get<number>('APP_PORT') ?? 3001;
   await app.listen(port);
   app.get(Logger).log(`API ouvindo em http://localhost:${port}`);

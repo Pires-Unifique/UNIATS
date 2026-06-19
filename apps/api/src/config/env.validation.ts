@@ -238,6 +238,10 @@ const EnvSchema = z.object({
     .int()
     .positive()
     .default(15 * 1024 * 1024), // 15 MB
+  // Anti-SSRF (defesa em profundidade): allowlist OPCIONAL de sufixos de host
+  // (CSV) permitidos no download de currículo. Ex.: "gupy.io,amazonaws.com".
+  // Vazio = sem allowlist (ainda bloqueamos loopback/IP privado/metadados).
+  CV_DOWNLOAD_ALLOWED_HOSTS: z.string().optional(),
 
   // Criptografia simétrica (Camada 4 — áudios e transcrições)
   DATA_ENCRYPTION_KEY: z
@@ -251,6 +255,20 @@ const EnvSchema = z.object({
 
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+}).superRefine((env, ctx) => {
+  // FALHA-FECHADO: em produção a autenticação real é OBRIGATÓRIA. Sem esta trava,
+  // AUTH_ENABLED=false (o default) faz o AuthGuard injetar um ADMIN de dev em TODA
+  // requisição — acesso anônimo total ao PII de candidatos. A app recusa subir
+  // nesse estado em produção. Ver auth.guard.ts e o relatório de segurança.
+  if (env.NODE_ENV === 'production' && !env.AUTH_ENABLED) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AUTH_ENABLED'],
+      message:
+        'AUTH_ENABLED deve ser "true" quando NODE_ENV=production — a aplicação ' +
+        'não sobe sem autenticação real (proteção do PII de candidatos).',
+    });
+  }
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;
