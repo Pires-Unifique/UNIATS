@@ -160,7 +160,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               ...apiTokenRequest,
               account: ativo,
             });
-            return r.accessToken;
+            // Enviamos o ID TOKEN (aud = client id) — a API o valida (padrão sem
+            // "Expose an API"). O accessToken aqui seria de OIDC/Graph, não da API.
+            return r.idToken;
           } catch (err) {
             if (err instanceof InteractionRequiredAuthError) {
               await msal.acquireTokenRedirect({

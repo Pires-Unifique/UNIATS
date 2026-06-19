@@ -5,7 +5,10 @@ import {
 
 const clientId = process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID ?? '';
 const tenantId = process.env.NEXT_PUBLIC_AZURE_AD_TENANT_ID ?? 'common';
-const apiScope = process.env.NEXT_PUBLIC_AZURE_AD_API_SCOPE ?? '';
+// NB: NÃO usamos mais um scope de API própria (api://.../user_impersonation).
+// A API valida o ID TOKEN (aud = client id), então o login pede só escopos OIDC
+// e não depende de "Expose an API"/Application ID URI no Entra. O token enviado
+// à API é o r.idToken (ver auth.tsx). O Graph da agenda tem request próprio abaixo.
 
 export const msalConfig: Configuration = {
   auth: {
@@ -21,11 +24,12 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-  scopes: ['openid', 'profile', 'email', apiScope].filter(Boolean),
+  scopes: ['openid', 'profile', 'email'],
 };
 
+// Aquisição silenciosa só para renovar a sessão; lemos o r.idToken do resultado.
 export const apiTokenRequest = {
-  scopes: apiScope ? [apiScope] : ['openid'],
+  scopes: ['openid', 'profile', 'email'],
 };
 
 /**
