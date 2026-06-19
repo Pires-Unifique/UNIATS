@@ -33,24 +33,43 @@ export class AuthService {
    */
   async provisionarUsuario(claims: ClaimsSSO): Promise<UsuarioAutenticado> {
     const ehAdmin = this.emailsAdmin().includes(claims.email);
-    const usuario = await this.prisma.usuario.upsert({
-      where: { azure_oid: claims.azure_oid },
-      create: {
-        azure_oid: claims.azure_oid,
-        email: claims.email,
-        nome: claims.nome,
-        papel: ehAdmin ? 'ADMIN' : 'VISUALIZADOR', // legado/exibição
-        areas: ehAdmin ? ['admin'] : [],
-        ultimo_login_em: new Date(),
-      },
-      update: {
-        email: claims.email,
-        nome: claims.nome,
-        ultimo_login_em: new Date(),
-        // Só reaplica 'admin' via allowlist; NÃO sobrescreve áreas manuais.
-        ...(ehAdmin ? { areas: ['admin'], papel: 'ADMIN' } : {}),
-      },
-    });
+
+    // Resolve a identidade por azure_oid OU por e-mail. O e-mail é UNIQUE no banco,
+    // então a pessoa pode já existir sob OUTRO oid (linha de seed/dev, ou criada
+    // antes do SSO). Um upsert só por azure_oid tentaria CRIAR com esse e-mail e
+    // estouraria P2002 — derrubando TODO request autenticado (o guard provisiona a
+    // cada chamada). Por isso reconciliamos: achando por e-mail, atualizamos o
+    // azure_oid daquela linha em vez de criar uma nova.
+    const existente =
+      (await this.prisma.usuario.findUnique({
+        where: { azure_oid: claims.azure_oid },
+      })) ??
+      (await this.prisma.usuario.findUnique({
+        where: { email: claims.email },
+      }));
+
+    const usuario = existente
+      ? await this.prisma.usuario.update({
+          where: { id: existente.id },
+          data: {
+            azure_oid: claims.azure_oid, // reconcilia o oid se a linha pré-existia sob outro
+            email: claims.email,
+            nome: claims.nome,
+            ultimo_login_em: new Date(),
+            // Só reaplica 'admin' via allowlist; NÃO sobrescreve áreas manuais.
+            ...(ehAdmin ? { areas: ['admin'], papel: 'ADMIN' } : {}),
+          },
+        })
+      : await this.prisma.usuario.create({
+          data: {
+            azure_oid: claims.azure_oid,
+            email: claims.email,
+            nome: claims.nome,
+            papel: ehAdmin ? 'ADMIN' : 'VISUALIZADOR', // legado/exibição
+            areas: ehAdmin ? ['admin'] : [],
+            ultimo_login_em: new Date(),
+          },
+        });
 
     // Auto-vínculo: assume como gestor as vagas cujo gestor_email casa com o dele.
     await this.vincularVagasComoGestor(usuario.id, claims.email);

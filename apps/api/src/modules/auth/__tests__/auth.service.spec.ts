@@ -8,14 +8,24 @@ import { AuthService } from '../auth.service.js';
  * Foco: política de papel no provisioning e o resolver do bypass de teste.
  */
 type MockPrisma = {
-  usuario: { upsert: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+  usuario: {
+    upsert: jest.Mock;
+    findUnique: jest.Mock;
+    update: jest.Mock;
+    create: jest.Mock;
+  };
   vaga: { updateMany: jest.Mock; findFirst: jest.Mock };
   candidatura: { findFirst: jest.Mock };
 };
 
 function montar(envOverrides: Record<string, unknown> = {}) {
   const prisma: MockPrisma = {
-    usuario: { upsert: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    usuario: {
+      upsert: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      create: jest.fn(),
+    },
     vaga: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       findFirst: jest.fn(),
@@ -44,9 +54,10 @@ const usuarioDb = {
 };
 
 describe('AuthService.provisionarUsuario', () => {
-  it('cria usuário NOVO SEM áreas (acesso só por posse de vaga) e marca login', async () => {
+  it('cria usuário NOVO SEM áreas (não achado por oid nem e-mail) e marca login', async () => {
     const { service, prisma } = montar();
-    prisma.usuario.upsert.mockResolvedValue(usuarioDb);
+    prisma.usuario.findUnique.mockResolvedValue(null); // não existe por oid nem e-mail
+    prisma.usuario.create.mockResolvedValue(usuarioDb);
 
     const r = await service.provisionarUsuario({
       azure_oid: 'oid-1',
@@ -54,19 +65,23 @@ describe('AuthService.provisionarUsuario', () => {
       nome: 'Fulano',
     });
 
-    expect(prisma.usuario.upsert).toHaveBeenCalledTimes(1);
-    const arg = prisma.usuario.upsert.mock.calls[0][0] as any;
-    expect(arg.where).toEqual({ azure_oid: 'oid-1' });
-    expect(arg.create.areas).toEqual([]);
-    // Não-admin: o update NÃO toca em áreas (atribuição é deliberada).
-    expect(arg.update).not.toHaveProperty('areas');
-    expect(arg.update.ultimo_login_em).toBeInstanceOf(Date);
+    expect(prisma.usuario.create).toHaveBeenCalledTimes(1);
+    expect(prisma.usuario.update).not.toHaveBeenCalled();
+    const arg = prisma.usuario.create.mock.calls[0][0] as any;
+    expect(arg.data.areas).toEqual([]);
+    expect(arg.data.papel).toBe('VISUALIZADOR');
+    expect(arg.data.ultimo_login_em).toBeInstanceOf(Date);
     expect(r.areas).toEqual([]);
   });
 
-  it('e-mail na allowlist recebe área admin (create e update)', async () => {
+  it('e-mail na allowlist: usuário NOVO recebe área admin no create', async () => {
     const { service, prisma } = montar();
-    prisma.usuario.upsert.mockResolvedValue({ ...usuarioDb, areas: ['admin'] });
+    prisma.usuario.findUnique.mockResolvedValue(null);
+    prisma.usuario.create.mockResolvedValue({
+      ...usuarioDb,
+      areas: ['admin'],
+      papel: 'ADMIN',
+    });
 
     const r = await service.provisionarUsuario({
       azure_oid: 'oid-adm',
@@ -74,15 +89,60 @@ describe('AuthService.provisionarUsuario', () => {
       nome: 'Guilherme',
     });
 
-    const arg = prisma.usuario.upsert.mock.calls[0][0] as any;
-    expect(arg.create.areas).toEqual(['admin']);
-    expect(arg.update.areas).toEqual(['admin']); // reaplica a cada login
+    const arg = prisma.usuario.create.mock.calls[0][0] as any;
+    expect(arg.data.areas).toEqual(['admin']);
+    expect(arg.data.papel).toBe('ADMIN');
+    expect(r.areas).toEqual(['admin']);
+  });
+
+  it('usuário recorrente (achado por azure_oid): atualiza e NÃO mexe em áreas se não-admin', async () => {
+    const { service, prisma } = montar();
+    prisma.usuario.findUnique.mockResolvedValueOnce(usuarioDb); // achou por oid
+    prisma.usuario.update.mockResolvedValue(usuarioDb);
+
+    await service.provisionarUsuario({
+      azure_oid: 'oid-1',
+      email: 'fulano@unifique.com.br',
+      nome: 'Fulano',
+    });
+
+    expect(prisma.usuario.create).not.toHaveBeenCalled();
+    const arg = prisma.usuario.update.mock.calls[0][0] as any;
+    expect(arg.where).toEqual({ id: 'u-1' });
+    expect(arg.data).not.toHaveProperty('areas'); // não-admin não toca áreas
+    expect(arg.data.ultimo_login_em).toBeInstanceOf(Date);
+  });
+
+  it('reconcilia por e-mail quando a linha já existe sob OUTRO azure_oid (evita P2002)', async () => {
+    const { service, prisma } = montar();
+    // não acha por oid; acha por e-mail (linha pré-existente: seed/dev/SSO antigo).
+    prisma.usuario.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ...usuarioDb, id: 'u-seed', azure_oid: 'oid-antigo' });
+    prisma.usuario.update.mockResolvedValue({
+      ...usuarioDb,
+      id: 'u-seed',
+      areas: ['admin'],
+    });
+
+    const r = await service.provisionarUsuario({
+      azure_oid: 'oid-novo-sso',
+      email: 'guilherme.viana@unifique.com.br',
+      nome: 'Guilherme',
+    });
+
+    expect(prisma.usuario.create).not.toHaveBeenCalled();
+    const arg = prisma.usuario.update.mock.calls[0][0] as any;
+    expect(arg.where).toEqual({ id: 'u-seed' });
+    expect(arg.data.azure_oid).toBe('oid-novo-sso'); // reconcilia o oid da linha
+    expect(arg.data.areas).toEqual(['admin']); // e-mail é admin → aplica
     expect(r.areas).toEqual(['admin']);
   });
 
   it('roda o auto-vínculo de vagas no login (updateMany por gestor_email)', async () => {
     const { service, prisma } = montar();
-    prisma.usuario.upsert.mockResolvedValue(usuarioDb);
+    prisma.usuario.findUnique.mockResolvedValue(null);
+    prisma.usuario.create.mockResolvedValue(usuarioDb);
     prisma.vaga.updateMany.mockResolvedValue({ count: 1 });
 
     await service.provisionarUsuario({
