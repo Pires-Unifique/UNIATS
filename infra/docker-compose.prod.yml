@@ -106,19 +106,18 @@ services:
       - "127.0.0.1:13000:13000"
 
   waha:
-    # WhatsApp HTTP API (self-hosted). Engine NOWEB (Baileys, via websocket) —
-    # sem Chromium. Evita o erro "Execution context was destroyed" do WEBJS
-    # (incompatibilidade whatsapp-web.js x versão do WhatsApp Web) e é mais leve.
+    # WhatsApp HTTP API (self-hosted). Engine WEBJS (Chromium headless) — é o
+    # único que descriptografa voto de enquete com o novo endereçamento @lid do
+    # WhatsApp; o NOWEB/Baileys não acha a "poll creation message" e o voto se perde.
+    # WEBVERSION_CACHE_TYPE=remote pina uma versão compatível do WhatsApp Web e
+    # evita o "Execution context was destroyed" (mismatch do whatsapp-web.js).
     image: devlikeapro/waha:latest
     restart: unless-stopped
     environment:
       # Protege a API do WAHA: a app manda este valor no header X-Api-Key.
       WAHA_API_KEY: ${WAHA_API_KEY:?defina WAHA_API_KEY no .env.production}
-      WHATSAPP_DEFAULT_ENGINE: NOWEB
-      # Store do NOWEB: necessário para receber votos de enquete (poll.vote) —
-      # ele mapeia o voto de volta para a enquete. Sem isso, polls não funcionam.
-      WHATSAPP_NOWEB_STORE_ENABLED: "true"
-      WHATSAPP_NOWEB_STORE_FULLSYNC: "true"
+      WHATSAPP_DEFAULT_ENGINE: WEBJS
+      WHATSAPP_WEBJS_WEBVERSION_CACHE_TYPE: remote
     volumes:
       # Persiste o pareamento (QR) entre reinícios — NÃO apague para não reescanear.
       - wahasessions:/app/.sessions
