@@ -358,6 +358,21 @@ export type ResultadoExameAdmissional =
   | 'APTO_COM_RESTRICOES'
   | 'INAPTO';
 
+// Dados lidos do RG por IA (OCR via Claude visão). Tudo opcional — só o que
+// estava legível no documento. Tratar como "extraído por IA, conferir".
+export interface RgExtraidoDTO {
+  nome_completo?: string;
+  rg_numero?: string;
+  orgao_emissor?: string;
+  uf?: string;
+  data_nascimento?: string;
+  data_expedicao?: string;
+  filiacao?: { pai?: string; mae?: string };
+  cpf?: string;
+  naturalidade?: string;
+  confianca?: 'alta' | 'media' | 'baixa';
+}
+
 export interface DocumentoAdmissionalDTO {
   id: string;
   tipo: TipoDocumentoAdmissional;
@@ -369,6 +384,25 @@ export interface DocumentoAdmissionalDTO {
   motivo_recusa?: string | null;
   enviado_em?: string | null;
   analisado_em?: string | null;
+  // OCR por IA (preenchido para o RG após o upload).
+  dados_extraidos_json?: RgExtraidoDTO | null;
+  ocr_versao?: string | null;
+  ocr_processado_em?: string | null;
+}
+
+// Gatilho de criação de acesso de AD (chamado no Acelerato).
+export type StatusSolicitacaoAcesso = 'PENDENTE' | 'ENVIADA' | 'FALHADA';
+
+export interface SolicitacaoAcessoDTO {
+  id: string;
+  provider: string;
+  status: StatusSolicitacaoAcesso;
+  nome_enviado?: string | null;
+  ref_externa?: string | null;
+  url_externa?: string | null;
+  erro?: string | null;
+  criado_em: string;
+  atualizado_em: string;
 }
 
 export interface ExameAdmissionalDTO {
@@ -426,6 +460,7 @@ export interface AdmissaoDetalheDTO {
   documentos: DocumentoAdmissionalDTO[];
   exame?: ExameAdmissionalDTO | null;
   eventos: EventoAdmissaoDTO[];
+  solicitacao_acesso?: SolicitacaoAcessoDTO | null;
 }
 
 // ---------- Candidatura (agregada) ----------

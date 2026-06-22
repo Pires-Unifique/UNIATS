@@ -243,6 +243,30 @@ const EnvSchema = z.object({
   // Vazio = sem allowlist (ainda bloqueamos loopback/IP privado/metadados).
   CV_DOWNLOAD_ALLOWED_HOSTS: z.string().optional(),
 
+  // Admissão — OCR do RG (Claude visão) + gatilho de criação de acesso de AD
+  RG_OCR_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  PROVISAO_ACESSO_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  RG_MAX_SIZE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10 * 1024 * 1024), // 10 MB
+
+  // Provider do gatilho de acesso: "acelerato" (abre chamado) ou "desabilitado"
+  // (só registra a intenção — gating para testes, no espírito do AUTH_ENABLED).
+  ACESSO_PROVIDER: z.enum(['acelerato', 'desabilitado']).default('desabilitado'),
+  ACELERATO_BASE_URL: z.string().url().optional(), // ex.: https://SUBDOMINIO.acelerato.com
+  ACELERATO_API_EMAIL: z.string().email().optional(),
+  ACELERATO_API_TOKEN: z.string().min(1).optional(),
+  ACELERATO_PROJETO_KEY: z.coerce.number().int().positive().optional(),
+  ACELERATO_ESPECIE_TICKET_KEY: z.string().min(1).optional(),
+  ACELERATO_TIPO_TICKET_KEY: z.string().min(1).optional(),
+  ACELERATO_CATEGORIA_KEY: z.string().min(1).optional(),
+  ACELERATO_PRIORIDADE_KEY: z.string().min(1).optional(),
+  ACELERATO_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  ACELERATO_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
+  ACELERATO_RATE_LIMIT_RPM: z.coerce.number().int().positive().default(20),
+
   // Criptografia simétrica (Camada 4 — áudios e transcrições)
   DATA_ENCRYPTION_KEY: z
     .string()
@@ -268,6 +292,26 @@ const EnvSchema = z.object({
         'AUTH_ENABLED deve ser "true" quando NODE_ENV=production — a aplicação ' +
         'não sobe sem autenticação real (proteção do PII de candidatos).',
     });
+  }
+
+  // Quando o gatilho de acesso usa o Acelerato, as credenciais/IDs são obrigatórios.
+  if (env.ACESSO_PROVIDER === 'acelerato') {
+    const obrigatorios: Array<[string, unknown]> = [
+      ['ACELERATO_BASE_URL', env.ACELERATO_BASE_URL],
+      ['ACELERATO_API_EMAIL', env.ACELERATO_API_EMAIL],
+      ['ACELERATO_API_TOKEN', env.ACELERATO_API_TOKEN],
+      ['ACELERATO_PROJETO_KEY', env.ACELERATO_PROJETO_KEY],
+      ['ACELERATO_ESPECIE_TICKET_KEY', env.ACELERATO_ESPECIE_TICKET_KEY],
+    ];
+    for (const [campo, valor] of obrigatorios) {
+      if (valor === undefined || valor === null || valor === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [campo],
+          message: `${campo} é obrigatório quando ACESSO_PROVIDER=acelerato.`,
+        });
+      }
+    }
   }
 });
 

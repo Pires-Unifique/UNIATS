@@ -8,6 +8,7 @@ export type StorageObjectKind =
   | 'audio'
   | 'transcricao'
   | 'template'
+  | 'documento-admissional'
   | 'tmp';
 
 export interface PutObjectInput {
