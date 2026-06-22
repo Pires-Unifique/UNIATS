@@ -1,9 +1,13 @@
+import { createHash } from 'node:crypto';
+
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
+  ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
 import {
   Prisma,
   StatusAdmissao,
@@ -13,6 +17,17 @@ import {
 } from '@uniats/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { QUEUE_NAMES } from '../../queue/queue.module.js';
+import { StorageService } from '../storage/storage.service.js';
+
+/** Content-Types aceitos no upload de documento (imagens + PDF). */
+const MIME_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'application/pdf': 'pdf',
+};
 
 /**
  * Regras de negócio da Admissão (processo pós-contratação).
@@ -53,7 +68,11 @@ const CHECKLIST_PADRAO: Array<[TipoDocumentoAdmissional, boolean]> = [
 
 @Injectable()
 export class AdmissaoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+    @InjectQueue(QUEUE_NAMES.RG_OCR) private readonly filaRgOcr: Queue,
+  ) {}
 
   async listar(status?: StatusAdmissao) {
     const itens = await this.prisma.admissao.findMany({
@@ -97,6 +116,7 @@ export class AdmissaoService {
         documentos: { orderBy: { tipo: 'asc' } },
         exame: true,
         eventos: { orderBy: { criado_em: 'desc' } },
+        solicitacao_acesso: true,
       },
     });
     if (!a) throw new NotFoundException(`Admissão ${id} não existe.`);
@@ -296,6 +316,79 @@ export class AdmissaoService {
         analisado_em: analisado ? new Date() : null,
       },
     });
+    return this.obter(admissaoId);
+  }
+
+  /**
+   * Recebe o arquivo de um documento (upload), salva no storage e marca como
+   * ENVIADO. Se for o RG, dispara o OCR por IA (que, ao concluir, aciona o
+   * gatilho de criação de acesso). Reenviar o arquivo limpa o OCR anterior e
+   * reprocessa.
+   */
+  async anexarArquivoDocumento(
+    admissaoId: string,
+    documentoId: string,
+    arquivo: { buffer: Buffer; originalname?: string; mimetype?: string },
+  ) {
+    if (!arquivo?.buffer?.length) {
+      throw new BadRequestException('Arquivo vazio.');
+    }
+    const mime = (arquivo.mimetype ?? '').toLowerCase().split(';')[0].trim();
+    const ext = MIME_EXT[mime];
+    if (!ext) {
+      throw new BadRequestException(
+        `Tipo de arquivo não suportado: "${mime}". Aceitos: JPG, PNG, WEBP, GIF, PDF.`,
+      );
+    }
+
+    const doc = await this.prisma.documentoAdmissional.findFirst({
+      where: { id: documentoId, admissao_id: admissaoId },
+      select: { id: true, tipo: true },
+    });
+    if (!doc) {
+      throw new NotFoundException('Documento não encontrado nesta admissão.');
+    }
+
+    const sha256 = createHash('sha256').update(arquivo.buffer).digest('hex');
+    const key = this.storage.buildKey({
+      kind: 'documento-admissional',
+      sha256,
+      extension: ext,
+    });
+    const put = await this.storage.putObject(key, {
+      body: arquivo.buffer,
+      contentType: mime,
+      metadata: { admissaoId, documentoId, tipo: doc.tipo },
+    });
+
+    await this.prisma.documentoAdmissional.update({
+      where: { id: documentoId },
+      data: {
+        arquivo_url: put.key,
+        arquivo_sha256: put.sha256,
+        nome_arquivo: arquivo.originalname ?? null,
+        status: StatusDocumentoAdmissional.ENVIADO,
+        enviado_em: new Date(),
+        // Reenvio: invalida OCR/análise anteriores para reprocessar.
+        dados_extraidos_json: Prisma.JsonNull,
+        ocr_versao: null,
+        ocr_processado_em: null,
+        analisado_por: null,
+        analisado_em: null,
+      },
+    });
+
+    // RG → OCR por IA (que dispara o gatilho de acesso ao concluir).
+    if (doc.tipo === TipoDocumentoAdmissional.RG) {
+      const jobId = `rg-ocr-${documentoId}`;
+      await this.filaRgOcr.remove(jobId).catch(() => undefined);
+      await this.filaRgOcr.add(
+        'rg-ocr',
+        { admissaoId, documentoId },
+        { jobId },
+      );
+    }
+
     return this.obter(admissaoId);
   }
 

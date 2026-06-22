@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type {
   AdmissaoDetalheDTO,
   ResultadoExameAdmissional,
+  RgExtraidoDTO,
+  SolicitacaoAcessoDTO,
   StatusAdmissao,
   StatusDocumentoAdmissional,
 } from '@uniats/shared';
@@ -40,6 +42,7 @@ export default function AdmissaoDetalhePage({
   const [a, setA] = useState<AdmissaoDetalheDTO | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [enviandoDoc, setEnviandoDoc] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -54,6 +57,17 @@ export default function AdmissaoDetalhePage({
   useEffect(() => {
     void carregar();
   }, [carregar]);
+
+  // Enquanto algum RG estiver ENVIADO mas ainda sem OCR, o resultado chega de
+  // forma assíncrona (fila) — então recarrega a cada 5s até aparecer.
+  const rgProcessando = (a?.documentos ?? []).some(
+    (d) => d.tipo === 'RG' && d.status === 'ENVIADO' && !d.ocr_processado_em,
+  );
+  useEffect(() => {
+    if (!rgProcessando) return;
+    const t = setInterval(() => void carregar(), 5000);
+    return () => clearInterval(t);
+  }, [rgProcessando, carregar]);
 
   async function acao<T>(fn: () => Promise<T>) {
     setSalvando(true);
@@ -103,6 +117,23 @@ export default function AdmissaoDetalhePage({
         body: { resultado },
       }),
     );
+  }
+  async function enviarArquivo(docId: string, file: File) {
+    setEnviandoDoc(docId);
+    setErro(null);
+    try {
+      const fd = new FormData();
+      fd.append('arquivo', file);
+      await api(`/api/admissoes/${id}/documentos/${docId}/arquivo`, {
+        method: 'POST',
+        body: fd,
+      });
+      await carregar();
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : 'Falha ao enviar arquivo.');
+    } finally {
+      setEnviandoDoc(null);
+    }
   }
 
   if (erro && !a) {
@@ -217,48 +248,98 @@ export default function AdmissaoDetalhePage({
             </div>
             <table className="w-full text-sm">
               <tbody>
-                {a.documentos.map((d) => (
-                  <tr key={d.id} className="border-t border-grafite-100">
-                    <td className="px-4 py-2.5">
-                      <span className="text-grafite-800">
-                        {ROTULO_DOC[d.tipo] ?? d.tipo}
-                      </span>
-                      {d.obrigatorio && (
-                        <span className="text-red-500 ml-1" title="Obrigatório">
-                          *
+                {a.documentos.map((d) => {
+                  const processandoRg =
+                    d.tipo === 'RG' &&
+                    d.status === 'ENVIADO' &&
+                    !d.ocr_processado_em;
+                  return (
+                    <tr
+                      key={d.id}
+                      className="border-t border-grafite-100 align-top"
+                    >
+                      <td className="px-4 py-2.5">
+                        <span className="text-grafite-800">
+                          {ROTULO_DOC[d.tipo] ?? d.tipo}
                         </span>
-                      )}
-                      {d.status === 'REPROVADO' && d.motivo_recusa && (
-                        <div className="text-xs text-red-500 mt-0.5">
-                          {d.motivo_recusa}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-2 py-2.5">
-                      <StatusBadge status={d.status} />
-                    </td>
-                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                      {!cancelada && !concluida && (
-                        <>
-                          <button
-                            className="text-xs text-unifique-700 hover:underline mr-3 disabled:opacity-50"
-                            disabled={salvando || d.status === 'APROVADO'}
-                            onClick={() => avaliarDoc(d.id, 'APROVADO')}
+                        {d.obrigatorio && (
+                          <span
+                            className="text-red-500 ml-1"
+                            title="Obrigatório"
                           >
-                            Aprovar
-                          </button>
-                          <button
-                            className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                            disabled={salvando || d.status === 'REPROVADO'}
-                            onClick={() => avaliarDoc(d.id, 'REPROVADO')}
-                          >
-                            Recusar
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                            *
+                          </span>
+                        )}
+                        {d.arquivo_url && (
+                          <div className="text-xs text-grafite-400 mt-0.5">
+                            📎 {d.nome_arquivo ?? 'arquivo enviado'}
+                          </div>
+                        )}
+                        {d.status === 'REPROVADO' && d.motivo_recusa && (
+                          <div className="text-xs text-red-500 mt-0.5">
+                            {d.motivo_recusa}
+                          </div>
+                        )}
+                        {processandoRg && (
+                          <div className="text-xs text-unifique-600 mt-1">
+                            🤖 Lendo o documento com IA…
+                          </div>
+                        )}
+                        {d.dados_extraidos_json && (
+                          <DadosRg rg={d.dados_extraidos_json} />
+                        )}
+                      </td>
+                      <td className="px-2 py-2.5">
+                        <StatusBadge status={d.status} />
+                      </td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        {!cancelada && !concluida && (
+                          <div className="flex items-center justify-end gap-3">
+                            <label
+                              className={
+                                'text-xs text-unifique-700 hover:underline cursor-pointer ' +
+                                (enviandoDoc === d.id
+                                  ? 'opacity-50 pointer-events-none'
+                                  : '')
+                              }
+                            >
+                              {enviandoDoc === d.id
+                                ? 'Enviando…'
+                                : d.arquivo_url
+                                  ? 'Substituir'
+                                  : 'Enviar arquivo'}
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                                className="hidden"
+                                disabled={salvando || enviandoDoc !== null}
+                                onChange={(ev) => {
+                                  const f = ev.target.files?.[0];
+                                  ev.target.value = '';
+                                  if (f) void enviarArquivo(d.id, f);
+                                }}
+                              />
+                            </label>
+                            <button
+                              className="text-xs text-unifique-700 hover:underline disabled:opacity-50"
+                              disabled={salvando || d.status === 'APROVADO'}
+                              onClick={() => avaliarDoc(d.id, 'APROVADO')}
+                            >
+                              Aprovar
+                            </button>
+                            <button
+                              className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                              disabled={salvando || d.status === 'REPROVADO'}
+                              onClick={() => avaliarDoc(d.id, 'REPROVADO')}
+                            >
+                              Recusar
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -316,6 +397,9 @@ export default function AdmissaoDetalhePage({
             <Linha rotulo="Telefone" valor={a.candidato.telefone} />
           </div>
 
+          {/* Criação de acesso (AD) */}
+          {a.solicitacao_acesso && <AcessoCard sol={a.solicitacao_acesso} />}
+
           {/* Timeline */}
           <div className="card p-4">
             <div className="font-medium text-grafite-800 mb-2">Histórico</div>
@@ -344,6 +428,70 @@ function Linha({ rotulo, valor }: { rotulo: string; valor?: string | null }) {
     <div className="flex justify-between gap-2">
       <span className="text-grafite-400">{rotulo}</span>
       <span className="text-grafite-800 text-right">{valor || '—'}</span>
+    </div>
+  );
+}
+
+/** Dados lidos do RG por IA — exibidos com selo "conferir". */
+function DadosRg({ rg }: { rg: RgExtraidoDTO }) {
+  const rgLinha = rg.rg_numero
+    ? `${rg.rg_numero}${
+        rg.orgao_emissor
+          ? ` ${rg.orgao_emissor}${rg.uf ? `/${rg.uf}` : ''}`
+          : ''
+      }`
+    : undefined;
+  const itens: Array<[string, string | undefined]> = [
+    ['Nome', rg.nome_completo],
+    ['RG', rgLinha],
+    ['Nascimento', rg.data_nascimento],
+    ['CPF', rg.cpf],
+  ];
+  const visiveis = itens.filter(([, v]) => v);
+  if (visiveis.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-md border border-unifique-200 bg-unifique-50/60 p-2 text-xs dark:border-unifique-500/30 dark:bg-unifique-500/10">
+      <div className="font-medium text-unifique-700 mb-1">
+        Lido do RG por IA — conferir
+        {rg.confianca ? ` · confiança ${rg.confianca}` : ''}
+      </div>
+      {visiveis.map(([k, v]) => (
+        <div key={k} className="flex justify-between gap-2">
+          <span className="text-grafite-400">{k}</span>
+          <span className="text-grafite-700 text-right">{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Estado do gatilho de criação de acesso (chamado no Acelerato). */
+function AcessoCard({ sol }: { sol: SolicitacaoAcessoDTO }) {
+  const ROTULO: Record<string, string> = {
+    PENDENTE: 'Pendente',
+    ENVIADA: 'Chamado aberto',
+    FALHADA: 'Falhou',
+  };
+  return (
+    <div className="card p-4 text-sm space-y-1.5">
+      <div className="font-medium text-grafite-800 mb-1">
+        Criação de acesso (AD)
+      </div>
+      <Linha rotulo="Status" valor={ROTULO[sol.status] ?? sol.status} />
+      <Linha rotulo="Nome enviado" valor={sol.nome_enviado} />
+      {sol.url_externa && (
+        <a
+          href={sol.url_externa}
+          target="_blank"
+          rel="noreferrer"
+          className="text-unifique-700 hover:underline block pt-1"
+        >
+          Abrir chamado no Acelerato →
+        </a>
+      )}
+      {sol.status === 'FALHADA' && sol.erro && (
+        <p className="text-xs text-red-500">{sol.erro}</p>
+      )}
     </div>
   );
 }

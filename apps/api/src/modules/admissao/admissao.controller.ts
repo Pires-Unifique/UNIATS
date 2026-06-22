@@ -7,8 +7,11 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import {
   Prisma,
@@ -24,6 +27,12 @@ import { AdmissaoService } from './admissao.service.js';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Limite de upload de documento (RG, etc.). Lido do env no load (process.env
+// já está populado pelo bootstrap-env antes do AppModule).
+const RG_MAX_SIZE_BYTES = Number(
+  process.env.RG_MAX_SIZE_BYTES ?? 10 * 1024 * 1024,
+);
 
 function assertUuid(id: string, campo = 'id'): void {
   if (!UUID_REGEX.test(id)) {
@@ -154,6 +163,29 @@ export class AdmissaoController {
       motivo_recusa: body?.motivo_recusa ?? null,
       arquivo_url: body?.arquivo_url ?? null,
       nome_arquivo: body?.nome_arquivo ?? null,
+    });
+  }
+
+  // Upload do arquivo de um documento (multipart, campo "arquivo"). Para o RG,
+  // dispara o OCR por IA e, em seguida, o gatilho de criação de acesso.
+  @Post(':id/documentos/:docId/arquivo')
+  @UseInterceptors(
+    FileInterceptor('arquivo', { limits: { fileSize: RG_MAX_SIZE_BYTES } }),
+  )
+  async anexarArquivoDocumento(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @UploadedFile() arquivo?: Express.Multer.File,
+  ) {
+    assertUuid(id);
+    assertUuid(docId, 'docId');
+    if (!arquivo || !arquivo.buffer?.length) {
+      throw new BadRequestException('Envie o arquivo no campo "arquivo".');
+    }
+    return this.service.anexarArquivoDocumento(id, docId, {
+      buffer: arquivo.buffer,
+      originalname: arquivo.originalname,
+      mimetype: arquivo.mimetype,
     });
   }
 

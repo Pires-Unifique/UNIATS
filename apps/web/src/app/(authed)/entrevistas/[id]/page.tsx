@@ -330,7 +330,7 @@ export default function EntrevistaPage({
                 <div className="text-xs uppercase text-grafite-400 mb-1">
                   Resumo
                 </div>
-                <p className="text-sm text-grafite-700">
+                <p className="text-sm text-grafite-700 whitespace-pre-line">
                   {e.transcricao.resumo}
                 </p>
               </div>

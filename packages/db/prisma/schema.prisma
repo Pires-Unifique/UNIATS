@@ -714,6 +714,7 @@ model Admissao {
   documentos          DocumentoAdmissional[]
   exame               ExameAdmissional?
   eventos             EventoAdmissao[]
+  solicitacao_acesso  SolicitacaoAcesso?
 
   @@index([status])
   @@map("admissoes")
@@ -752,6 +753,13 @@ model DocumentoAdmissional {
   enviado_em      DateTime?
   analisado_por   String?  @db.Uuid
   analisado_em    DateTime?
+
+  // Dados lidos por IA (ex.: OCR do RG via Claude visão). Estrutura validada
+  // por Zod (rg.schema.ts) — nome_completo, rg_numero, orgao_emissor, etc.
+  // Tratados como "extraído por IA, conferir" — nunca verdade automática.
+  dados_extraidos_json Json?
+  ocr_versao           String?                       // ex.: "claude-rg-v1"
+  ocr_processado_em    DateTime?
 
   criado_em       DateTime @default(now())
   atualizado_em   DateTime @updatedAt
@@ -838,4 +846,45 @@ model EventoAdmissao {
 
   @@index([admissao_id])
   @@map("eventos_admissao")
+}
+
+// ---------------------------------------------------------------------
+// SOLICITAÇÃO DE ACESSO — gatilho de saída para criar o usuário de AD
+// ---------------------------------------------------------------------
+// Disparada automaticamente após o OCR do RG extrair o nome. Abre um
+// chamado em uma ferramenta externa (Acelerato hoje; "segundo sistema"
+// depois) para a equipe de criação de acessos. 1:1 com a admissão para
+// garantir idempotência (não duplicar chamado). `provider` deixa o alvo
+// plugável sem mudar o fluxo.
+model SolicitacaoAcesso {
+  id              String   @id @default(uuid()) @db.Uuid
+  admissao_id     String   @unique @db.Uuid
+  documento_id    String?  @db.Uuid                 // documento RG que originou
+
+  provider        String                            // ex.: "acelerato"
+  status          StatusSolicitacaoAcesso @default(PENDENTE)
+
+  nome_enviado    String?                           // nome extraído enviado (auditoria)
+  ref_externa     String?                           // ticketKey/id do chamado externo
+  url_externa     String?                           // link direto do chamado
+
+  payload_enviado Json?
+  resposta        Json?
+  erro            String?  @db.Text
+
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+
+  admissao        Admissao @relation(fields: [admissao_id], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("solicitacoes_acesso")
+}
+
+enum StatusSolicitacaoAcesso {
+  PENDENTE
+  ENVIADA
+  FALHADA
+
+  @@map("status_solicitacao_acesso")
 }

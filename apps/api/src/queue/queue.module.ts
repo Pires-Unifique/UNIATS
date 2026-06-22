@@ -21,6 +21,9 @@ export const QUEUE_NAMES = {
   PLAYWRIGHT_JOIN: 'playwright-join',
   // Persistência da transcrição devolvida pelo bot (callback → processor + ATA).
   PLAYWRIGHT_TRANSCRICAO: 'playwright-transcricao',
+  // Admissão: OCR do RG (Claude visão) e gatilho de criação de acesso (Acelerato).
+  RG_OCR: 'rg-ocr',
+  PROVISAO_ACESSO: 'provisao-acesso',
 } as const;
 
 @Global()
@@ -60,6 +63,8 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.TRANSCRICAO_GRAPH },
       { name: QUEUE_NAMES.PLAYWRIGHT_JOIN },
       { name: QUEUE_NAMES.PLAYWRIGHT_TRANSCRICAO },
+      { name: QUEUE_NAMES.RG_OCR },
+      { name: QUEUE_NAMES.PROVISAO_ACESSO },
     ),
   ],
   exports: [BullModule],

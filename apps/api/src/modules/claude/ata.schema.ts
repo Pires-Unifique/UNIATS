@@ -12,10 +12,13 @@ import { z } from 'zod';
  * Versionar ao mudar prompt/shape (igual ao parser de currículo) permite
  * reprocessar transcrições antigas no futuro.
  */
-export const ATA_PROMPT_VERSION = 'claude-ata-v1';
+export const ATA_PROMPT_VERSION = 'claude-ata-v2';
 
 export const AtaReuniaoSchema = z.object({
-  resumo: z.string().min(1).max(2000),
+  // Resumo estruturado em seções (Contexto / Assuntos abordados / Relevante para a
+  // seleção / Desfecho), com quebras de linha. Limite ampliado p/ acomodar a
+  // estrutura e a citação explícita do que NÃO foi abordado.
+  resumo: z.string().min(1).max(3000),
   topicos: z.array(z.string().min(1)).max(20).default([]),
 });
 
@@ -30,10 +33,15 @@ export const ATA_TOOL_INPUT_SCHEMA = {
   properties: {
     resumo: {
       type: 'string',
-      maxLength: 2000,
+      maxLength: 3000,
       description:
-        'Resumo executivo da reunião em 3 a 6 frases factuais: do que se tratou, ' +
-        'principais pontos e desfecho. Sem adjetivos vagos, sem inventar fatos.',
+        'Resumo executivo ESTRUTURADO em seções rotuladas (texto puro, sem markdown), ' +
+        'com uma linha em branco entre elas: "Contexto:" (participantes, caráter da ' +
+        'conversa, objetivo), "Assuntos abordados:" (o que foi conversado, em ordem), ' +
+        '"Relevante para a seleção:" (eixos de entrevista — experiência, motivação, ' +
+        'disponibilidade, pretensão, fit — citando explicitamente os que NÃO foram ' +
+        'abordados; omitir se não for entrevista) e "Desfecho:" (decisão/próximo passo, ' +
+        'ou que não houve). Factual, sem adjetivos vagos e sem inventar nada fora do transcript.',
     },
     topicos: {
       type: 'array',

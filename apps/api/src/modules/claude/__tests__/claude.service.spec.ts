@@ -154,3 +154,97 @@ describe('ClaudeService.estruturarCurriculo', () => {
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });
+
+describe('ClaudeService.extrairDadosRG', () => {
+  let service: ClaudeService;
+
+  beforeEach(() => {
+    createMock.mockReset();
+    service = new ClaudeService(configMock());
+  });
+
+  it('rejeita imagem vazia', async () => {
+    await expect(
+      service.extrairDadosRG({ base64: '', mediaType: 'image/jpeg' }),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+  });
+
+  it('envia bloco de imagem e força a ferramenta extrair_dados_rg', async () => {
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'extrair_dados_rg',
+          input: {
+            nome_completo: 'MARIA DA SILVA',
+            rg_numero: '12.345.678-9',
+            uf: 'SC',
+            confianca: 'alta',
+          },
+        },
+      ],
+      usage: { input_tokens: 800, output_tokens: 120 },
+    });
+
+    const out = await service.extrairDadosRG({
+      base64: 'QUJDRA==',
+      mediaType: 'image/jpeg',
+    });
+
+    const args = createMock.mock.calls[0][0];
+    expect(args.tool_choice).toEqual({ type: 'tool', name: 'extrair_dados_rg' });
+    expect(args.tools[0].name).toBe('extrair_dados_rg');
+    const bloco = args.messages[0].content[0];
+    expect(bloco.type).toBe('image');
+    expect(bloco.source.media_type).toBe('image/jpeg');
+    expect(out.extraido.nome_completo).toBe('MARIA DA SILVA');
+    expect(out.ocrVersao).toMatch(/^claude-rg-v\d+$/);
+    expect(out.tokensEntrada).toBe(800);
+  });
+
+  it('envia PDF como bloco document', async () => {
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'tool_use', name: 'extrair_dados_rg', input: {} },
+      ],
+      usage: { input_tokens: 10, output_tokens: 10 },
+    });
+
+    await service.extrairDadosRG({
+      base64: 'JVBERi0=',
+      mediaType: 'application/pdf',
+    });
+
+    const bloco = createMock.mock.calls[0][0].messages[0].content[0];
+    expect(bloco.type).toBe('document');
+    expect(bloco.source.media_type).toBe('application/pdf');
+  });
+
+  it('rejeita saída fora do schema (UF inválida)', async () => {
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'extrair_dados_rg',
+          input: { uf: 'ABC' }, // UF deve ter 2 letras
+        },
+      ],
+      usage: { input_tokens: 10, output_tokens: 10 },
+    });
+    await expect(
+      service.extrairDadosRG({ base64: 'QUJD', mediaType: 'image/png' }),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+  });
+
+  it('mapeia 429/5xx para ServiceUnavailable', async () => {
+    const err: any = new Error('overloaded');
+    err.status = 503;
+    createMock.mockRejectedValue(err);
+    await expect(
+      service.extrairDadosRG({ base64: 'QUJD', mediaType: 'image/jpeg' }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+});

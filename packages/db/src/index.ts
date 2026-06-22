@@ -6,6 +6,7 @@ export {
   TipoDocumentoAdmissional,
   StatusDocumentoAdmissional,
   ResultadoExameAdmissional,
+  StatusSolicitacaoAcesso,
 } from '@prisma/client';
 
 export type {
@@ -28,6 +29,7 @@ export type {
   DocumentoAdmissional,
   ExameAdmissional,
   EventoAdmissao,
+  SolicitacaoAcesso,
   StatusVaga,
   StatusCandidatura,
   TipoScore,
