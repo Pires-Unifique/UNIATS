@@ -26,6 +26,21 @@ export interface EnviarEnqueteHorariosInput {
 }
 
 /**
+ * Converte um horário "ISO local" (sem timezone, ex.: "2026-06-22T10:30:00",
+ * como o front gera via `isoLocal`) para Date interpretando-o no fuso de
+ * Brasília (UTC−3 fixo — o Brasil não tem horário de verão desde 2019).
+ * Strings que JÁ trazem offset (`Z` ou `±hh:mm`) são respeitadas.
+ *
+ * Sem isto, `new Date(s)` no servidor (que roda em UTC) trataria a hora de
+ * Brasília como UTC, jogando o horário 3h para trás — fazendo um horário futuro
+ * (ex.: 10:30 BRT) parecer "já passou".
+ */
+export function parseHorarioBrasil(s: string): Date {
+  const t = s.trim();
+  return /(?:z|[+-]\d{2}:?\d{2})$/i.test(t) ? new Date(t) : new Date(`${t}-03:00`);
+}
+
+/**
  * Enquete de horários: envia uma ENQUETE (poll) do WhatsApp com 2–12 opções de
  * horário para o candidato votar. O voto chega pelo webhook `poll.vote` e é
  * casado de volta com a opção (→ início/fim) para o recrutador agendar.
@@ -211,8 +226,8 @@ export class EnqueteService {
       data: {
         status: 'RESPONDIDA',
         opcao_escolhida: opcao.rotulo,
-        inicio_escolhido: new Date(opcao.inicio),
-        fim_escolhido: new Date(opcao.fim),
+        inicio_escolhido: parseHorarioBrasil(opcao.inicio),
+        fim_escolhido: parseHorarioBrasil(opcao.fim),
         respondido_em: agora,
       },
     });
