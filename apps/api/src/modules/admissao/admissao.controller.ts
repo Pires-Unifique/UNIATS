@@ -83,6 +83,17 @@ export class AdmissaoController {
     return this.service.criarDeCandidatura(body.candidaturaId);
   }
 
+  // Importa em lote os candidatos já CONTRATADOS (que passaram do R&S) que ainda
+  // não têm admissão. `desdeDias` limita a contratações recentes.
+  @Post('backfill')
+  async backfill(@Body() body: { desdeDias?: number; limite?: number }) {
+    return this.service.backfillContratados({
+      desdeDias:
+        typeof body?.desdeDias === 'number' ? body.desdeDias : undefined,
+      limite: typeof body?.limite === 'number' ? body.limite : undefined,
+    });
+  }
+
   @Patch(':id/status')
   async transicionar(
     @Param('id') id: string,

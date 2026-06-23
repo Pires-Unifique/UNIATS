@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';
+import { AdmissaoService } from '../admissao/admissao.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { GupyClient } from './gupy.client.js';
 import {
@@ -21,6 +22,7 @@ export class GupyService {
     private readonly client: GupyClient,
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
+    private readonly admissao: AdmissaoService,
     @InjectQueue(QUEUE_NAMES.CV_DOWNLOAD)
     private readonly filaCV: Queue,
     @InjectQueue(QUEUE_NAMES.GUPY_SYNC)
@@ -212,6 +214,26 @@ export class GupyService {
         { jobId: `cv-${candidatura.id}` },
       );
     }
+
+    // Gatilho automático: ao entrar em CONTRATADO (passou do R&S → etapa de
+    // admissão na Gupy), abre a admissão no UniATS. Idempotente e sem exceção.
+    if (candidatura.status === 'CONTRATADO') {
+      try {
+        const criou = await this.admissao.criarDeCandidaturaSeElegivel(
+          candidatura.id,
+        );
+        if (criou) {
+          this.logger.log(
+            `Admissão criada automaticamente p/ candidatura ${candidatura.id} (CONTRATADO).`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Falha ao criar admissão automática p/ ${candidatura.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+
     return { id: candidatura.id };
   }
 }

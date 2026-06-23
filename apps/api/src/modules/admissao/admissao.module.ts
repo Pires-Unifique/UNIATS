@@ -10,5 +10,6 @@ import { RgOcrProcessor } from './processors/rg-ocr.processor.js';
   imports: [AuthModule],
   controllers: [AdmissaoController],
   providers: [AdmissaoService, RgOcrProcessor],
+  exports: [AdmissaoService], // GupyModule usa para o gatilho automático de admissão
 })
 export class AdmissaoModule {}

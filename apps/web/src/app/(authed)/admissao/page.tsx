@@ -12,6 +12,7 @@ import { ETAPAS_ADMISSAO, ROTULO_ETAPA_ADMISSAO } from '@/lib/admissao';
 export default function AdmissaoBoardPage() {
   const [itens, setItens] = useState<AdmissaoListItemDTO[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [importando, setImportando] = useState(false);
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -28,6 +29,29 @@ export default function AdmissaoBoardPage() {
     void carregar();
   }, [carregar]);
 
+  // Traz os contratados (que passaram do R&S) que ainda não têm admissão.
+  // Novos contratados já entram sozinhos via webhook; este botão é p/ o backlog.
+  const importarContratados = useCallback(async () => {
+    setImportando(true);
+    setErro(null);
+    try {
+      const r = await api<{ candidatas: number; criadas: number }>(
+        '/api/admissoes/backfill',
+        { method: 'POST', body: { desdeDias: 180 } },
+      );
+      await carregar();
+      if (r.criadas === 0) {
+        setErro('Nenhum contratado novo para importar (últimos 180 dias).');
+      }
+    } catch (err) {
+      setErro(
+        err instanceof ApiError ? err.message : 'Falha ao importar contratados.',
+      );
+    } finally {
+      setImportando(false);
+    }
+  }, [carregar]);
+
   const porEtapa = (s: StatusAdmissao) =>
     (itens ?? []).filter((a) => a.status === s);
   const canceladas = (itens ?? []).filter((a) => a.status === 'CANCELADA');
@@ -37,6 +61,16 @@ export default function AdmissaoBoardPage() {
       <PageHeader
         titulo="Admissões"
         subtitulo="Acompanhe as etapas da admissão dos candidatos contratados."
+        acoes={
+          <button
+            className="btn-secondary text-sm disabled:opacity-50"
+            disabled={importando}
+            onClick={() => void importarContratados()}
+            title="Cria admissões para contratados (últimos 180 dias) que ainda não têm uma"
+          >
+            {importando ? 'Importando…' : 'Importar contratados'}
+          </button>
+        }
       />
 
       {erro && (
