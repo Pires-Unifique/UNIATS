@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { PageHeader } from '@/components/PageHeader';
-import { StatusBadge } from '@/components/StatusBadge';
 import { api, ApiError } from '@/lib/api';
 import { formatarDataHora } from '@/lib/format';
 
@@ -60,6 +59,10 @@ export default function EntrevistaPage({
   const [acao, setAcao] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [gerandoPerguntas, setGerandoPerguntas] = useState(false);
+  // Bloco de anotações do recrutador (persistido em parecer_final).
+  const [anotacoes, setAnotacoes] = useState('');
+  const [salvandoNota, setSalvandoNota] = useState(false);
+  const [notaStatus, setNotaStatus] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -84,6 +87,30 @@ export default function EntrevistaPage({
   useEffect(() => {
     void carregar();
   }, [carregar]);
+
+  // Sincroniza o bloco de anotações com o que veio do servidor ao carregar.
+  useEffect(() => {
+    setAnotacoes(e?.parecer_final ?? '');
+  }, [e?.parecer_final]);
+
+  async function salvarAnotacoes() {
+    if (salvandoNota) return;
+    setSalvandoNota(true);
+    setNotaStatus(null);
+    try {
+      await api(`/api/entrevistas/${id}/anotacoes`, {
+        method: 'POST',
+        body: { anotacoes },
+      });
+      setNotaStatus('Anotações salvas.');
+    } catch (err) {
+      setNotaStatus(
+        err instanceof ApiError ? err.message : 'Falha ao salvar anotações.',
+      );
+    } finally {
+      setSalvandoNota(false);
+    }
+  }
 
   async function iniciarBot() {
     setAcao(null);
@@ -262,53 +289,39 @@ export default function EntrevistaPage({
           )}
         </section>
 
-        {/* Análise de voz */}
+        {/* Anotações do recrutador (bloco de notas da entrevista) */}
         <section className="card p-5">
-          <h2 className="font-medium text-grafite-900 mb-3">
-            Tom de voz (descritivo)
-          </h2>
-          {!e.analise_voz ? (
-            <p className="text-sm text-grafite-400">
-              Análise ainda não disponível. Ela é gerada após a entrevista terminar
-              e a transcrição ficar pronta.
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-medium text-grafite-900">
+              Anotações da entrevista
+            </h2>
+            {notaStatus && (
+              <span className="text-xs text-grafite-400">{notaStatus}</span>
+            )}
+          </div>
+          <textarea
+            className="w-full min-h-[200px] resize-y rounded-md border border-grafite-200 p-3 text-sm text-grafite-800 focus:border-unifique-500 focus:outline-none focus:ring-1 focus:ring-unifique-500"
+            placeholder="Anote aqui os pontos da entrevista: respostas que se destacaram, dúvidas, pontos de atenção, próximos passos…"
+            value={anotacoes}
+            onChange={(ev) => {
+              setAnotacoes(ev.target.value);
+              setNotaStatus(null);
+            }}
+            onBlur={() => void salvarAnotacoes()}
+          />
+          <div className="mt-2 flex items-center justify-between">
+            <p className="text-xs text-grafite-400">
+              Salva automaticamente ao clicar fora do campo.
             </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-3 gap-3 mb-3">
-                <Metric
-                  label="Confiança"
-                  v={e.analise_voz.confianca_media}
-                />
-                <Metric
-                  label="Nervosismo"
-                  v={e.analise_voz.nervosismo_medio}
-                  invert
-                />
-                <Metric
-                  label="Entusiasmo"
-                  v={e.analise_voz.entusiasmo_medio}
-                />
-              </div>
-              <p className="text-xs text-grafite-400 mb-2">
-                Sentimento global:{' '}
-                <StatusBadge status={e.analise_voz.sentimento_global ?? 'NEUTRO'} />
-                {e.analise_voz.hesitacao_count != null && (
-                  <span className="ml-2">
-                    · {e.analise_voz.hesitacao_count} hesitações detectadas
-                  </span>
-                )}
-              </p>
-              {e.analise_voz.observacoes_llm && (
-                <p className="text-sm text-grafite-700 whitespace-pre-line">
-                  {e.analise_voz.observacoes_llm}
-                </p>
-              )}
-              <p className="text-xs text-grafite-400 mt-3 italic">
-                Lembrete LGPD: esta análise é descritiva, não decisória. Não usar como
-                critério único de contratação.
-              </p>
-            </>
-          )}
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              disabled={salvandoNota}
+              onClick={() => void salvarAnotacoes()}
+            >
+              {salvandoNota ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
         </section>
       </div>
 
@@ -341,44 +354,6 @@ export default function EntrevistaPage({
           </div>
         )}
       </section>
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  v,
-  invert,
-}: {
-  label: string;
-  v: number | null | undefined;
-  invert?: boolean;
-}) {
-  const val = v == null ? null : v;
-  const pct = val == null ? 0 : Math.round(val * 100);
-  const cor =
-    val == null
-      ? 'bg-grafite-200'
-      : invert
-        ? pct > 60
-          ? 'bg-red-500'
-          : pct > 30
-            ? 'bg-amber-500'
-            : 'bg-emerald-500'
-        : pct > 60
-          ? 'bg-emerald-500'
-          : pct > 30
-            ? 'bg-amber-500'
-            : 'bg-red-500';
-  return (
-    <div>
-      <div className="text-xs text-grafite-400">{label}</div>
-      <div className="text-lg font-semibold tabular-nums">
-        {val == null ? '—' : `${pct}%`}
-      </div>
-      <div className="h-1.5 bg-grafite-100 rounded">
-        <div className={`h-1.5 ${cor} rounded`} style={{ width: `${pct}%` }} />
-      </div>
     </div>
   );
 }

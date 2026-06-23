@@ -884,6 +884,28 @@ export class InterviewService {
     return resto;
   }
 
+  /**
+   * Salva as anotações do recrutador sobre a entrevista (bloco de notas editável
+   * na tela). Persistido em `parecer_final` — o campo de texto livre da entrevista,
+   * hoje sem outro uso na UI. Texto vazio limpa o campo (null).
+   */
+  async salvarAnotacoes(
+    entrevistaId: string,
+    texto: string,
+  ): Promise<{ ok: boolean }> {
+    const e = await this.prisma.entrevista.findUnique({
+      where: { id: entrevistaId },
+      select: { id: true },
+    });
+    if (!e) throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
+    const limpo = (texto ?? '').slice(0, 20_000).trim();
+    await this.prisma.entrevista.update({
+      where: { id: entrevistaId },
+      data: { parecer_final: limpo || null },
+    });
+    return { ok: true };
+  }
+
   async listarPorCandidatura(candidaturaId: string) {
     return this.prisma.entrevista.findMany({
       where: { candidatura_id: candidaturaId },
