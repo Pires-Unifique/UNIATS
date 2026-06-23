@@ -248,4 +248,21 @@ export class InterviewController {
     await this.service.cancelar(id, body?.motivo);
     return { status: 'cancelada' };
   }
+
+  /** Salva as anotações do recrutador (bloco de notas da entrevista). */
+  @Post(':id/anotacoes')
+  async salvarAnotacoes(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+    @Body() body: { anotacoes?: string },
+  ) {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('id deve ser UUID.');
+    }
+    if (typeof body?.anotacoes !== 'string') {
+      throw new BadRequestException('anotacoes deve ser string.');
+    }
+    await this.auth.assertEntrevistaPermitida(usuario, id);
+    return this.service.salvarAnotacoes(id, body.anotacoes);
+  }
 }
