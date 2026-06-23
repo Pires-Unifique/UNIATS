@@ -1,5 +1,6 @@
 import { Processor, WorkerHost, OnWorkerEvent, InjectQueue } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@uniats/db';
 import type { Job, Queue } from 'bullmq';
 import { z } from 'zod';
@@ -30,15 +31,21 @@ const MEDIA_TYPES: Record<string, RgMediaType> = {
 })
 export class RgOcrProcessor extends WorkerHost {
   private readonly logger = new Logger(RgOcrProcessor.name);
+  /** Só dispara a provisão de acesso quando há provider configurado. */
+  private readonly gatilhoAcessoAtivo: boolean;
 
   constructor(
     private readonly storage: StorageService,
     private readonly claude: ClaudeService,
     private readonly prisma: PrismaService,
+    config: ConfigService,
     @InjectQueue(QUEUE_NAMES.PROVISAO_ACESSO)
     private readonly filaProvisao: Queue,
   ) {
     super();
+    this.gatilhoAcessoAtivo =
+      (config.get<string>('ACESSO_PROVIDER') ?? 'desabilitado') !==
+      'desabilitado';
   }
 
   async process(job: Job<unknown>): Promise<{ documentoId: string }> {
@@ -111,6 +118,14 @@ export class RgOcrProcessor extends WorkerHost {
   }
 
   private async enfileirarProvisao(admissaoId: string): Promise<void> {
+    // Gatilho de acesso desligado (ACESSO_PROVIDER=desabilitado): o OCR roda e
+    // grava os dados do RG, mas NÃO abre/agenda chamado em ferramenta externa.
+    if (!this.gatilhoAcessoAtivo) {
+      this.logger.debug(
+        `Gatilho de acesso desabilitado — provisão não enfileirada (admissão ${admissaoId}).`,
+      );
+      return;
+    }
     await this.filaProvisao.add(
       'provisao-acesso',
       { admissaoId },
