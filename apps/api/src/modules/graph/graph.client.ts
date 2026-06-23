@@ -105,6 +105,7 @@ export class GraphClient {
   private readonly clientSecret: string;
   private readonly scope: string;
   private readonly timezone: string;
+  private readonly spokenLanguage: string;
 
   // Cache do token app-only (em memória do processo).
   private tokenCache: { token: string; expiraEm: number } | null = null;
@@ -132,6 +133,10 @@ export class GraphClient {
     this.timezone =
       this.config.get<string>('GRAPH_TIMEZONE') ??
       'E. South America Standard Time';
+    // Idioma falado da transcrição/gravação (BCP-47). A transcrição automática via
+    // Graph começa em INGLÊS por padrão — meetingSpokenLanguageTag força o idioma.
+    this.spokenLanguage =
+      this.config.get<string>('GRAPH_SPOKEN_LANGUAGE') ?? 'pt-BR';
 
     const baseURL =
       this.config.get<string>('GRAPH_BASE_URL') ??
@@ -349,11 +354,17 @@ export class GraphClient {
     try {
       await this.http.patch(
         `${this.paths.onlineMeetings(organizadorOid)}/${encodeURIComponent(meetingId)}`,
-        { allowTranscription: true, recordAutomatically: true },
+        {
+          allowTranscription: true,
+          recordAutomatically: true,
+          // Força o idioma falado — sem isso a transcrição automática sai em inglês.
+          meetingSpokenLanguageTag: this.spokenLanguage,
+        },
         { headers: { Authorization: `Bearer ${token}` } },
       );
       this.logger.log(
-        `Auto-transcrição habilitada: organizador=${organizadorOid} meeting=${meetingId}`,
+        `Auto-transcrição habilitada: organizador=${organizadorOid} meeting=${meetingId} ` +
+          `idioma=${this.spokenLanguage}`,
       );
     } catch (err) {
       throw this.normalizarErro(err, 'habilitarTranscricaoAutomatica');

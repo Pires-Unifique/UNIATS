@@ -60,6 +60,9 @@ const EnvSchema = z.object({
     .default('https://graph.microsoft.com/.default'),
   // Fuso passado ao Graph (Prefer: outlook.timezone) e usado no corpo do evento.
   GRAPH_TIMEZONE: z.string().min(1).default('E. South America Standard Time'),
+  // Idioma falado da transcrição/gravação (BCP-47). Sem isso, a transcrição
+  // automática do Teams via Graph começa em inglês. Vai no meetingSpokenLanguageTag.
+  GRAPH_SPOKEN_LANGUAGE: z.string().min(2).default('pt-BR'),
   GRAPH_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
   GRAPH_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
   // Organizador/agenda quando a vaga não tem recrutador vinculado (comum sem SSO).
