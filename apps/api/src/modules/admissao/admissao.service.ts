@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Injectable,
   ConflictException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -68,6 +69,8 @@ const CHECKLIST_PADRAO: Array<[TipoDocumentoAdmissional, boolean]> = [
 
 @Injectable()
 export class AdmissaoService {
+  private readonly logger = new Logger(AdmissaoService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -151,6 +154,80 @@ export class AdmissaoService {
       );
     }
 
+    const id = await this.criarRegistroAdmissao(cand);
+    return this.obter(id);
+  }
+
+  /**
+   * Gatilho automático (webhook de contratação / sync): cria a admissão se a
+   * candidatura está CONTRATADA e ainda não tem admissão. Idempotente e SEM
+   * exceção — nunca quebra o fluxo que a chamou.
+   */
+  async criarDeCandidaturaSeElegivel(candidaturaId: string): Promise<boolean> {
+    const cand = await this.prisma.candidatura.findUnique({
+      where: { id: candidaturaId },
+      select: {
+        id: true,
+        status: true,
+        vaga_id: true,
+        candidato_id: true,
+        admissao: { select: { id: true } },
+      },
+    });
+    if (!cand || cand.admissao || cand.status !== 'CONTRATADO') return false;
+    await this.criarRegistroAdmissao(cand);
+    return true;
+  }
+
+  /**
+   * Backfill: cria admissões para candidaturas JÁ contratadas que ainda não têm
+   * admissão (quem passou do R&S na Gupy e entrou na etapa de admissão).
+   * `desdeDias` limita a contratações recentes para não arrastar admitidos
+   * antigos; `limite` protege contra lotes gigantes. Idempotente.
+   */
+  async backfillContratados(
+    opts: { desdeDias?: number; limite?: number } = {},
+  ): Promise<{ candidatas: number; criadas: number }> {
+    const limite = Math.min(Math.max(opts.limite ?? 200, 1), 500);
+    const where: Prisma.CandidaturaWhereInput = {
+      status: 'CONTRATADO',
+      admissao: { is: null },
+    };
+    if (opts.desdeDias && opts.desdeDias > 0) {
+      where.movido_em = {
+        gte: new Date(Date.now() - opts.desdeDias * 86_400_000),
+      };
+    }
+    const cands = await this.prisma.candidatura.findMany({
+      where,
+      select: { id: true, candidato_id: true, vaga_id: true },
+      orderBy: { movido_em: 'desc' },
+      take: limite,
+    });
+
+    let criadas = 0;
+    for (const c of cands) {
+      try {
+        await this.criarRegistroAdmissao(c);
+        criadas += 1;
+      } catch (err) {
+        this.logger.warn(
+          `Backfill: falha ao criar admissão p/ candidatura ${c.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+    this.logger.log(
+      `Backfill de contratados: ${criadas}/${cands.length} admissão(ões) criada(s).`,
+    );
+    return { candidatas: cands.length, criadas };
+  }
+
+  /** Cria o registro de admissão (checklist + exame + evento inicial). */
+  private async criarRegistroAdmissao(cand: {
+    id: string;
+    candidato_id: string;
+    vaga_id: string;
+  }): Promise<string> {
     const criada = await this.prisma.admissao.create({
       data: {
         candidatura_id: cand.id,
@@ -173,7 +250,7 @@ export class AdmissaoService {
       },
       select: { id: true },
     });
-    return this.obter(criada.id);
+    return criada.id;
   }
 
   /**
