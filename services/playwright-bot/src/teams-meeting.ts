@@ -4,7 +4,9 @@ import {
   type BrowserContext,
   type Page,
 } from 'playwright';
+import type { ChildProcess } from 'node:child_process';
 
+import { iniciarCaptura, pararCaptura } from './audio.js';
 import type { Logger } from './logger.js';
 
 export interface Segmento {
@@ -20,6 +22,8 @@ export interface ResultadoCaptura {
   /** Diagnóstico: o bot chegou a ser admitido e ligou legendas? */
   entrou: boolean;
   legendasLigadas: boolean;
+  /** Caminho do WAV capturado (p/ o Whisper rodar depois), se a captura rodou. */
+  wavPath?: string;
 }
 
 export interface OpcoesCaptura {
@@ -31,6 +35,9 @@ export interface OpcoesCaptura {
   maxDuracaoMin: number;
   ociosidadeMin: number;
   captionLang: string;
+  /** Se definidos, captura o áudio da sala (monitor do sink) neste WAV. */
+  wavPath?: string;
+  audioSink?: string;
 }
 
 /**
@@ -158,6 +165,7 @@ export async function capturarReuniao(
 ): Promise<ResultadoCaptura> {
   let browser: Browser | null = null;
   let context: BrowserContext | null = null;
+  let capturaProc: ChildProcess | null = null;
   const segmentos: Segmento[] = [];
   let entrou = false;
   let legendasLigadas = false;
@@ -221,6 +229,16 @@ export async function capturarReuniao(
     }
     entrou = true;
     logger.info('Admitido na reunião. Ligando legendas…');
+
+    // Captura de áudio (2º motor / Whisper): grava desde a admissão. Best-effort —
+    // se o ffmpeg/sink não estiver disponível, segue só com as legendas.
+    if (opts.wavPath && opts.audioSink) {
+      try {
+        capturaProc = iniciarCaptura(opts.wavPath, opts.audioSink, logger);
+      } catch (e) {
+        logger.warn({ err: String(e) }, 'Não consegui iniciar a captura de áudio.');
+      }
+    }
 
     legendasLigadas = await ligarLegendas(page, logger).catch((e) => {
       logger.warn({ err: String(e) }, 'Falha ao ligar legendas (seguirá tentando ler).');
@@ -335,12 +353,25 @@ export async function capturarReuniao(
     }
     segmentos.sort((a, b) => a.inicio_ms - b.inicio_ms);
 
+    // Finaliza a gravação ANTES de sair (o WAV fecha graciosamente).
+    if (capturaProc) {
+      await pararCaptura(capturaProc).catch(() => undefined);
+      capturaProc = null;
+    }
+
     await sairDaReuniao(page).catch(() => undefined);
 
     const texto = segmentos.map((s) => `${s.falante}: ${s.texto}`).join('\n');
     logger.info({ segmentos: segmentos.length, chars: texto.length }, 'Captura concluída.');
-    return { texto, segmentos, entrou, legendasLigadas };
+    return {
+      texto,
+      segmentos,
+      entrou,
+      legendasLigadas,
+      wavPath: opts.wavPath && opts.audioSink ? opts.wavPath : undefined,
+    };
   } finally {
+    if (capturaProc) await pararCaptura(capturaProc).catch(() => undefined);
     await context?.close().catch(() => undefined);
     await browser?.close().catch(() => undefined);
   }

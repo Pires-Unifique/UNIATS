@@ -6,6 +6,8 @@ export interface CallbackPayload {
   entrevistaId: string;
   texto: string;
   segmentos: Segmento[];
+  /** Segmentos do 2º motor (Whisper) — a API funde com o VTT oficial (anti-alucinação). */
+  whisperSegmentos?: Segmento[];
   entrou: boolean;
   legendasLigadas: boolean;
 }

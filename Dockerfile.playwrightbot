@@ -3,6 +3,8 @@
 # Standalone (fora do workspace pnpm): instala com npm e usa os navegadores já
 # embutidos na imagem oficial do Playwright (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1).
 # A versão do pacote `playwright` DEVE casar com a tag da imagem base.
+# Fase 2: captura áudio (PulseAudio+ffmpeg) e roda Whisper (faster-whisper) como
+# 2º motor de transcrição, pra cruzar com o transcript oficial do Graph.
 # Build: docker build -f Dockerfile.playwrightbot --target runtime -t uniats-playwright-bot .
 # =====================================================================
 
@@ -16,14 +18,38 @@ COPY services/playwright-bot/tsconfig.json ./
 COPY services/playwright-bot/src ./src
 RUN npm run build
 
-# ---- runtime: só deps de produção + dist --------------------------------------------
+# ---- runtime: deps de produção + áudio + Whisper -----------------------------------
 FROM mcr.microsoft.com/playwright:v1.48.0-jammy AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Modelo do Whisper (trocável: medium agora, large-v3 se a VM ganhar recurso).
+ARG WHISPER_MODEL=medium
+ENV WHISPER_MODEL=${WHISPER_MODEL}
+
+# CA corporativo (Netskope) → curl/pip/huggingface confiam nele atravessando o proxy.
+COPY infra/certs/netskope-unifique-ca.pem /usr/local/share/ca-certificates/netskope-unifique-ca.crt
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates ffmpeg pulseaudio python3 python3-pip \
+ && update-ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+# Faz pip + requests (huggingface_hub) + curl usarem o bundle do sistema (com o CA).
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+# faster-whisper (CTranslate2 — sem torch) + pré-download do modelo no build.
+RUN pip3 install --no-cache-dir faster-whisper==1.0.3 \
+ && python3 -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8')"
+
 COPY services/playwright-bot/package.json services/playwright-bot/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY --from=build /app/dist ./dist
-# xvfb-run dá um display virtual: funciona tanto headless quanto headful (Teams web
-# às vezes recusa headless puro — basta PLAYWRIGHT_HEADLESS=false pra rodar headful).
-CMD ["xvfb-run", "--auto-servernum", "--", "node", "dist/index.js"]
+COPY services/playwright-bot/transcribe.py /app/transcribe.py
+COPY services/playwright-bot/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# entrypoint sobe PulseAudio (sink virtual) + xvfb e então o bot.
+CMD ["bash", "/app/entrypoint.sh"]

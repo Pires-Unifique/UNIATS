@@ -33,6 +33,15 @@ const Schema = z.object({
   // Idioma das legendas a forçar no Teams (best-effort).
   PLAYWRIGHT_CAPTION_LANG: z.string().min(2).default('pt-br'),
 
+  // 2º motor (Whisper local) — captura o áudio da sala e transcreve em batch p/
+  // cruzar com o transcript oficial do Graph (anti-alucinação). Desligado por padrão.
+  WHISPER_ENABLED: z.coerce.boolean().default(false),
+  WHISPER_MODEL: z.string().min(1).default('medium'),
+  WHISPER_LANG: z.string().min(2).default('pt'),
+  WHISPER_SCRIPT: z.string().min(1).default('/app/transcribe.py'),
+  // Sink PulseAudio onde o Chromium toca o áudio da reunião (gravamos o monitor).
+  MEETBOT_AUDIO_SINK: z.string().min(1).default('meetbot'),
+
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
     .default('info'),

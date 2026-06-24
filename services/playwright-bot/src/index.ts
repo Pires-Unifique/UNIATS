@@ -1,10 +1,12 @@
 import { Worker, type Job } from 'bullmq';
+import { unlinkSync } from 'node:fs';
 import { z } from 'zod';
 
 import { enviarTranscricao } from './api-callback.js';
-import { capturarReuniao } from './teams-meeting.js';
+import { capturarReuniao, type Segmento } from './teams-meeting.js';
 import { criarLogger } from './logger.js';
 import { loadConfig } from './config.js';
+import { transcreverComWhisper, wavTemConteudo } from './whisper.js';
 
 const PayloadSchema = z.object({
   entrevistaId: z.string().uuid(),
@@ -31,6 +33,9 @@ async function main(): Promise<void> {
       const log = logger.child({ entrevistaId: payload.entrevistaId, jobId: job.id });
       log.info('Recebido job de join.');
 
+      const wavPath = cfg.WHISPER_ENABLED
+        ? `/tmp/pw-${payload.entrevistaId}.wav`
+        : undefined;
       const resultado = await capturarReuniao(
         {
           joinUrl: payload.joinUrl,
@@ -41,15 +46,33 @@ async function main(): Promise<void> {
           maxDuracaoMin: payload.maxDuracaoMin ?? cfg.PLAYWRIGHT_MAX_DURACAO_MIN,
           ociosidadeMin: cfg.PLAYWRIGHT_OCIOSIDADE_MIN,
           captionLang: cfg.PLAYWRIGHT_CAPTION_LANG,
+          wavPath,
+          audioSink: cfg.WHISPER_ENABLED ? cfg.MEETBOT_AUDIO_SINK : undefined,
         },
         log,
       );
 
-      if (!resultado.texto.trim()) {
-        // Sem texto: não devolve (deixa o Graph/manual cobrir). Loga p/ diagnóstico.
+      // 2º motor: Whisper no áudio capturado (já com o Chromium fechado — poupa RAM).
+      let whisperSegmentos: Segmento[] = [];
+      if (resultado.wavPath && wavTemConteudo(resultado.wavPath)) {
+        whisperSegmentos = await transcreverComWhisper(
+          resultado.wavPath,
+          { script: cfg.WHISPER_SCRIPT, model: cfg.WHISPER_MODEL, lang: cfg.WHISPER_LANG },
+          log,
+        );
+      }
+      if (resultado.wavPath) {
+        try {
+          unlinkSync(resultado.wavPath);
+        } catch {
+          /* já removido / nunca criado */
+        }
+      }
+
+      if (!resultado.texto.trim() && whisperSegmentos.length === 0) {
         log.warn(
           { entrou: resultado.entrou, legendasLigadas: resultado.legendasLigadas },
-          'Captura sem texto — nada a enviar.',
+          'Captura sem texto (legenda e Whisper) — nada a enviar.',
         );
         return { ok: false, segmentos: 0 };
       }
@@ -58,10 +81,14 @@ async function main(): Promise<void> {
         entrevistaId: payload.entrevistaId,
         texto: resultado.texto,
         segmentos: resultado.segmentos,
+        whisperSegmentos,
         entrou: resultado.entrou,
         legendasLigadas: resultado.legendasLigadas,
       });
-      log.info({ segmentos: resultado.segmentos.length }, 'Transcrição enviada à API.');
+      log.info(
+        { legendas: resultado.segmentos.length, whisper: whisperSegmentos.length },
+        'Transcrição enviada à API.',
+      );
       return { ok: true, segmentos: resultado.segmentos.length };
     },
     {
