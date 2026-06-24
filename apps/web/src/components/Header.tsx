@@ -11,12 +11,12 @@ import { useTheme } from '@/lib/theme';
 const TITULOS_MODULO: Array<{ prefixos: string[]; texto: string }> = [
   {
     prefixos: ['/admissao'],
-    texto: 'Collab — Admissão Digital',
+    texto: 'Collab — Admissão',
   },
   {
     // Recrutamento: vagas, agenda, análise, templates e ficha de candidatura.
     prefixos: ['/vagas', '/entrevistas', '/analise', '/configuracoes', '/candidaturas'],
-    texto: 'Collab — Triagem e Análise de Entrevistas',
+    texto: 'Collab — Recrutamento',
   },
 ];
 
