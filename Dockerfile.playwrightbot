@@ -41,7 +41,9 @@ ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # faster-whisper (CTranslate2 — sem torch) + pré-download do modelo no build.
-RUN pip3 install --no-cache-dir faster-whisper==1.0.3 \
+# `requests` explícito: faster-whisper 1.0.3 ainda faz `import requests`, mas o
+# huggingface-hub 1.x (que vem junto) largou essa dep (migrou p/ httpx).
+RUN pip3 install --no-cache-dir faster-whisper==1.0.3 requests \
  && python3 -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8')"
 
 COPY services/playwright-bot/package.json services/playwright-bot/package-lock.json ./
