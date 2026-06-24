@@ -198,7 +198,7 @@ export default function VagasPage() {
                   <Td className="text-right">
                     <Link
                       href={`/vagas/${v.id}/ranking`}
-                      className="text-unifique-700 hover:underline text-xs"
+                      className="btn-soft text-xs"
                     >
                       Ver ranking →
                     </Link>
