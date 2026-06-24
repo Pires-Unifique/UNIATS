@@ -32,8 +32,6 @@ async function bootstrap() {
   });
   app.use('/webhooks/waha', jsonComRawBody);
   app.use('/webhooks/sendgrid', jsonComRawBody);
-  app.use('/webhooks/meetstream', jsonComRawBody);
-  app.use('/webhooks/assemblyai', jsonComRawBody);
 
   app.use(express.json({ limit: '2mb' }));
 

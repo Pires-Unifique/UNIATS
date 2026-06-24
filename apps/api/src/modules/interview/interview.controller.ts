@@ -178,18 +178,6 @@ export class InterviewController {
     return this.service.listarAgenda(status, this.auth.escopoGestorId(usuario));
   }
 
-  @Post(':id/iniciar-bot')
-  async iniciar(
-    @UsuarioAtual() usuario: UsuarioAutenticado,
-    @Param('id') id: string,
-  ) {
-    if (!UUID_REGEX.test(id)) {
-      throw new BadRequestException('id deve ser UUID.');
-    }
-    await this.auth.assertEntrevistaPermitida(usuario, id);
-    return this.service.iniciarBot(id);
-  }
-
   /**
    * Dispara a busca do transcript oficial do Teams via Graph (pull). Útil pra
    * processar manualmente após a reunião enquanto o agendador automático não
@@ -221,18 +209,6 @@ export class InterviewController {
     }
     await this.auth.assertEntrevistaPermitida(usuario, id);
     return this.service.transcreverViaPlaywright(id);
-  }
-
-  @Post(':id/encerrar')
-  async encerrar(
-    @UsuarioAtual() usuario: UsuarioAutenticado,
-    @Param('id') id: string,
-  ) {
-    if (!UUID_REGEX.test(id)) {
-      throw new BadRequestException('id deve ser UUID.');
-    }
-    await this.auth.assertEntrevistaPermitida(usuario, id);
-    return this.service.encerrarBot(id);
   }
 
   @Post(':id/cancelar')

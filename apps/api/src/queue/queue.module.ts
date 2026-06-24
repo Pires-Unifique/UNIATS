@@ -10,10 +10,6 @@ export const QUEUE_NAMES = {
   EMBEDDING: 'embedding',
   MATCHING: 'matching',
   MENSAGEM: 'mensagem',
-  BOT_ENTREVISTA: 'bot-entrevista',
-  AUDIO_PROCESS: 'audio-process',
-  TRANSCRICAO: 'transcricao',
-  ANALISE_VOZ: 'analise-voz',
   // Transcript oficial do Teams via Graph (pull). Processa pós-reunião com retry.
   TRANSCRICAO_GRAPH: 'transcricao-graph',
   // Fallback: bot Playwright entra na reunião e captura legendas. Consumida pelo
@@ -56,10 +52,6 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.EMBEDDING },
       { name: QUEUE_NAMES.MATCHING },
       { name: QUEUE_NAMES.MENSAGEM },
-      { name: QUEUE_NAMES.BOT_ENTREVISTA },
-      { name: QUEUE_NAMES.AUDIO_PROCESS },
-      { name: QUEUE_NAMES.TRANSCRICAO },
-      { name: QUEUE_NAMES.ANALISE_VOZ },
       { name: QUEUE_NAMES.TRANSCRICAO_GRAPH },
       { name: QUEUE_NAMES.PLAYWRIGHT_JOIN },
       { name: QUEUE_NAMES.PLAYWRIGHT_TRANSCRICAO },

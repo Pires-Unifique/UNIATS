@@ -10,7 +10,6 @@ import { ConfigService } from '@nestjs/config';
 import type { Queue } from 'bullmq';
 
 import { GraphClient } from '../../graph/graph.client.js';
-import { MeetStreamClient } from '../../meetstream/meetstream.client.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
 import { WahaClient } from '../../waha/waha.client.js';
@@ -57,12 +56,9 @@ export class InterviewService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly meetstream: MeetStreamClient,
     private readonly graph: GraphClient,
     private readonly waha: WahaClient,
     private readonly config: ConfigService,
-    @InjectQueue(QUEUE_NAMES.BOT_ENTREVISTA)
-    private readonly filaBot: Queue,
     @InjectQueue(QUEUE_NAMES.TRANSCRICAO_GRAPH)
     private readonly filaGraph: Queue,
     @InjectQueue(QUEUE_NAMES.PLAYWRIGHT_JOIN)
@@ -655,53 +651,6 @@ export class InterviewService {
   }
 
   /**
-   * Enfileira o bot. Idempotente — se já há `bot_session_id`, retorna sem refazer.
-   */
-  async iniciarBot(entrevistaId: string): Promise<{ entrevistaId: string; status: string }> {
-    const entrevista = await this.prisma.entrevista.findUnique({
-      where: { id: entrevistaId },
-      select: {
-        id: true,
-        meet_url: true,
-        status: true,
-        bot_session_id: true,
-        candidato: { select: { consentimento_gravacao_em: true, excluido_em: true } },
-      },
-    });
-    if (!entrevista) {
-      throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
-    }
-    if (!entrevista.meet_url) {
-      throw new BadRequestException('Entrevista sem meetUrl.');
-    }
-    if (entrevista.candidato.excluido_em) {
-      throw new BadRequestException(
-        'Candidato pediu exclusão (LGPD) — bot não pode entrar.',
-      );
-    }
-    if (!entrevista.candidato.consentimento_gravacao_em) {
-      throw new BadRequestException(
-        'Candidato sem consentimento de gravação — bot não pode entrar.',
-      );
-    }
-    if (entrevista.bot_session_id) {
-      return { entrevistaId, status: 'ja-iniciada' };
-    }
-    if (entrevista.status === 'CANCELADA' || entrevista.status === 'FINALIZADA') {
-      throw new BadRequestException(
-        `Entrevista em status ${entrevista.status} — não é possível iniciar bot.`,
-      );
-    }
-
-    await this.filaBot.add(
-      'iniciar-bot',
-      { entrevistaId },
-      { jobId: `bot-start-${entrevistaId}` },
-    );
-    return { entrevistaId, status: 'enfileirado' };
-  }
-
-  /**
    * Enfileira a busca do transcript OFICIAL do Teams via Graph (pull). Idempotente.
    * Re-tenta por ~36 min enquanto o Teams indexa o transcript (~12 min de espera).
    * Não coloca bot na sala — só baixa o transcript que o Teams já gerou.
@@ -779,21 +728,6 @@ export class InterviewService {
     return { entrevistaId, status: 'enfileirado' };
   }
 
-  async encerrarBot(entrevistaId: string): Promise<{ ok: boolean }> {
-    const entrevista = await this.prisma.entrevista.findUnique({
-      where: { id: entrevistaId },
-      select: { id: true, bot_session_id: true },
-    });
-    if (!entrevista) {
-      throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
-    }
-    if (!entrevista.bot_session_id) {
-      return { ok: false }; // nada a fazer
-    }
-    await this.meetstream.pararBot(entrevista.bot_session_id);
-    return { ok: true };
-  }
-
   async cancelar(entrevistaId: string, motivo?: string): Promise<void> {
     const e = await this.prisma.entrevista.findUnique({
       where: { id: entrevistaId },
@@ -814,15 +748,6 @@ export class InterviewService {
       throw new BadRequestException(
         'Entrevista FINALIZADA não pode ser cancelada.',
       );
-    }
-    if (e.bot_session_id) {
-      try {
-        await this.meetstream.pararBot(e.bot_session_id);
-      } catch (err) {
-        this.logger.warn(
-          `Falha ao parar bot ${e.bot_session_id}: ${(err as Error).message}`,
-        );
-      }
     }
     // Remove o bloqueio/reunião no Outlook (cancela o convite do candidato também).
     if (e.graph_event_id && this.graph.enabled) {

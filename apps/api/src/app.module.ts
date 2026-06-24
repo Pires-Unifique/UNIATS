@@ -12,7 +12,6 @@ import { AcessoModule } from './modules/acesso/acesso.module.js';
 import { AdmissaoModule } from './modules/admissao/admissao.module.js';
 import { AnaliseModule } from './modules/analise/analise.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
-import { AssemblyAIModule } from './modules/assemblyai/assemblyai.module.js';
 import { CandidaturasModule } from './modules/candidaturas/candidaturas.module.js';
 import { ClaudeModule } from './modules/claude/claude.module.js';
 import { CryptoModule } from './modules/crypto/crypto.module.js';
@@ -22,7 +21,6 @@ import { GraphModule } from './modules/graph/graph.module.js';
 import { GupyModule } from './modules/gupy/gupy.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { InterviewModule } from './modules/interview/interview.module.js';
-import { MeetStreamModule } from './modules/meetstream/meetstream.module.js';
 import { MessagingModule } from './modules/messaging/messaging.module.js';
 import { QuestionsModule } from './modules/questions/questions.module.js';
 import { RankingModule } from './modules/ranking/ranking.module.js';
@@ -87,8 +85,6 @@ import { WahaModule } from './modules/waha/waha.module.js';
     WahaModule,
     SendGridModule,
     GraphModule,
-    MeetStreamModule,
-    AssemblyAIModule,
     HealthModule,
     GupyModule,
     CurriculoModule,

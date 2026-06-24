@@ -112,26 +112,6 @@ export default function EntrevistaPage({
     }
   }
 
-  async function iniciarBot() {
-    setAcao(null);
-    try {
-      await api(`/api/entrevistas/${id}/iniciar-bot`, { method: 'POST' });
-      setAcao('Bot enfileirado — entra na sala em alguns segundos.');
-    } catch (err) {
-      setAcao(err instanceof ApiError ? err.message : 'Falha ao iniciar bot.');
-    }
-  }
-
-  async function encerrar() {
-    setAcao(null);
-    try {
-      await api(`/api/entrevistas/${id}/encerrar`, { method: 'POST' });
-      setAcao('Encerramento solicitado.');
-    } catch (err) {
-      setAcao(err instanceof ApiError ? err.message : 'Falha ao encerrar.');
-    }
-  }
-
   async function gerarPerguntas() {
     const ent = e;
     if (gerandoPerguntas || !ent) return;
@@ -191,24 +171,6 @@ export default function EntrevistaPage({
               >
                 Abrir Meet
               </a>
-            )}
-            {e.status === 'AGENDADA' && (
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => void iniciarBot()}
-              >
-                Iniciar bot
-              </button>
-            )}
-            {e.status === 'EM_ANDAMENTO' && (
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => void encerrar()}
-              >
-                Encerrar bot
-              </button>
             )}
           </>
         }

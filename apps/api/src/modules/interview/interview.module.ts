@@ -1,55 +1,35 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
-import { AnaliseVozProcessor } from './processors/analise-voz.processor.js';
-import { AudioProcessProcessor } from './processors/audio-process.processor.js';
-import { AssemblyAIWebhookController } from './webhooks/assemblyai-webhook.controller.js';
-import { BotAutostartService } from './services/bot-autostart.service.js';
-import { BotStartProcessor } from './processors/bot-start.processor.js';
 import { InterviewController } from './interview.controller.js';
 import { InterviewService } from './services/interview.service.js';
-import { MeetStreamWebhookController } from './webhooks/meetstream-webhook.controller.js';
 import { PlaywrightAutostartService } from './services/playwright-autostart.service.js';
 import { PlaywrightCallbackController } from './webhooks/playwright-callback.controller.js';
 import { PlaywrightTranscricaoProcessor } from './processors/playwright-transcricao.processor.js';
 import { RetencaoLGPDService } from './services/retencao-lgpd.service.js';
 import { TranscricaoGraphProcessor } from './processors/transcricao-graph.processor.js';
 import { TranscricaoGraphSchedulerService } from './services/transcricao-graph-scheduler.service.js';
-import { TranscricaoProcessor } from './processors/transcricao.processor.js';
 
 /**
- * Camada 4b/c/d — Entrevistas (bot + transcrição + análise de voz + retenção).
+ * Camada 4 — Entrevistas (agendamento Teams + transcrição via Graph + retenção).
  *
- * Pipeline:
- *  agendar → iniciarBot (cron ou ação manual)
- *           → MeetStream bot entra na sala
- *           → webhook bot.ended
- *           → AudioProcessProcessor (download + criptografia AES-256-GCM + storage)
- *           → TranscricaoProcessor (descripta + AssemblyAI Universal-2 com diarização)
- *           → webhook AssemblyAI.completed
- *           → AnaliseVozProcessor (métricas determinísticas + Claude qualitativo)
- *           → RetencaoLGPDService (cron diário apaga áudios > 90d, trunca transcrições > 365d)
+ * Pipeline (sem bot na sala):
+ *  confirmarPorEnquete → cria reunião Teams (Graph) + liga auto-transcrição (PATCH,
+ *    idioma pt-BR) → TranscricaoGraphSchedulerService (cron) puxa o transcript
+ *    oficial pós-reunião → TranscricaoGraphProcessor (VTT → Claude gera a ATA)
+ *    → RetencaoLGPDService (cron diário trunca transcrições antigas).
  *
- * Depende dos módulos globais: CryptoModule, StorageModule, MeetStreamModule, AssemblyAIModule.
+ * Fallback: PlaywrightAutostartService + PlaywrightTranscricaoProcessor (bot que
+ * captura legendas) — só age se PLAYWRIGHT_BOT_ENABLED.
  */
 @Module({
   imports: [AuthModule],
-  controllers: [
-    InterviewController,
-    MeetStreamWebhookController,
-    AssemblyAIWebhookController,
-    PlaywrightCallbackController,
-  ],
+  controllers: [InterviewController, PlaywrightCallbackController],
   providers: [
     InterviewService,
     RetencaoLGPDService,
-    BotAutostartService,
     TranscricaoGraphSchedulerService,
     PlaywrightAutostartService,
-    BotStartProcessor,
-    AudioProcessProcessor,
-    TranscricaoProcessor,
-    AnaliseVozProcessor,
     TranscricaoGraphProcessor,
     PlaywrightTranscricaoProcessor,
   ],
