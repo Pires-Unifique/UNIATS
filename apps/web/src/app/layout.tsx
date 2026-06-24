@@ -4,7 +4,7 @@ import { AuthProvider } from '@/lib/auth';
 import { ThemeProvider, themeInitScript } from '@/lib/theme';
 
 export const metadata: Metadata = {
-  title: 'UNIATS — Unifique',
+  title: 'Collab — Unifique',
   description: 'Plataforma de triagem e análise de entrevistas',
   robots: { index: false, follow: false }, // app interno
 };

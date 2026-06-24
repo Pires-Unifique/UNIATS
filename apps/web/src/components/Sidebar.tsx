@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 
 import { type Area, useAuth } from '../lib/auth';
+import { Logo } from './Logo';
 
 // `areas`: área(s) que liberam o item. `undefined` = qualquer usuário
 // autenticado (a própria API escopa os dados — ex.: o gestor só vê a vaga dele
@@ -59,8 +60,8 @@ export function Sidebar() {
           href="/vagas"
           className="text-lg font-semibold text-grafite-900 flex items-center gap-2"
         >
-          <span className="inline-block w-2 h-2 rounded-full bg-unifique-600" />
-          UNIATS
+          <Logo size={26} />
+          Collab
         </Link>
         <p className="text-xs text-grafite-400 mt-0.5">Unifique RH</p>
       </div>

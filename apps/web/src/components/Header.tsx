@@ -1,17 +1,41 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
+
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
+
+// Chamada do header por módulo — cada área do sistema mostra seu próprio texto.
+// O primeiro prefixo que casar com a rota atual vence; edite/estenda aqui ao
+// adicionar módulos novos.
+const TITULOS_MODULO: Array<{ prefixos: string[]; texto: string }> = [
+  {
+    prefixos: ['/admissao'],
+    texto: 'Collab — Admissão Digital',
+  },
+  {
+    // Recrutamento: vagas, agenda, análise, templates e ficha de candidatura.
+    prefixos: ['/vagas', '/entrevistas', '/analise', '/configuracoes', '/candidaturas'],
+    texto: 'Collab — Triagem e Análise de Entrevistas',
+  },
+];
+
+function tituloModulo(path: string | null): string {
+  if (!path) return 'Collab';
+  const modulo = TITULOS_MODULO.find((m) =>
+    m.prefixos.some((p) => path.startsWith(p)),
+  );
+  return modulo?.texto ?? 'Collab';
+}
 
 export function Header() {
   const { usuario, logout } = useAuth();
   const { theme, toggle } = useTheme();
+  const path = usePathname();
 
   return (
     <header className="h-14 bg-white border-b border-grafite-100 flex items-center justify-between px-6">
-      <div className="text-sm text-grafite-400">
-        UNIATS — Triagem e Análise de Entrevistas
-      </div>
+      <div className="text-sm text-grafite-400">{tituloModulo(path)}</div>
       <div className="flex items-center gap-3">
         <button
           type="button"

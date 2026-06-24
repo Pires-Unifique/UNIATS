@@ -5,6 +5,7 @@ import { Suspense, useState } from 'react';
 
 import { loginLocalAtivo, useAuth } from '@/lib/auth';
 import { authEnabled } from '@/lib/msal';
+import { Logo } from '@/components/Logo';
 
 function LoginInner() {
   const params = useSearchParams();
@@ -40,9 +41,9 @@ function LoginInner() {
     <main className="min-h-screen flex items-center justify-center bg-grafite-50">
       <div className="card max-w-md w-full p-8 mx-4">
         <div className="text-center mb-6">
-          <div className="inline-block w-10 h-10 rounded-md bg-unifique-600 mb-3" />
+          <Logo size={48} className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold text-grafite-900">
-            UNIATS
+            Collab
           </h1>
           <p className="text-sm text-grafite-400 mt-1">
             Acesso restrito a colaboradores Unifique.

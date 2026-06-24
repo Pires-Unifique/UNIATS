@@ -17,8 +17,8 @@
     --g-900: #0f0f10;
   }
 
-  /* Tema escuro — pegada da marca Unifique: grafite profundo (quase preto)
-     servindo de palco para o laranja da logo. A rampa grafite é invertida,
+  /* Tema escuro — pegada da marca: grafite profundo (quase preto) servindo de
+     palco para o azul institucional da marca. A rampa grafite é invertida,
      então claros viram fundos escuros e os tons altos viram texto claro. */
   .dark {
     color-scheme: dark;

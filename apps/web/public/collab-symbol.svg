@@ -1,0 +1,14 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Collab">
+  <defs>
+    <linearGradient id="collabGrad" x1="8" y1="6" x2="40" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00A2FF"/>
+      <stop offset="1" stop-color="#3FCFD5"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="#212492"/>
+  <circle cx="24" cy="13.5" r="5.4" fill="url(#collabGrad)"/>
+  <path d="M11.5 38.5C11.5 29.4 17.1 23.5 24 23.5C30.9 23.5 36.5 29.4 36.5 38.5"
+        stroke="url(#collabGrad)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M18.6 31.8l3.9 3.9 8.1-8.1"
+        stroke="#F5EC5A" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
