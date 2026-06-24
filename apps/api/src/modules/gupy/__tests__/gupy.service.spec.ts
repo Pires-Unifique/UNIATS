@@ -47,14 +47,18 @@ function montarMocks() {
   const auth = {
     vincularGestorAoSincronizar: jest.fn().mockResolvedValue(undefined),
   };
+  const admissao = {
+    criarDeCandidaturaSeElegivel: jest.fn().mockResolvedValue(false),
+  };
   const service = new GupyService(
     client as any,
     prisma as any,
     auth as any,
+    admissao as any,
     filaCV as any,
     filaSync as any,
   );
-  return { service, client, prisma, auth, filaCV, filaSync };
+  return { service, client, prisma, auth, admissao, filaCV, filaSync };
 }
 
 async function* gen<T>(items: T[]): AsyncGenerator<T, void, void> {
@@ -164,5 +168,35 @@ describe('GupyService.sincronizarCandidatura', () => {
     const r = await service.sincronizarCandidatura(BigInt(5544332211));
     expect(r).toEqual({ id: 'app-1' });
     expect(filaCV.add).toHaveBeenCalled();
+  });
+
+  it('cria admissão automaticamente quando a candidatura está CONTRATADO', async () => {
+    const { service, client, prisma, admissao } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    (client.obterCandidatura as any).mockResolvedValue(cand);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    prisma.candidatura.upsert.mockResolvedValue({
+      id: 'app-1',
+      status: 'CONTRATADO',
+    });
+
+    await service.sincronizarCandidatura(BigInt(5544332211));
+    expect(admissao.criarDeCandidaturaSeElegivel).toHaveBeenCalledWith('app-1');
+  });
+
+  it('NÃO cria admissão quando a candidatura não está CONTRATADO', async () => {
+    const { service, client, prisma, admissao } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    (client.obterCandidatura as any).mockResolvedValue(cand);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    prisma.candidatura.upsert.mockResolvedValue({
+      id: 'app-1',
+      status: 'EM_ANALISE',
+    });
+
+    await service.sincronizarCandidatura(BigInt(5544332211));
+    expect(admissao.criarDeCandidaturaSeElegivel).not.toHaveBeenCalled();
   });
 });
