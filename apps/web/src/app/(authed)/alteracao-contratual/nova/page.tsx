@@ -45,6 +45,8 @@ export default function NovaAlteracaoPage() {
   const [salarioNovo, setSalarioNovo] = useState('');
   const [novoLiderNome, setNovoLiderNome] = useState('');
   const [novoLiderMatricula, setNovoLiderMatricula] = useState('');
+  const [liderBusca, setLiderBusca] = useState('');
+  const [liderResultados, setLiderResultados] = useState<ColaboradorDTO[]>([]);
 
   const [razoes, setRazoes] = useState('');
   const [dataAplicacao, setDataAplicacao] = useState('');
@@ -94,6 +96,31 @@ export default function NovaAlteracaoPage() {
     setLiderAtual(c.lider_nome ?? '');
     setBusca(`${c.nome} (${c.matricula})`);
     setResultados([]);
+  }
+
+  // Busca do NOVO líder na lista de colaboradores (por nome ou e-mail). A matrícula
+  // é preenchida sozinha — não é dado que se sabe de cor de outros colaboradores.
+  const buscarLider = useCallback(async (q: string) => {
+    if (q.trim().length < 2) {
+      setLiderResultados([]);
+      return;
+    }
+    try {
+      const r = await api<ColaboradorDTO[]>(
+        '/api/alteracao-contratual/catalogo/colaboradores',
+        { query: { q } },
+      );
+      setLiderResultados(r);
+    } catch {
+      setLiderResultados([]);
+    }
+  }, []);
+
+  function selecionarLider(c: ColaboradorDTO) {
+    setNovoLiderNome(c.nome);
+    setNovoLiderMatricula(c.matricula);
+    setLiderBusca(`${c.nome} (${c.matricula})`);
+    setLiderResultados([]);
   }
 
   function toggleTipo(t: TipoAlteracaoContratual) {
@@ -183,6 +210,7 @@ export default function NovaAlteracaoPage() {
   }
 
   const has = (t: TipoAlteracaoContratual) => tipos.has(t);
+  const cargoSelecionado = cargos.find((c) => c.id === cargoNovoId);
 
   return (
     <div>
@@ -248,9 +276,8 @@ export default function NovaAlteracaoPage() {
               </div>
             )}
             <p className="text-xs text-grafite-400 mt-1">
-              Sem resultados? Preencha matrícula/nome manualmente nos campos de
-              &quot;Situação atual&quot; (o espelho do Senior pode não estar
-              sincronizado).
+              Selecione o colaborador na busca — a &quot;Situação atual&quot; é
+              preenchida automaticamente e não é editável.
             </p>
           </div>
 
@@ -296,6 +323,11 @@ export default function NovaAlteracaoPage() {
                   </option>
                 ))}
               </select>
+              {cargoSelecionado && (
+                <p className="text-xs text-grafite-500 mt-1.5 leading-relaxed">
+                  {cargoSelecionado.descricao || 'Este cargo ainda não tem descrição cadastrada.'}
+                </p>
+              )}
             </div>
           )}
 
@@ -372,27 +404,43 @@ export default function NovaAlteracaoPage() {
           )}
 
           {has('LIDER') && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-grafite-700 mb-1">
-                  * Novo líder (nome)
-                </label>
-                <input
-                  className="inp"
-                  value={novoLiderNome}
-                  onChange={(e) => setNovoLiderNome(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-grafite-700 mb-1">
-                  Matrícula do novo líder
-                </label>
-                <input
-                  className="inp"
-                  value={novoLiderMatricula}
-                  onChange={(e) => setNovoLiderMatricula(e.target.value)}
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-grafite-700 mb-1">
+                * Novo líder
+              </label>
+              <input
+                className="inp"
+                placeholder="Busque por nome ou e-mail do novo líder"
+                value={liderBusca}
+                onChange={(e) => {
+                  setLiderBusca(e.target.value);
+                  setNovoLiderNome('');
+                  setNovoLiderMatricula('');
+                  void buscarLider(e.target.value);
+                }}
+              />
+              {liderResultados.length > 0 && (
+                <div className="card mt-1 max-h-48 overflow-auto divide-y divide-grafite-100">
+                  {liderResultados.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-grafite-50"
+                      onClick={() => selecionarLider(c)}
+                    >
+                      {c.nome}{' '}
+                      <span className="text-grafite-400">
+                        ({c.email || c.matricula})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {novoLiderMatricula && (
+                <p className="text-xs text-grafite-500 mt-1">
+                  Matrícula do novo líder: <strong>{novoLiderMatricula}</strong>
+                </p>
+              )}
             </div>
           )}
 
@@ -407,42 +455,38 @@ export default function NovaAlteracaoPage() {
           </div>
         </div>
 
-        {/* ---------- Situação atual (snapshot editável) ---------- */}
+        {/* ---------- Situação atual (snapshot do colaborador — NÃO editável) ---------- */}
         <div className="card p-5 space-y-3 h-fit">
           <h2 className="text-sm font-semibold text-grafite-700 text-center border-b border-grafite-100 pb-2">
             Situação atual
           </h2>
-          <Campo label="Colaborador" value={nome} onChange={setNome} />
-          <Campo label="Matrícula" value={matricula} onChange={setMatricula} />
-          <Campo label="Unidade" value={unidadeAtual} onChange={setUnidadeAtual} />
-          <Campo
-            label="Centro de custo"
-            value={centroAtual}
-            onChange={setCentroAtual}
-          />
-          <Campo label="Cargo" value={cargoAtual} onChange={setCargoAtual} />
-          <Campo label="Líder" value={liderAtual} onChange={setLiderAtual} />
+          {!matricula && (
+            <p className="text-xs text-grafite-400 text-center py-2">
+              Selecione um colaborador para ver a situação atual.
+            </p>
+          )}
+          <Campo label="Colaborador" value={nome} />
+          <Campo label="Matrícula" value={matricula} />
+          <Campo label="Unidade" value={unidadeAtual} />
+          <Campo label="Centro de custo" value={centroAtual} />
+          <Campo label="Cargo" value={cargoAtual} />
+          <Campo label="Líder" value={liderAtual} />
         </div>
       </div>
     </div>
   );
 }
 
-function Campo({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
+/** Campo somente-leitura da "Situação atual" (vem do colaborador selecionado). */
+function Campo({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <label className="block text-xs font-medium text-grafite-500 mb-1">
         {label}
       </label>
-      <input className="inp" value={value} onChange={(e) => onChange(e.target.value)} />
+      <div className="inp w-full bg-grafite-50 text-grafite-700 min-h-[38px] flex items-center">
+        {value || <span className="text-grafite-300">—</span>}
+      </div>
     </div>
   );
 }

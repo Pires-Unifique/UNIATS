@@ -185,6 +185,7 @@ export class CatalogoService {
               OR: [
                 { nome: { contains: q, mode: 'insensitive' } },
                 { matricula: { contains: q, mode: 'insensitive' } },
+                { email: { contains: q, mode: 'insensitive' } },
               ],
             }
           : {}),
