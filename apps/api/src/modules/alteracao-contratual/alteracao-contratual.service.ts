@@ -452,6 +452,7 @@ export class AlteracaoContratualService {
   async processarWebhookAutentique(payload: {
     documentoId?: string;
     signatarioId?: string;
+    signatarioEmail?: string;
     evento?: string;
   }) {
     if (!payload.documentoId) {
@@ -467,14 +468,20 @@ export class AlteracaoContratualService {
       );
       return { ok: false };
     }
-    const assinatura = payload.signatarioId
-      ? s.assinaturas.find((a) => a.autentique_signatario_id === payload.signatarioId)
-      : undefined;
+    // Casa o signatário pelo public_id do Autentique OU pelo e-mail.
+    const email = payload.signatarioEmail?.toLowerCase();
+    const assinatura = s.assinaturas.find(
+      (a) =>
+        (!!payload.signatarioId &&
+          a.autentique_signatario_id === payload.signatarioId) ||
+        (!!email && a.email.toLowerCase() === email),
+    );
     if (!assinatura) {
       this.logger.warn(`Webhook Autentique sem signatário casável (doc ${s.id}).`);
       return { ok: false };
     }
-    const recusado = payload.evento === 'signature.rejected';
+    // Tipos do Autentique: "signature.accepted" / "signature.rejected".
+    const recusado = /reject|refus|recus/.test((payload.evento ?? '').toLowerCase());
     await this.registrarAssinatura(s.id, assinatura.papel, {
       assinado: !recusado,
       recusado,
@@ -617,6 +624,7 @@ export class AlteracaoContratualService {
     return s;
   }
 
+  // Texto do documento (uma linha por \n) — o provider o transforma em PDF.
   private montarConteudoDocumento(s: {
     colaborador_nome: string;
     colaborador_matricula: string;
@@ -624,18 +632,16 @@ export class AlteracaoContratualService {
     data_aplicacao: Date;
     itens: Array<{ tipo: string; valor_anterior: string | null; valor_novo: string }>;
   }): string {
-    const linhas = s.itens
-      .map(
-        (i) =>
-          `<li><b>${i.tipo}</b>: ${i.valor_anterior ?? '—'} → ${i.valor_novo}</li>`,
-      )
-      .join('');
     return [
-      `<h2>Documento de Alteração Contratual</h2>`,
-      `<p><b>Colaborador:</b> ${s.colaborador_nome} (matrícula ${s.colaborador_matricula})</p>`,
-      `<p><b>Data de aplicação:</b> ${toDateStr(s.data_aplicacao)}</p>`,
-      `<p><b>Razões:</b> ${s.razoes || '—'}</p>`,
-      `<p><b>Alterações:</b></p><ul>${linhas}</ul>`,
+      'DOCUMENTO DE ALTERAÇÃO CONTRATUAL',
+      '',
+      `Colaborador: ${s.colaborador_nome} (matrícula ${s.colaborador_matricula})`,
+      `Data de aplicação: ${toDateStr(s.data_aplicacao)}`,
+      '',
+      `Razões: ${s.razoes || '-'}`,
+      '',
+      'Alterações:',
+      ...s.itens.map((i) => `- ${i.tipo}: ${i.valor_anterior ?? '-'} -> ${i.valor_novo}`),
     ].join('\n');
   }
 }

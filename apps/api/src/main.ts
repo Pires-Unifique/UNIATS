@@ -32,6 +32,8 @@ async function bootstrap() {
   });
   app.use('/webhooks/waha', jsonComRawBody);
   app.use('/webhooks/sendgrid', jsonComRawBody);
+  // Autentique (alteração contratual): HMAC-SHA256 sobre o raw body.
+  app.use('/webhooks/autentique', jsonComRawBody);
 
   app.use(express.json({ limit: '2mb' }));
 
