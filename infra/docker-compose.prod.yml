@@ -118,6 +118,10 @@ services:
       WAHA_API_KEY: ${WAHA_API_KEY:?defina WAHA_API_KEY no .env.production}
       WHATSAPP_DEFAULT_ENGINE: WEBJS
       WHATSAPP_WEBJS_WEBVERSION_CACHE_TYPE: remote
+      # Webhook global — reaplicado em TODO restart da sessão (entrada: voto da enquete etc.)
+      WHATSAPP_HOOK_URL: http://api:13001/webhooks/waha
+      WHATSAPP_HOOK_EVENTS: message,message.ack,poll.vote,session.status
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_SECRET:?defina WAHA_WEBHOOK_SECRET no .env.production}
     volumes:
       # Persiste o pareamento (QR) entre reinícios — NÃO apague para não reescanear.
       - wahasessions:/app/.sessions

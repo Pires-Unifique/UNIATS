@@ -60,7 +60,7 @@
   /* Ação suave com contorno azul — visível nos dois temas (usada no "Ver
      ranking"). No escuro o azul fixo da marca é tingido sobre o grafite. */
   .btn-soft {
-    @apply btn bg-unifique-50 text-unifique-700 border border-unifique-200 hover:bg-unifique-100 dark:bg-unifique-400/15 dark:text-unifique-200 dark:border-unifique-400/40 dark:hover:bg-unifique-400/25;
+    @apply btn whitespace-nowrap bg-unifique-50 text-unifique-700 border border-unifique-200 hover:bg-unifique-100 dark:bg-unifique-400/15 dark:text-unifique-200 dark:border-unifique-400/40 dark:hover:bg-unifique-400/25;
   }
   .input {
     @apply border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white text-grafite-800;
