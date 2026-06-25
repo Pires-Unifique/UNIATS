@@ -4,16 +4,16 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ROTULO_STATUS_ALTERACAO,
-  ROTULO_TIPO_ALTERACAO,
-  type SolicitacaoAlteracaoDetalheDTO,
-} from '@uniats/shared';
+import type { SolicitacaoAlteracaoDetalheDTO } from '@uniats/shared';
 
 import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { BADGE_STATUS_ALTERACAO } from '@/lib/alteracao-contratual';
+import {
+  BADGE_STATUS_ALTERACAO,
+  ROTULO_STATUS_ALTERACAO,
+  ROTULO_TIPO_ALTERACAO,
+} from '@/lib/alteracao-contratual';
 
 function dt(iso?: string | null): string {
   return iso ? new Date(iso).toLocaleString('pt-BR') : '—';

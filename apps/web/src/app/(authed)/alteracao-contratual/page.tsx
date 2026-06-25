@@ -3,16 +3,16 @@
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ROTULO_STATUS_ALTERACAO,
-  ROTULO_TIPO_ALTERACAO,
-  type SolicitacaoAlteracaoListItemDTO,
-} from '@uniats/shared';
+import type { SolicitacaoAlteracaoListItemDTO } from '@uniats/shared';
 
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';
-import { BADGE_STATUS_ALTERACAO } from '@/lib/alteracao-contratual';
+import {
+  BADGE_STATUS_ALTERACAO,
+  ROTULO_STATUS_ALTERACAO,
+  ROTULO_TIPO_ALTERACAO,
+} from '@/lib/alteracao-contratual';
 
 function formatarData(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
