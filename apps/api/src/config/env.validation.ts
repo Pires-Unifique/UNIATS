@@ -270,6 +270,39 @@ const EnvSchema = z.object({
   ACELERATO_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
   ACELERATO_RATE_LIMIT_RPM: z.coerce.number().int().positive().default(20),
 
+  // ===================================================================
+  // ALTERAÇÃO CONTRATUAL (DHO) — conectores plugáveis (chaves definidas depois).
+  // Todos default "desabilitado": o módulo sobe e o fluxo roda em modo SIMULADO
+  // (no espírito do ACESSO_PROVIDER), sem tocar em sistemas externos.
+  // ===================================================================
+  // Senior (RH): SEM API — conexão DIRETA numa view do banco (read-only) para
+  // espelhar colaboradores, centros de custo e filiais/unidades. A aplicação da
+  // alteração (write-back) é separada (view é só leitura) — ver SeniorProvider.
+  SENIOR_PROVIDER: z.enum(['senior', 'desabilitado']).default('desabilitado'),
+  SENIOR_DATABASE_URL: z.string().min(1).optional(), // string de conexão da view
+  SENIOR_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+
+  // Autentique (assinatura eletrônica do documento): gestor + DHO.
+  AUTENTIQUE_PROVIDER: z
+    .enum(['autentique', 'desabilitado'])
+    .default('desabilitado'),
+  AUTENTIQUE_API_BASE_URL: z
+    .string()
+    .url()
+    .default('https://api.autentique.com.br/v2/graphql'),
+  AUTENTIQUE_API_TOKEN: z.string().min(1).optional(),
+  AUTENTIQUE_WEBHOOK_SECRET: z.string().min(8).optional(),
+  AUTENTIQUE_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  AUTENTIQUE_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
+
+  // Execução agendada da alteração (job no dia exato de `data_aplicacao`).
+  ALTERACAO_EXECUCAO_ENABLED: z.coerce.boolean().default(true),
+  ALTERACAO_EXECUCAO_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2),
+
   // Criptografia simétrica (Camada 4 — áudios e transcrições)
   DATA_ENCRYPTION_KEY: z
     .string()

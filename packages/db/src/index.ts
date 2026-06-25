@@ -7,6 +7,11 @@ export {
   StatusDocumentoAdmissional,
   ResultadoExameAdmissional,
   StatusSolicitacaoAcesso,
+  // Alteração contratual (usados como valor em runtime)
+  TipoAlteracaoContratual,
+  StatusAlteracaoContratual,
+  PapelAssinante,
+  StatusAssinatura,
 } from '@prisma/client';
 
 export type {
@@ -39,4 +44,15 @@ export type {
   OrigemAvaliacao,
   RecomendacaoPainel,
   PapelUsuario,
+  // Alteração contratual — tipos das tabelas novas
+  Cargo,
+  CargoLotacao,
+  Unidade,
+  CentroCusto,
+  Colaborador,
+  SolicitacaoAlteracaoContratual,
+  ItemAlteracaoContratual,
+  AssinaturaAlteracaoContratual,
+  EventoAlteracaoContratual,
+  ExecucaoAlteracaoContratual,
 } from '@prisma/client';

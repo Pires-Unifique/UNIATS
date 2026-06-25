@@ -20,6 +20,8 @@ export const QUEUE_NAMES = {
   // Admissão: OCR do RG (Claude visão) e gatilho de criação de acesso (Acelerato).
   RG_OCR: 'rg-ocr',
   PROVISAO_ACESSO: 'provisao-acesso',
+  // Alteração contratual: aplica a mudança no Senior na data exata (cron → fila).
+  ALTERACAO_EXECUCAO: 'alteracao-execucao',
 } as const;
 
 @Global()
@@ -57,6 +59,7 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.PLAYWRIGHT_TRANSCRICAO },
       { name: QUEUE_NAMES.RG_OCR },
       { name: QUEUE_NAMES.PROVISAO_ACESSO },
+      { name: QUEUE_NAMES.ALTERACAO_EXECUCAO },
     ),
   ],
   exports: [BullModule],

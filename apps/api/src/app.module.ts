@@ -10,6 +10,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { QueueModule } from './queue/queue.module.js';
 import { AcessoModule } from './modules/acesso/acesso.module.js';
 import { AdmissaoModule } from './modules/admissao/admissao.module.js';
+import { AlteracaoContratualModule } from './modules/alteracao-contratual/alteracao-contratual.module.js';
 import { AnaliseModule } from './modules/analise/analise.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CandidaturasModule } from './modules/candidaturas/candidaturas.module.js';
@@ -98,6 +99,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
     AnaliseModule,
     AdmissaoModule,
     AcessoModule,
+    AlteracaoContratualModule,
   ],
   providers: [
     // Rate limit global como defesa em profundidade

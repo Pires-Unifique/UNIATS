@@ -26,8 +26,8 @@ export class AuthService {
    * identidade autenticada. Política de acesso (por ÁREAS):
    *  - e-mail na allowlist (AUTH_ADMIN_EMAILS) → área 'admin' (a cada login);
    *  - usuário NOVO entra SEM áreas (acesso só por posse de vaga, se gestor);
-   *  - demais áreas (recrutamento/admissao/offboarding) são liberadas MANUALMENTE
-   *    por um admin (futuramente via grupos de AD).
+   *  - demais áreas (recrutamento/admissao/offboarding/dho) são liberadas
+   *    MANUALMENTE por um admin (futuramente via grupos de AD).
    * O login NÃO mexe nas áreas de quem não é admin — atribuição é deliberada.
    * Gestor não é "papel": o vínculo com a vaga (gestor_id) dá o acesso escopado.
    */

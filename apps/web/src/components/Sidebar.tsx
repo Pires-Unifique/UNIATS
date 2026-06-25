@@ -33,6 +33,15 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
       { href: '/admissao' as Route, label: 'Admissões', icon: '🧾', areas: ['admissao'] },
     ],
   },
+  {
+    // Sem `areas`: o módulo é do LÍDER (que vê todos os colaboradores) — o acesso
+    // será escopado pela detecção de liderança na API, como Vagas/Agenda. A fila
+    // de aprovações do DHO (área 'dho') entra como item próprio quando plugarmos.
+    titulo: 'Alteração Contratual',
+    itens: [
+      { href: '/alteracao-contratual' as Route, label: 'Solicitações', icon: '📝' },
+    ],
+  },
 ];
 
 /** Item visível se não exige área, ou se o usuário tem 'admin' ou a área exigida. */

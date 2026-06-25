@@ -19,7 +19,8 @@
     "migrate": "prisma migrate dev",
     "studio": "prisma studio",
     "seed": "tsx --env-file=.env prisma/seed.ts",
-    "seed:fake": "tsx --env-file=.env prisma/seed-fake.ts"
+    "seed:fake": "tsx --env-file=.env prisma/seed-fake.ts",
+    "seed:dho": "tsx --env-file=.env prisma/seed-dho.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0"

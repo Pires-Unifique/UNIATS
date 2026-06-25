@@ -4,7 +4,14 @@ import type { PapelUsuario } from '@uniats/db';
  * Áreas de acesso (módulos). Fonte de verdade da autorização. 'admin' libera
  * tudo. Gestor NÃO é uma área — o acesso dele vem da posse da vaga (gestor_id).
  */
-export type Area = 'admin' | 'recrutamento' | 'admissao' | 'offboarding';
+export type Area =
+  | 'admin'
+  | 'recrutamento'
+  | 'admissao'
+  | 'offboarding'
+  // DHO — aprova/assina alterações contratuais. (O acesso do LÍDER ao módulo não
+  // é uma área: virá da detecção de liderança no Senior/MS — como gestor↔vaga.)
+  | 'dho';
 
 /**
  * Identidade resolvida pela camada de auth e anexada à requisição (`req.user`).

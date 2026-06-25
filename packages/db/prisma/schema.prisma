@@ -888,3 +888,333 @@ enum StatusSolicitacaoAcesso {
 
   @@map("status_solicitacao_acesso")
 }
+
+// =====================================================================
+// ALTERAÇÃO CONTRATUAL — solicitações do líder p/ mudar cargo, salário,
+// centro de custo, unidade (filial) e/ou líder de um colaborador.
+// =====================================================================
+// Fluxo: líder cria a solicitação (1+ itens) → DHO aprova → documento ao
+// AUTENTIQUE (assina o gestor do colaborador — ou o NOVO líder, em troca de
+// liderança — e alguém do DHO) → na `data_aplicacao` exata um job EXECUTA a
+// mudança no Senior, gerando log completo (`execucoes_*` + `eventos_*`).
+//
+// Princípios herdados do resto do schema:
+// - Espelho do Senior (colaboradores/centros_custo/unidades, via view) p/ busca
+//   rápida e concorrente; cada solicitação CONGELA um snapshot textual da
+//   "situação atual" (o documento e a execução não dependem do espelho).
+// - Salário NUNCA é lido do Senior: o solicitante informa antigo e novo (regra
+//   de negócio). Por isso `colaboradores` não tem coluna de salário.
+// - Referências a usuário (solicitante/aprovador/autor) são UUID FROUXO (mesmo
+//   padrão de `Score.revisado_por`/`avaliador_id`) enquanto o auth não pluga.
+// ---------------------------------------------------------------------
+
+// ---------------------------------------------------------------------
+// CARGOS — catálogo próprio (seed inicial via CSV do SharePoint; criável na UI)
+// ---------------------------------------------------------------------
+model Cargo {
+  id            String    @id @default(uuid()) @db.Uuid
+  codigo        String?   @unique               // código interno, se houver no CSV
+  titulo        String
+  senioridade   String?                          // ex.: Júnior/Pleno/Sênior
+  descricao     String?   @db.Text
+  ativo         Boolean   @default(true)
+  origem        String    @default("csv")        // "csv" | "manual"
+  criado_em     DateTime  @default(now())
+  atualizado_em DateTime  @updatedAt
+  excluido_em   DateTime?
+
+  lotacoes      CargoLotacao[]                    // restrições de onde o cargo pode existir
+  itens         ItemAlteracaoContratual[]         // itens que escolheram este cargo como destino
+
+  @@index([ativo])
+  @@index([titulo(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("cargos")
+}
+
+// ---------------------------------------------------------------------
+// LOTAÇÕES PERMITIDAS DO CARGO — "cargo X só pode existir na unidade/CC Y"
+// Sem linhas para um cargo = sem restrição (vale em qualquer lugar).
+// ---------------------------------------------------------------------
+model CargoLotacao {
+  id              String   @id @default(uuid()) @db.Uuid
+  cargo_id        String   @db.Uuid
+  unidade_id      String?  @db.Uuid              // restringe a uma unidade (filial)
+  centro_custo_id String?  @db.Uuid              // e/ou a um centro de custo
+  criado_em       DateTime @default(now())
+
+  cargo           Cargo        @relation(fields: [cargo_id], references: [id], onDelete: Cascade)
+  unidade         Unidade?     @relation(fields: [unidade_id], references: [id], onDelete: Cascade)
+  centro_custo    CentroCusto? @relation(fields: [centro_custo_id], references: [id], onDelete: Cascade)
+
+  @@unique([cargo_id, unidade_id, centro_custo_id])
+  @@index([cargo_id])
+  @@map("cargos_lotacoes")
+}
+
+// ---------------------------------------------------------------------
+// UNIDADES — filiais (no negócio, "unidade" = "filial"). Fonte: view do Senior
+// (o UNIIT não expõe unidades). `externo_id` é a chave na fonte (idempotência).
+// ---------------------------------------------------------------------
+model Unidade {
+  id              String    @id @default(uuid()) @db.Uuid
+  externo_id      String    @unique               // id/código da filial na fonte (Senior)
+  codigo          String?
+  nome            String
+  cidade          String?
+  estado          String?
+  ativo           Boolean   @default(true)
+  externo_payload Json?
+  sincronizado_em DateTime?
+  criado_em       DateTime  @default(now())
+  atualizado_em   DateTime  @updatedAt
+
+  lotacoes        CargoLotacao[]
+  colaboradores   Colaborador[]
+
+  @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("unidades")
+}
+
+// ---------------------------------------------------------------------
+// CENTROS DE CUSTO — espelho da view do Senior
+// ---------------------------------------------------------------------
+model CentroCusto {
+  id              String    @id @default(uuid()) @db.Uuid
+  senior_id       String    @unique               // chave no Senior (idempotência)
+  codigo          String?
+  nome            String
+  ativo           Boolean   @default(true)
+  senior_payload  Json?
+  sincronizado_em DateTime?
+  criado_em       DateTime  @default(now())
+  atualizado_em   DateTime  @updatedAt
+
+  lotacoes        CargoLotacao[]
+  colaboradores   Colaborador[]
+
+  @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("centros_custo")
+}
+
+// ---------------------------------------------------------------------
+// COLABORADORES — espelho da view do Senior (SEM salário, por regra)
+// ---------------------------------------------------------------------
+model Colaborador {
+  id               String    @id @default(uuid()) @db.Uuid
+  matricula        String    @unique              // chave estável no Senior
+  senior_id        String?   @unique
+  nome             String
+  email            String?
+  cpf_hash         String?   @db.Char(64)
+  // Situação atual (snapshot do Senior). NÃO há salário aqui de propósito —
+  // alteração salarial é informada manualmente pelo solicitante.
+  unidade_id       String?   @db.Uuid
+  centro_custo_id  String?   @db.Uuid
+  cargo_atual      String?                          // título do cargo (texto do Senior)
+  lider_matricula  String?                          // líder atual (matrícula no Senior)
+  lider_nome       String?
+  ativo            Boolean   @default(true)
+  senior_payload   Json?
+  sincronizado_em  DateTime?
+  criado_em        DateTime  @default(now())
+  atualizado_em    DateTime  @updatedAt
+
+  unidade          Unidade?     @relation(fields: [unidade_id], references: [id])
+  centro_custo     CentroCusto? @relation(fields: [centro_custo_id], references: [id])
+  solicitacoes     SolicitacaoAlteracaoContratual[]
+
+  @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([lider_matricula])
+  @@map("colaboradores")
+}
+
+enum TipoAlteracaoContratual {
+  CARGO
+  SALARIO
+  CENTRO_CUSTO
+  UNIDADE                                           // = "filial"
+  LIDER
+
+  @@map("tipo_alteracao_contratual")
+}
+
+enum StatusAlteracaoContratual {
+  RASCUNHO
+  AGUARDANDO_APROVACAO_DHO
+  AGUARDANDO_ASSINATURAS
+  ASSINADO
+  AGENDADA                                          // aprovada+assinada, aguardando a data
+  EXECUTADA
+  FALHA_EXECUCAO
+  CANCELADA
+
+  @@map("status_alteracao_contratual")
+}
+
+// ---------------------------------------------------------------------
+// SOLICITAÇÃO DE ALTERAÇÃO CONTRATUAL — cabeçalho criado pelo líder
+// ---------------------------------------------------------------------
+model SolicitacaoAlteracaoContratual {
+  id                    String    @id @default(uuid()) @db.Uuid
+  solicitante_id        String?   @db.Uuid          // usuarios.id (frouxo) — o líder
+  solicitante_nome      String                      // snapshot p/ exibição
+
+  colaborador_id        String?   @db.Uuid          // FK p/ o espelho (busca/navegação)
+  // SNAPSHOT congelado da "situação atual" (independe do espelho; sem salário):
+  colaborador_matricula String
+  colaborador_nome      String
+  unidade_atual         String?
+  centro_custo_atual    String?
+  cargo_atual           String?
+  lider_atual           String?
+
+  razoes                String    @db.Text
+  data_aplicacao        DateTime  @db.Date          // dia EXATO em que deve ser aplicada
+  status                StatusAlteracaoContratual @default(RASCUNHO)
+
+  // Autentique (documento que reúne as assinaturas)
+  autentique_documento_id String?
+  documento_url           String?                   // PDF gerado/assinado no storage
+  enviado_assinatura_em   DateTime?
+  assinado_em             DateTime?
+
+  // Aprovação DHO
+  aprovado_por_id   String?   @db.Uuid
+  aprovado_por_nome String?
+  aprovado_em       DateTime?
+  motivo_recusa     String?   @db.Text
+
+  observacoes       String?   @db.Text
+  criado_em         DateTime  @default(now())
+  atualizado_em     DateTime  @updatedAt
+  excluido_em       DateTime?
+
+  colaborador       Colaborador? @relation(fields: [colaborador_id], references: [id])
+  itens             ItemAlteracaoContratual[]
+  assinaturas       AssinaturaAlteracaoContratual[]
+  eventos           EventoAlteracaoContratual[]
+  execucao          ExecucaoAlteracaoContratual?
+
+  @@index([status])
+  @@index([data_aplicacao])
+  @@index([solicitante_id])
+  @@index([colaborador_matricula])
+  @@map("solicitacoes_alteracao_contratual")
+}
+
+// ---------------------------------------------------------------------
+// ITENS DA ALTERAÇÃO — 1..N por solicitação (um por tipo)
+// ---------------------------------------------------------------------
+model ItemAlteracaoContratual {
+  id              String   @id @default(uuid()) @db.Uuid
+  solicitacao_id  String   @db.Uuid
+  tipo            TipoAlteracaoContratual
+
+  // "de → para" em texto legível (vai no documento). Para SALÁRIO ambos são
+  // informados pelo solicitante — não consultamos o salário atual no Senior.
+  valor_anterior  String?
+  valor_novo      String
+
+  // Referências tipadas opcionais (conforme o tipo) p/ facilitar a execução.
+  // Unidade/CC referenciam o espelho via UUID FROUXO (snapshot histórico: o item
+  // sobrevive a re-syncs do espelho); só o cargo (catálogo próprio) tem FK.
+  cargo_novo_id        String?  @db.Uuid            // tipo CARGO
+  unidade_nova_id      String?  @db.Uuid            // tipo UNIDADE (frouxo → unidades.id)
+  centro_custo_novo_id String?  @db.Uuid            // tipo CENTRO_CUSTO (frouxo → centros_custo.id)
+  salario_anterior     Decimal? @db.Decimal(12, 2)  // tipo SALARIO (informado)
+  salario_novo         Decimal? @db.Decimal(12, 2)  // tipo SALARIO (informado)
+  novo_lider_matricula String?                       // tipo LIDER
+  novo_lider_nome      String?
+
+  criado_em       DateTime @default(now())
+
+  solicitacao     SolicitacaoAlteracaoContratual @relation(fields: [solicitacao_id], references: [id], onDelete: Cascade)
+  cargo_novo      Cargo?  @relation(fields: [cargo_novo_id], references: [id], onDelete: SetNull)
+
+  @@unique([solicitacao_id, tipo])                   // no máx. uma alteração por tipo
+  @@index([solicitacao_id])
+  @@map("itens_alteracao_contratual")
+}
+
+enum PapelAssinante {
+  GESTOR                                            // gestor do colaborador (ou novo líder em troca de liderança)
+  DHO
+
+  @@map("papel_assinante")
+}
+
+enum StatusAssinatura {
+  PENDENTE
+  ENVIADA
+  ASSINADA
+  RECUSADA
+
+  @@map("status_assinatura")
+}
+
+// ---------------------------------------------------------------------
+// ASSINATURAS — signatários no Autentique (gestor + DHO; colaborador não assina)
+// ---------------------------------------------------------------------
+model AssinaturaAlteracaoContratual {
+  id                       String   @id @default(uuid()) @db.Uuid
+  solicitacao_id           String   @db.Uuid
+  papel                    PapelAssinante
+  nome                     String                    // snapshot do signatário
+  email                    String
+  ordem                    Int      @default(1)
+  status                   StatusAssinatura @default(PENDENTE)
+  autentique_signatario_id String?
+  link_assinatura          String?
+  assinado_em              DateTime?
+  recusado_em              DateTime?
+  motivo_recusa            String?
+  criado_em                DateTime @default(now())
+  atualizado_em            DateTime @updatedAt
+
+  solicitacao              SolicitacaoAlteracaoContratual @relation(fields: [solicitacao_id], references: [id], onDelete: Cascade)
+
+  @@unique([solicitacao_id, papel])
+  @@index([solicitacao_id])
+  @@map("assinaturas_alteracao_contratual")
+}
+
+// ---------------------------------------------------------------------
+// EVENTOS — timeline das transições de status (parte do "log completo")
+// ---------------------------------------------------------------------
+model EventoAlteracaoContratual {
+  id             String   @id @default(uuid()) @db.Uuid
+  solicitacao_id String   @db.Uuid
+  de_status      StatusAlteracaoContratual?
+  para_status    StatusAlteracaoContratual
+  autor_id       String?  @db.Uuid
+  autor_nome     String?
+  observacao     String?  @db.Text
+  criado_em      DateTime @default(now())
+
+  solicitacao    SolicitacaoAlteracaoContratual @relation(fields: [solicitacao_id], references: [id], onDelete: Cascade)
+
+  @@index([solicitacao_id])
+  @@map("eventos_alteracao_contratual")
+}
+
+// ---------------------------------------------------------------------
+// EXECUÇÃO — aplicação no Senior na data exata (1:1; log completo)
+// ---------------------------------------------------------------------
+model ExecucaoAlteracaoContratual {
+  id              String   @id @default(uuid()) @db.Uuid
+  solicitacao_id  String   @unique @db.Uuid
+  agendada_para   DateTime                          // = data_aplicacao (dispara o job)
+  executada_em    DateTime?
+  sucesso         Boolean?
+  tentativas      Int      @default(0)
+  payload_enviado Json?                             // o que foi enviado ao Senior
+  resposta        Json?                             // retorno do Senior
+  erro            String?  @db.Text
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+
+  solicitacao     SolicitacaoAlteracaoContratual @relation(fields: [solicitacao_id], references: [id], onDelete: Cascade)
+
+  @@index([agendada_para, sucesso])
+  @@map("execucoes_alteracao_contratual")
+}

@@ -17,7 +17,12 @@ import { api, configurarTokenProvider } from './api';
 import { apiTokenRequest, authEnabled, getMsal, loginRequest } from './msal';
 
 /** Áreas de acesso (módulos). 'admin' libera tudo. Espelha o backend. */
-export type Area = 'admin' | 'recrutamento' | 'admissao' | 'offboarding';
+export type Area =
+  | 'admin'
+  | 'recrutamento'
+  | 'admissao'
+  | 'offboarding'
+  | 'dho';
 
 interface UsuarioInfo {
   nome: string;
