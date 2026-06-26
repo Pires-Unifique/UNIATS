@@ -8,6 +8,7 @@ import { Prisma } from '@uniats/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { WahaClient } from '../waha/waha.client.js';
+import { GraphClient } from '../graph/graph.client.js';
 
 export interface OpcaoHorario {
   /** Texto exato exibido na opção da enquete (casa com o voto). */
@@ -52,6 +53,7 @@ export class EnqueteService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly waha: WahaClient,
+    private readonly graph: GraphClient,
   ) {}
 
   async enviar(input: EnviarEnqueteHorariosInput): Promise<{
@@ -83,9 +85,18 @@ export class EnqueteService {
         id: true,
         candidato_id: true,
         candidato: {
-          select: { telefone: true, excluido_em: true },
+          select: { telefone: true, excluido_em: true, nome_completo: true },
         },
-        vaga: { select: { titulo: true } },
+        // Participantes cujas agendas serão pré-reservadas (recrutador + gestor da
+        // vaga). O bloqueio é SEMPRE na agenda dessas pessoas — nunca na conta de
+        // serviço/bot que organiza a reunião.
+        vaga: {
+          select: {
+            titulo: true,
+            recrutador: { select: { email: true } },
+            gestor: { select: { email: true } },
+          },
+        },
       },
     });
     if (!candidatura) {
@@ -141,6 +152,18 @@ export class EnqueteService {
       },
       select: { id: true },
     });
+
+    // PRÉ-RESERVA: bloqueia cada horário proposto na agenda dos participantes
+    // (recrutador + gestor da vaga) com holds tentativos. Best-effort — se o Graph
+    // falhar, a enquete segue (não trava o WhatsApp). Os holds são apagados no
+    // auto-confirm (sobra só o escolhido) ou pelo cron de limpeza de órfãos.
+    const holds = await this.criarHoldsPreReserva(opcoes, candidatura);
+    if (holds.length > 0) {
+      await this.prisma.enqueteHorario.update({
+        where: { id: enquete.id },
+        data: { holds: holds as unknown as Prisma.InputJsonValue },
+      });
+    }
 
     // Registra também na timeline de mensagens (histórico do candidato).
     await this.prisma.mensagem.create({
@@ -289,5 +312,66 @@ export class EnqueteService {
         entrevista_id: true,
       },
     });
+  }
+
+  /**
+   * Cria os holds tentativos da pré-reserva: para CADA horário proposto, um evento
+   * tentativo na agenda de CADA participante (recrutador + gestor da vaga). Devolve
+   * [{rotulo, participante, eventId}] p/ persistir em `EnqueteHorario.holds` —
+   * usado depois pra apagar os holds (no auto-confirm ou no cron). Best-effort.
+   */
+  private async criarHoldsPreReserva(
+    opcoes: OpcaoHorario[],
+    candidatura: {
+      candidato: { nome_completo: string | null };
+      vaga: {
+        titulo: string | null;
+        recrutador: { email: string | null } | null;
+        gestor: { email: string | null } | null;
+      } | null;
+    },
+  ): Promise<Array<{ rotulo: string; participante: string; eventId: string }>> {
+    if (!this.graph.enabled) return [];
+    const emails = [
+      candidatura.vaga?.recrutador?.email,
+      candidatura.vaga?.gestor?.email,
+    ]
+      .filter((e): e is string => !!e && e.includes('@'))
+      .map((e) => e.toLowerCase());
+    const participantes = [...new Set(emails)];
+    if (participantes.length === 0) return [];
+
+    const titulo = candidatura.vaga?.titulo ?? 'Entrevista';
+    const nome = candidatura.candidato?.nome_completo ?? 'candidato(a)';
+    const assunto = `[PRÉ-RESERVA] Entrevista — ${titulo} (${nome})`;
+    const corpoHtml =
+      `<p>Horário pré-reservado para a entrevista com ${nome}. Vira reunião ` +
+      `definitiva quando o candidato confirmar o horário; caso contrário é liberado.</p>`;
+
+    const holds: Array<{ rotulo: string; participante: string; eventId: string }> = [];
+    for (const o of opcoes) {
+      const inicio = parseHorarioBrasil(o.inicio);
+      const fim = parseHorarioBrasil(o.fim);
+      for (const email of participantes) {
+        try {
+          const eventId = await this.graph.criarEventoTentativo({
+            usuarioEmail: email,
+            inicio,
+            fim,
+            assunto,
+            corpoHtml,
+          });
+          holds.push({ rotulo: o.rotulo.trim(), participante: email, eventId });
+        } catch (err) {
+          this.logger.warn(
+            `Pré-reserva: falha ao criar hold (${email}, "${o.rotulo}"): ${(err as Error).message}`,
+          );
+        }
+      }
+    }
+    this.logger.log(
+      `Pré-reserva: ${holds.length} hold(s) criados (participantes=${participantes.length}, slots=${opcoes.length}).`,
+    );
+    return holds;
   }
 }
