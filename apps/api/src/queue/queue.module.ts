@@ -25,6 +25,11 @@ export const QUEUE_NAMES = {
   PROVISAO_ACESSO: 'provisao-acesso',
   // Alteração contratual: aplica a mudança no Senior na data exata (cron → fila).
   ALTERACAO_EXECUCAO: 'alteracao-execucao',
+  // Pré-reserva: ao votar, o candidato dispara o auto-confirm (cria a reunião +
+  // apaga os holds dos outros horários) — assíncrono p/ não travar o webhook do voto.
+  CONFIRMAR_ENQUETE: 'confirmar-enquete',
+  // Envio do link da call ao candidato em max(agora, início−2h) — job atrasado.
+  ENVIAR_LINK_CANDIDATO: 'enviar-link-candidato',
 } as const;
 
 @Global()
@@ -64,6 +69,8 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.RG_OCR },
       { name: QUEUE_NAMES.PROVISAO_ACESSO },
       { name: QUEUE_NAMES.ALTERACAO_EXECUCAO },
+      { name: QUEUE_NAMES.CONFIRMAR_ENQUETE },
+      { name: QUEUE_NAMES.ENVIAR_LINK_CANDIDATO },
     ),
   ],
   exports: [BullModule],
