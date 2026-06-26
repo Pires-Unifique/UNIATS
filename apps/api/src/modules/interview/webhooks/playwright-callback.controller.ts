@@ -16,18 +16,21 @@ import { z } from 'zod';
 
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
 
+const SegmentoSchema = z.object({
+  inicio_ms: z.number().int().nonnegative(),
+  falante: z.string(),
+  texto: z.string(),
+});
+
 const BodySchema = z.object({
   entrevistaId: z.string().uuid(),
-  texto: z.string().min(1),
-  segmentos: z
-    .array(
-      z.object({
-        inicio_ms: z.number().int().nonnegative(),
-        falante: z.string(),
-        texto: z.string(),
-      }),
-    )
-    .default([]),
+  // Pode vir vazio quando só o Whisper produziu texto (legenda não ligou) —
+  // o processor sintetiza o texto a partir do Whisper nesse caso.
+  texto: z.string().default(''),
+  segmentos: z.array(SegmentoSchema).default([]),
+  // 2º motor (Whisper local). Até agora era descartado aqui — passa a ser
+  // repassado e persistido para checagem anti-alucinação vs VTT oficial.
+  whisperSegmentos: z.array(SegmentoSchema).default([]),
   entrou: z.boolean().optional(),
   legendasLigadas: z.boolean().optional(),
 });
@@ -72,12 +75,14 @@ export class PlaywrightCallbackController {
         entrevistaId: dados.entrevistaId,
         texto: dados.texto,
         segmentos: dados.segmentos,
+        whisperSegmentos: dados.whisperSegmentos,
       },
       { jobId: `playwright-transcricao-${dados.entrevistaId}` },
     );
     this.logger.log(
       `Transcrição Playwright recebida: entrevista=${dados.entrevistaId} ` +
-        `segmentos=${dados.segmentos.length} chars=${dados.texto.length}`,
+        `legendas=${dados.segmentos.length} whisper=${dados.whisperSegmentos.length} ` +
+        `chars=${dados.texto.length}`,
     );
     return { status: 'ok' };
   }

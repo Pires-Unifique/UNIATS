@@ -784,6 +784,8 @@ export class InterviewService {
             id: true,
             idioma: true,
             texto_completo: true,
+            segmentos: true,
+            whisper_segmentos: true,
             resumo: true,
             topicos: true,
             criado_em: true,

@@ -17,18 +17,18 @@ import { QUEUE_NAMES } from '../../../queue/queue.module.js';
  * sobrescrevemos — o Graph é o vencedor. O caminho inverso (Graph sobrepor o
  * playwright depois) é desejado e tratado no processor do Graph.
  */
+const SegmentoSchema = z.object({
+  inicio_ms: z.number().int().nonnegative(),
+  falante: z.string(),
+  texto: z.string(),
+});
+
 const PayloadSchema = z.object({
   entrevistaId: z.string().uuid(),
-  texto: z.string().min(1),
-  segmentos: z
-    .array(
-      z.object({
-        inicio_ms: z.number().int().nonnegative(),
-        falante: z.string(),
-        texto: z.string(),
-      }),
-    )
-    .default([]),
+  texto: z.string().default(''),
+  segmentos: z.array(SegmentoSchema).default([]),
+  // 2º motor (Whisper local): guardado para checagem anti-alucinação vs VTT oficial.
+  whisperSegmentos: z.array(SegmentoSchema).default([]),
 });
 
 @Processor(QUEUE_NAMES.PLAYWRIGHT_TRANSCRICAO, {
@@ -52,7 +52,20 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
   async process(job: Job<unknown>): Promise<{ entrevistaId: string; ok: boolean }> {
     const parsed = PayloadSchema.safeParse(job.data);
     if (!parsed.success) throw new Error('Payload inválido para playwright-transcricao.');
-    const { entrevistaId, texto, segmentos } = parsed.data;
+    const { entrevistaId, texto, segmentos, whisperSegmentos } = parsed.data;
+
+    // Texto do 2º motor (Whisper) — também serve de fallback do texto principal
+    // quando a legenda não foi capturada.
+    const textoWhisper = whisperSegmentos
+      .map((s) => s.texto)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const textoEfetivo = texto.trim() || textoWhisper;
+    const whisperJson =
+      whisperSegmentos.length > 0
+        ? (whisperSegmentos as unknown as object)
+        : undefined;
 
     const entrevista = await this.prisma.entrevista.findUnique({
       where: { id: entrevistaId },
@@ -60,14 +73,30 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
     });
     if (!entrevista) throw new Error(`Entrevista ${entrevistaId} não existe.`);
 
-    // Anti-downgrade: se já há transcript do Graph com texto, ele vence.
+    if (!textoEfetivo) {
+      this.logger.warn(
+        `Nada a persistir p/ entrevista ${entrevistaId} (sem legenda e sem Whisper).`,
+      );
+      await this.marcarBotEncerrado(entrevistaId);
+      return { entrevistaId, ok: false };
+    }
+
+    // Anti-downgrade: se já há transcript do Graph com texto, ele vence o texto
+    // principal — mas ainda anexamos o Whisper para a checagem anti-alucinação.
     const existente = await this.prisma.transcricao.findUnique({
       where: { entrevista_id: entrevistaId },
       select: { provider: true, texto_completo: true },
     });
     if (existente?.provider === 'graph' && existente.texto_completo.trim()) {
+      if (whisperJson) {
+        await this.prisma.transcricao.update({
+          where: { entrevista_id: entrevistaId },
+          data: { whisper_segmentos: whisperJson },
+        });
+      }
       this.logger.log(
-        `Playwright ignorado p/ entrevista ${entrevistaId}: já há transcript do Graph (melhor).`,
+        `Playwright: Graph vence o texto p/ entrevista ${entrevistaId}; ` +
+          `Whisper anexado (segmentos=${whisperSegmentos.length}) para comparação.`,
       );
       await this.marcarBotEncerrado(entrevistaId);
       return { entrevistaId, ok: true };
@@ -80,20 +109,22 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
         entrevista_id: entrevistaId,
         provider: 'playwright',
         idioma: 'pt-BR',
-        texto_completo: texto.slice(0, 1_000_000),
+        texto_completo: textoEfetivo.slice(0, 1_000_000),
         segmentos: segmentos as unknown as object,
+        whisper_segmentos: whisperJson,
         expira_em: expira,
       },
       update: {
         provider: 'playwright',
-        texto_completo: texto.slice(0, 1_000_000),
+        texto_completo: textoEfetivo.slice(0, 1_000_000),
         segmentos: segmentos as unknown as object,
+        whisper_segmentos: whisperJson,
         expira_em: expira,
       },
     });
 
     // Claude → ATA (resumo + tópicos).
-    const ata = await this.claude.gerarAtaReuniao(texto);
+    const ata = await this.claude.gerarAtaReuniao(textoEfetivo);
     await this.prisma.transcricao.update({
       where: { entrevista_id: entrevistaId },
       data: { resumo: ata.ata.resumo, topicos: ata.ata.topicos },
@@ -105,8 +136,8 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
     });
 
     this.logger.log(
-      `Transcript Playwright ok: entrevista=${entrevistaId} segmentos=${segmentos.length} ` +
-        `chars=${texto.length}`,
+      `Transcript Playwright ok: entrevista=${entrevistaId} legendas=${segmentos.length} ` +
+        `whisper=${whisperSegmentos.length} chars=${textoEfetivo.length}`,
     );
     return { entrevistaId, ok: true };
   }
