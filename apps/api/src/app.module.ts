@@ -23,6 +23,7 @@ import { GupyModule } from './modules/gupy/gupy.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { InterviewModule } from './modules/interview/interview.module.js';
 import { MessagingModule } from './modules/messaging/messaging.module.js';
+import { OffboardingModule } from './modules/offboarding/offboarding.module.js';
 import { QuestionsModule } from './modules/questions/questions.module.js';
 import { RankingModule } from './modules/ranking/ranking.module.js';
 import { VagasModule } from './modules/vagas/vagas.module.js';
@@ -100,6 +101,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
     AdmissaoModule,
     AcessoModule,
     AlteracaoContratualModule,
+    OffboardingModule,
   ],
   providers: [
     // Rate limit global como defesa em profundidade

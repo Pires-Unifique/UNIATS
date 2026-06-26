@@ -40,6 +40,8 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
     titulo: 'Administração de Pessoas',
     itens: [
       { href: '/alteracao-contratual' as Route, label: 'Alteração contratual', icon: '📝' },
+      { href: '/offboarding' as Route, label: 'Offboarding', icon: '👋' },
+      { href: '/offboarding/procuradores' as Route, label: 'Procuradores', icon: '🖊️', areas: ['dho'] },
     ],
   },
 ];

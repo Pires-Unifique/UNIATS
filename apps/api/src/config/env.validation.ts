@@ -303,6 +303,17 @@ const EnvSchema = z.object({
     .positive()
     .default(2),
 
+  // ===================================================================
+  // OFFBOARDING (DHO) — reaproveita SENIOR_PROVIDER/AUTENTIQUE_PROVIDER acima.
+  // ===================================================================
+  // Integrações de encerramento (remoção de acessos/TI, benefícios, ponto):
+  // 'simulado' (default) NÃO toca em sistemas externos; 'real' liga as
+  // integrações (ainda TODO nos conectores — ver EncerramentoConectorService).
+  OFFBOARDING_INTEGRACOES: z.enum(['simulado', 'real']).default('simulado'),
+  // Segredo do webhook do Autentique p/ o termo de offboarding (sem ele, cai no
+  // AUTENTIQUE_WEBHOOK_SECRET acima; sem nenhum, aceita — dev).
+  AUTENTIQUE_OFFBOARDING_WEBHOOK_SECRET: z.string().min(8).optional(),
+
   // Criptografia simétrica (Camada 4 — áudios e transcrições)
   DATA_ENCRYPTION_KEY: z
     .string()

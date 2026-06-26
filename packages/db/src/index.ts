@@ -12,6 +12,15 @@ export {
   StatusAlteracaoContratual,
   PapelAssinante,
   StatusAssinatura,
+  // Offboarding (usados como valor em runtime)
+  OrigemOffboarding,
+  TipoDesligamento,
+  FormaAssinatura,
+  StatusOffboarding,
+  PapelAssinanteOffboarding,
+  CategoriaItemEncerramento,
+  StatusItemEncerramento,
+  TipoRespostaItem,
 } from '@prisma/client';
 
 export type {
@@ -55,4 +64,11 @@ export type {
   AssinaturaAlteracaoContratual,
   EventoAlteracaoContratual,
   ExecucaoAlteracaoContratual,
+  // Offboarding — tipos das tabelas novas
+  Procurador,
+  SolicitacaoOffboarding,
+  AssinaturaOffboarding,
+  ItemEncerramentoOffboarding,
+  EventoOffboarding,
+  ConviteOffboarding,
 } from '@prisma/client';
