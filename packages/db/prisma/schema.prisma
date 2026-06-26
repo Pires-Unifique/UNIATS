@@ -356,6 +356,10 @@ model EnqueteHorario {
   // Opções oferecidas: [{ rotulo, inicio (ISO), fim (ISO) }] — `rotulo` é o texto
   // exato da opção na enquete; usado para casar com o voto recebido.
   opcoes            Json
+  // Pré-reservas (holds tentativos) criadas ao propor: [{rotulo, participante, eventId}].
+  // Bloqueiam a agenda de CADA participante; apagadas no auto-confirm (sobra só o
+  // horário escolhido, que vira reunião) ou pelo cron de limpeza de órfãos.
+  holds             Json?
   status            String        @default("AGUARDANDO") // AGUARDANDO | RESPONDIDA | CANCELADA
   opcao_escolhida   String?                              // rótulo escolhido pelo candidato
   inicio_escolhido  DateTime?
