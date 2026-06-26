@@ -26,6 +26,9 @@ type Seg = { falante?: string | null; texto?: string | null };
 
 @Processor(QUEUE_NAMES.FUSAO_TRANSCRICAO, {
   concurrency: Number(process.env.FUSAO_CONCURRENCY ?? 1),
+  // A fusão chama o Claude com output longo (~min). Lock generoso p/ o BullMQ não
+  // considerar o job "travado" e reprocessar no meio da chamada.
+  lockDuration: 10 * 60_000,
 })
 export class FusaoTranscricaoProcessor extends WorkerHost {
   private readonly logger = new Logger(FusaoTranscricaoProcessor.name);

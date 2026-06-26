@@ -456,7 +456,10 @@ export class ClaudeService {
             },
           ],
         },
-        { signal: options.signal },
+        // A fusão devolve o transcript INTEIRO → output longo e lento. O timeout
+        // global (CV/ATA curtos) estoura aqui, então damos um teto bem maior e
+        // deixamos o retry pro BullMQ (maxRetries:1 evita empilhar timeouts longos).
+        { signal: options.signal, timeout: 240_000, maxRetries: 1 },
       );
     } catch (err) {
       const e = err as InstanceType<typeof Anthropic.APIError>;
