@@ -786,6 +786,9 @@ export class InterviewService {
             texto_completo: true,
             segmentos: true,
             whisper_segmentos: true,
+            texto_fundido: true,
+            segmentos_fundidos: true,
+            fusao_em: true,
             resumo: true,
             topicos: true,
             criado_em: true,
@@ -807,8 +810,24 @@ export class InterviewService {
     if (!e) throw new NotFoundException(`Entrevista ${entrevistaId} não existe.`);
     // NUNCA retorna audio_url cru ao recrutador — só metadata. O áudio é
     // acessível via endpoint dedicado com auditoria.
-    const { audio_url, ...resto } = e;
-    return resto;
+    const { audio_url, transcricao, ...resto } = e;
+    if (!transcricao) return { ...resto, transcricao: null };
+
+    // A "melhor versão" (fusão dos 2 motores) é o que o usuário vê: quando existe
+    // `texto_fundido`, ele substitui o texto/segmentos exibidos. Os campos crus
+    // (whisper_segmentos, etc.) continuam disponíveis; expomos a flag `revisado`.
+    const { texto_fundido, segmentos_fundidos, fusao_em, ...base } = transcricao;
+    const fundido = !!texto_fundido?.trim();
+    return {
+      ...resto,
+      transcricao: {
+        ...base,
+        texto_completo: fundido ? texto_fundido : base.texto_completo,
+        segmentos: fundido ? segmentos_fundidos : base.segmentos,
+        revisado: fundido,
+        revisado_em: fundido ? fusao_em : null,
+      },
+    };
   }
 
   /**

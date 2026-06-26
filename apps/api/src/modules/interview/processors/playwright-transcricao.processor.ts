@@ -1,7 +1,7 @@
-import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
-import type { Job } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import { z } from 'zod';
 
 import { ClaudeService } from '../../claude/claude.service.js';
@@ -42,11 +42,32 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly claude: ClaudeService,
     config: ConfigService,
+    @InjectQueue(QUEUE_NAMES.FUSAO_TRANSCRICAO)
+    private readonly filaFusao: Queue,
   ) {
     super();
     this.retencaoDias = Number(
       config.get<string>('RETENCAO_TRANSCRICAO_DIAS') ?? '365',
     );
+  }
+
+  /** Enfileira a fusão (debounce + idempotente por jobId). Só faz sentido com o Whisper. */
+  private async agendarFusao(entrevistaId: string): Promise<void> {
+    await this.filaFusao
+      .add(
+        'fundir',
+        { entrevistaId },
+        {
+          jobId: `fusao-${entrevistaId}`,
+          delay: 15_000,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5_000 },
+          removeOnComplete: true,
+        },
+      )
+      .catch((err) =>
+        this.logger.warn(`Falha ao agendar fusão ${entrevistaId}: ${(err as Error).message}`),
+      );
   }
 
   async process(job: Job<unknown>): Promise<{ entrevistaId: string; ok: boolean }> {
@@ -99,6 +120,8 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
           `Whisper anexado (segmentos=${whisperSegmentos.length}) para comparação.`,
       );
       await this.marcarBotEncerrado(entrevistaId);
+      // Graph (diarizado) + Whisper agora coexistem → reconcilia na melhor versão.
+      if (whisperJson) await this.agendarFusao(entrevistaId);
       return { entrevistaId, ok: true };
     }
 
@@ -134,6 +157,10 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
       where: { id: entrevistaId },
       data: { status: 'FINALIZADA', finalizada_em: new Date(), bot_status: 'ended' },
     });
+
+    // Legenda (diarizada) + Whisper presentes → reconcilia na melhor versão.
+    // (Se o Graph chegar depois, o processor dele redispara a fusão com o VTT oficial.)
+    if (whisperJson) await this.agendarFusao(entrevistaId);
 
     this.logger.log(
       `Transcript Playwright ok: entrevista=${entrevistaId} legendas=${segmentos.length} ` +

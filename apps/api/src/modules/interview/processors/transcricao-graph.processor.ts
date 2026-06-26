@@ -1,7 +1,7 @@
-import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
-import type { Job } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import { z } from 'zod';
 
 import { ClaudeService } from '../../claude/claude.service.js';
@@ -39,6 +39,8 @@ export class TranscricaoGraphProcessor extends WorkerHost {
     private readonly graph: GraphClient,
     private readonly claude: ClaudeService,
     private readonly config: ConfigService,
+    @InjectQueue(QUEUE_NAMES.FUSAO_TRANSCRICAO)
+    private readonly filaFusao: Queue,
   ) {
     super();
     this.retencaoDias = Number(
@@ -204,11 +206,37 @@ export class TranscricaoGraphProcessor extends WorkerHost {
       data: { status: 'FINALIZADA', finalizada_em: new Date() },
     });
 
+    // 8. agenda a fusão (só roda se o Whisper do bot também já estiver presente)
+    await this.agendarFusao(entrevistaId);
+
     this.logger.log(
       `Transcript Graph ok: entrevista=${entrevistaId} segmentos=${segmentos.length} ` +
         `chars=${texto.length} transcriptId=${escolhido.id}`,
     );
     return { entrevistaId, ok: true };
+  }
+
+  /**
+   * Enfileira a fusão com debounce. `jobId` único por entrevista + `removeOnComplete`
+   * deixam o disparo idempotente: se a outra fonte ainda não chegou, a fusão sai sem
+   * erro e este mesmo gatilho (ou o do bot) reenfileira quando ela chegar.
+   */
+  private async agendarFusao(entrevistaId: string): Promise<void> {
+    await this.filaFusao
+      .add(
+        'fundir',
+        { entrevistaId },
+        {
+          jobId: `fusao-${entrevistaId}`,
+          delay: 15_000,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5_000 },
+          removeOnComplete: true,
+        },
+      )
+      .catch((err) =>
+        this.logger.warn(`Falha ao agendar fusão ${entrevistaId}: ${(err as Error).message}`),
+      );
   }
 
   @OnWorkerEvent('failed')

@@ -6,6 +6,7 @@ import { InterviewService } from './services/interview.service.js';
 import { PlaywrightAutostartService } from './services/playwright-autostart.service.js';
 import { PlaywrightCallbackController } from './webhooks/playwright-callback.controller.js';
 import { PlaywrightTranscricaoProcessor } from './processors/playwright-transcricao.processor.js';
+import { FusaoTranscricaoProcessor } from './processors/fusao-transcricao.processor.js';
 import { RetencaoLGPDService } from './services/retencao-lgpd.service.js';
 import { TranscricaoGraphProcessor } from './processors/transcricao-graph.processor.js';
 import { TranscricaoGraphSchedulerService } from './services/transcricao-graph-scheduler.service.js';
@@ -32,6 +33,7 @@ import { TranscricaoGraphSchedulerService } from './services/transcricao-graph-s
     PlaywrightAutostartService,
     TranscricaoGraphProcessor,
     PlaywrightTranscricaoProcessor,
+    FusaoTranscricaoProcessor,
   ],
   exports: [InterviewService],
 })
