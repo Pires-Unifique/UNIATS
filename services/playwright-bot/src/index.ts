@@ -106,6 +106,11 @@ async function main(): Promise<void> {
   worker.on('completed', (job) => {
     logger.info({ jobId: job.id }, 'Job de join concluído.');
   });
+  // Sem este handler, uma falha de conexão (ex.: Redis reiniciou) ficava SILENCIOSA
+  // — o worker parava de consumir sem logar nada.
+  worker.on('error', (err) => {
+    logger.error({ err: err.message }, 'Erro no worker (conexão/Redis?).');
+  });
 
   const encerrar = async (sinal: string): Promise<void> => {
     logger.info({ sinal }, 'Encerrando worker…');

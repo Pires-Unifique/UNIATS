@@ -1,6 +1,19 @@
 import { z } from 'zod';
 
 /**
+ * Booleano vindo de ambiente. `z.coerce.boolean()` trata QUALQUER string não-vazia
+ * como `true` — inclusive `"false"` (era o bug que fazia `PLAYWRIGHT_HEADLESS="false"`
+ * do compose virar headless). Aqui só "true"/"1"/"yes"/"sim"/"on" (sem caixa) são
+ * `true`; vazio/ausente cai no default.
+ */
+const envBool = (def: boolean) =>
+  z.preprocess((v) => {
+    if (v === undefined || v === null || v === '') return def;
+    if (typeof v === 'boolean') return v;
+    return ['true', '1', 'yes', 'sim', 'on'].includes(String(v).trim().toLowerCase());
+  }, z.boolean());
+
+/**
  * Configuração do bot via ambiente. Falha rápido se algo essencial faltar.
  *
  * O bot é stateless: recebe jobs `playwright-join` pela fila BullMQ (mesmo Redis
@@ -22,7 +35,7 @@ const Schema = z.object({
 
   // Chromium. Teams web às vezes recusa headless puro; default headless "new".
   // Em produção rodamos via xvfb-run (headful) se HEADLESS=false.
-  PLAYWRIGHT_HEADLESS: z.coerce.boolean().default(true),
+  PLAYWRIGHT_HEADLESS: envBool(true),
   PLAYWRIGHT_NAV_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   // Quanto tempo esperar ser admitido do lobby antes de desistir.
   PLAYWRIGHT_LOBBY_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
@@ -35,7 +48,7 @@ const Schema = z.object({
 
   // 2º motor (Whisper local) — captura o áudio da sala e transcreve em batch p/
   // cruzar com o transcript oficial do Graph (anti-alucinação). Desligado por padrão.
-  WHISPER_ENABLED: z.coerce.boolean().default(false),
+  WHISPER_ENABLED: envBool(false),
   WHISPER_MODEL: z.string().min(1).default('medium'),
   WHISPER_LANG: z.string().min(2).default('pt'),
   WHISPER_SCRIPT: z.string().min(1).default('/app/transcribe.py'),
@@ -45,7 +58,7 @@ const Schema = z.object({
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
     .default('info'),
-  LOG_PRETTY: z.coerce.boolean().default(false),
+  LOG_PRETTY: envBool(false),
 });
 
 export type BotConfig = z.infer<typeof Schema>;
