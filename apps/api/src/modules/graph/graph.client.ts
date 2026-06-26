@@ -82,8 +82,12 @@ export interface CriarEventoTeamsInput {
   assunto: string;
   /** Corpo do convite em HTML (mostrado no e-mail/calendário). */
   corpoHtml: string;
-  /** Candidato convidado — recebe o convite nativo do Outlook. */
-  convidado: { email: string; nome?: string };
+  /**
+   * Convidado principal (candidato) — recebe o convite nativo do Outlook. OPCIONAL:
+   * na pré-reserva criamos a reunião SEM convidar o candidato (o link só vai 2h antes),
+   * com os participantes internos em `convidadosExtra`.
+   */
+  convidado?: { email: string; nome?: string };
   /** Convidados adicionais (ex.: o recrutador, quando o organizador é uma conta de serviço). */
   convidadosExtra?: Array<{ email: string; nome?: string }>;
   /** Gera link Teams (default true). Se false, cria só o bloqueio/convite. */
@@ -204,7 +208,7 @@ export class GraphClient {
   ): Promise<CriarEventoTeamsResultado> {
     this.garantirHabilitado();
     this.validarEmail(input.organizadorEmail, 'organizadorEmail');
-    this.validarEmail(input.convidado.email, 'convidado.email');
+    if (input.convidado) this.validarEmail(input.convidado.email, 'convidado.email');
     if (input.fim.getTime() <= input.inicio.getTime()) {
       throw new BadRequestException('fim deve ser depois de inicio.');
     }
@@ -218,13 +222,17 @@ export class GraphClient {
       start: { dateTime: this.formatarUtc(input.inicio), timeZone: 'UTC' },
       end: { dateTime: this.formatarUtc(input.fim), timeZone: 'UTC' },
       attendees: [
-        {
-          emailAddress: {
-            address: input.convidado.email,
-            name: input.convidado.nome ?? input.convidado.email,
-          },
-          type: 'required',
-        },
+        ...(input.convidado
+          ? [
+              {
+                emailAddress: {
+                  address: input.convidado.email,
+                  name: input.convidado.nome ?? input.convidado.email,
+                },
+                type: 'required' as const,
+              },
+            ]
+          : []),
         ...(input.convidadosExtra ?? []).map((c) => ({
           emailAddress: { address: c.email, name: c.nome ?? c.email },
           type: 'required' as const,

@@ -63,6 +63,8 @@ export class InterviewService {
     private readonly filaGraph: Queue,
     @InjectQueue(QUEUE_NAMES.PLAYWRIGHT_JOIN)
     private readonly filaPlaywright: Queue,
+    @InjectQueue(QUEUE_NAMES.ENVIAR_LINK_CANDIDATO)
+    private readonly filaLink: Queue,
   ) {
     this.publicBaseUrl =
       this.config.get<string>('PUBLIC_BASE_URL') ??
@@ -355,6 +357,8 @@ export class InterviewService {
         candidatura_id: true,
         candidato_id: true,
         entrevista_id: true,
+        // Holds da pré-reserva: [{rotulo, participante, eventId}] — apagados ao confirmar.
+        holds: true,
         candidato: {
           select: {
             nome_completo: true,
@@ -369,6 +373,7 @@ export class InterviewService {
               select: {
                 titulo: true,
                 recrutador: { select: { id: true, email: true, nome: true } },
+                gestor: { select: { email: true, nome: true } },
               },
             },
           },
@@ -412,16 +417,18 @@ export class InterviewService {
         'Candidato pediu exclusão (LGPD) — não é permitido agendar entrevista.',
       );
     }
-    if (!enquete.candidato.email) {
+    // O link vai por WhatsApp (não por convite de calendário), então exigimos telefone.
+    if (!enquete.candidato.telefone) {
       throw new BadRequestException(
-        'Candidato sem e-mail — não é possível enviar o convite de calendário.',
+        'Candidato sem telefone — não é possível enviar o link da entrevista por WhatsApp.',
       );
     }
 
     const recrutadorEmail = enquete.candidatura.vaga?.recrutador?.email ?? null;
-    // Organizador FIXO (conta de serviço) tem prioridade: garante que o transcript
-    // via Graph seja sempre acessível sob um único usuário. Sem ele, cai no
-    // recrutador (comportamento antigo).
+    const gestorEmail = enquete.candidatura.vaga?.gestor?.email ?? null;
+    // Organizador FIXO (conta de serviço/bot) tem prioridade: garante que o transcript
+    // via Graph seja sempre acessível sob um único usuário, e a agenda lotada dele NÃO
+    // afeta a disponibilidade dos recrutadores. Sem ele, cai no recrutador.
     const organizadorFixo = this.config.get<string>('INTERVIEW_ORGANIZER_EMAIL');
     const organizadorEmail =
       organizadorFixo ??
@@ -433,11 +440,12 @@ export class InterviewService {
           'um recrutador à vaga (ou AGENDA_ORGANIZADOR_FALLBACK_EMAIL).',
       );
     }
-    // Quando o organizador é a conta de serviço, o recrutador entra como convidado.
-    const convidadosExtra =
-      recrutadorEmail && recrutadorEmail !== organizadorEmail
-        ? [{ email: recrutadorEmail }]
-        : [];
+    // Participantes INTERNOS convidados (recrutador + gestor) — entram como convidados
+    // p/ a reunião cair na agenda DELES. O candidato NÃO é convidado aqui: o link só
+    // chega por WhatsApp na janela de 2h antes (regra de envio do link).
+    const convidadosExtra = [...new Set([recrutadorEmail, gestorEmail])]
+      .filter((e): e is string => !!e && e !== organizadorEmail)
+      .map((email) => ({ email }));
 
     if (provedor === 'teams' && !this.graph.enabled) {
       throw new ServiceUnavailableException(
@@ -473,10 +481,8 @@ export class InterviewService {
         titulo,
         quando,
       }),
-      convidado: {
-        email: enquete.candidato.email,
-        nome: enquete.candidato.nome_completo ?? undefined,
-      },
+      // SEM o candidato como convidado: o link só vai por WhatsApp na janela de 2h.
+      // Apenas os participantes internos (recrutador + gestor) são convidados.
       convidadosExtra,
       teams: true,
     });
@@ -571,57 +577,60 @@ export class InterviewService {
       data: { entrevista_id: entrevista.id },
     });
 
-    // Reforço por WhatsApp (best-effort — o convite por e-mail já saiu pelo Graph).
-    let whatsappEnviado = false;
-    const telefone = enquete.candidato.telefone;
-    if (telefone) {
-      try {
-        const check = await this.waha.checkNumber(telefone);
-        if (check.numberExists && check.chatId) {
-          const texto =
-            `✅ Sua entrevista para *${titulo}* está confirmada!\n\n` +
-            `🗓️ *${quando}*\n` +
-            `💻 Link do Teams: ${joinUrl}\n\n` +
-            'Você também recebeu o convite no e-mail (pode aceitar por lá). Até breve!';
-          await this.waha.sendText({
-            chatId: check.chatId as WahaChatId,
-            texto,
-            linkPreview: false,
-          });
-          await this.prisma.mensagem.create({
-            data: {
-              candidatura_id: enquete.candidatura_id,
-              candidato_id: enquete.candidato_id,
-              canal: 'WHATSAPP',
-              direcao: 'SAIDA',
-              template_codigo: 'confirmacao_entrevista',
-              corpo: texto,
-              destino: check.chatId,
-              provider: 'waha',
-              status: 'ENVIADO',
-              enviado_em: new Date(),
-            },
-          });
-          whatsappEnviado = true;
-        }
-      } catch (err) {
+    // Apaga TODOS os holds da pré-reserva: o horário escolhido vira a reunião real
+    // (criada acima) e os demais liberam a agenda dos participantes. Best-effort.
+    await this.apagarHolds(enquete.holds);
+
+    // Agenda o ENVIO DO LINK ao candidato para max(agora, início − 2h): se faltam
+    // mais de 2h, o job atrasa até o marco; se já está dentro de 2h, sai na hora.
+    const DUAS_HORAS_MS = 2 * 60 * 60_000;
+    const delayLink = Math.max(0, inicio.getTime() - DUAS_HORAS_MS - Date.now());
+    await this.filaLink
+      .add(
+        'enviar',
+        { entrevistaId: entrevista.id },
+        {
+          jobId: `link-${entrevista.id}`,
+          delay: delayLink,
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 30_000 },
+        },
+      )
+      .catch((err) =>
         this.logger.warn(
-          `Falha ao enviar confirmação por WhatsApp (não crítico): ${(err as Error).message}`,
-        );
-      }
-    }
+          `Falha ao agendar envio do link p/ entrevista ${entrevista.id}: ${(err as Error).message}`,
+        ),
+      );
 
     this.logger.log(
       `Entrevista confirmada via enquete ${enquete.id}: entrevista=${entrevista.id} ` +
-        `organizador=${organizadorEmail} whatsapp=${whatsappEnviado}`,
+        `organizador=${organizadorEmail} link agendado em +${Math.round(delayLink / 60_000)}min`,
     );
     return {
       entrevistaId: entrevista.id,
       joinUrl,
       organizadorEmail,
-      whatsappEnviado,
+      // O link não vai mais na hora — fica agendado (regra das 2h).
+      whatsappEnviado: false,
       jaExistia: false,
     };
+  }
+
+  /** Apaga os holds tentativos da pré-reserva (best-effort), cada um na agenda do seu participante. */
+  private async apagarHolds(holds: unknown): Promise<void> {
+    const lista = Array.isArray(holds)
+      ? (holds as Array<{ participante?: string; eventId?: string }>)
+      : [];
+    for (const h of lista) {
+      if (!h?.participante || !h?.eventId) continue;
+      await this.graph
+        .removerEvento(h.participante, h.eventId)
+        .catch((err) =>
+          this.logger.warn(
+            `Falha ao remover hold ${h.eventId} (${h.participante}): ${(err as Error).message}`,
+          ),
+        );
+    }
   }
 
   /** Formata a data/hora no fuso de Brasília para mensagens/convite. */
