@@ -182,6 +182,11 @@ export interface SolicitacaoAlteracaoDetalheDTO {
   centro_custo_atual?: string | null;
   cargo_atual?: string | null;
   lider_atual?: string | null;
+  // Atributos da troca de cargo (termo DHO-301)
+  cargo_descricao?: string | null;
+  diretriz_comercial?: boolean | null;
+  periculosidade?: boolean | null;
+  aluguel_frota?: boolean | null;
   razoes: string;
   data_aplicacao: string;
   // Autentique
@@ -227,6 +232,10 @@ export interface CriarSolicitacaoAlteracaoInputDTO {
   centro_custo_atual?: string | null;
   cargo_atual?: string | null;
   lider_atual?: string | null;
+  // Atributos da troca de cargo (termo DHO-301) — informados pelo líder.
+  diretriz_comercial?: boolean | null;
+  periculosidade?: boolean | null;
+  aluguel_frota?: boolean | null;
   razoes: string;
   data_aplicacao: string; // ISO date (YYYY-MM-DD)
   itens: ItemAlteracaoInputDTO[];

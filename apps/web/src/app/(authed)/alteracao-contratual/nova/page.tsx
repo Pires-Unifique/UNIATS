@@ -14,8 +14,16 @@ import type {
 } from '@uniats/shared';
 
 import { PageHeader } from '@/components/PageHeader';
+import { TermoDHO301 } from '@/components/TermoDHO301';
 import { api, ApiError } from '@/lib/api';
 import { TIPOS_ALTERACAO } from '@/lib/alteracao-contratual';
+
+function moedaBR(v: string): string {
+  const n = Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) && v !== ''
+    ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    : '';
+}
 
 export default function NovaAlteracaoPage() {
   const router = useRouter();
@@ -47,6 +55,10 @@ export default function NovaAlteracaoPage() {
   const [novoLiderMatricula, setNovoLiderMatricula] = useState('');
   const [liderBusca, setLiderBusca] = useState('');
   const [liderResultados, setLiderResultados] = useState<ColaboradorDTO[]>([]);
+  // Atributos do termo de cargo (SIM/NÃO) — null = não informado.
+  const [diretrizComercial, setDiretrizComercial] = useState<boolean | null>(null);
+  const [periculosidade, setPericulosidade] = useState<boolean | null>(null);
+  const [aluguelFrota, setAluguelFrota] = useState<boolean | null>(null);
 
   const [razoes, setRazoes] = useState('');
   const [dataAplicacao, setDataAplicacao] = useState('');
@@ -196,6 +208,9 @@ export default function NovaAlteracaoPage() {
             centro_custo_atual: centroAtual || null,
             cargo_atual: cargoAtual || null,
             lider_atual: liderAtual || null,
+            diretriz_comercial: tipos.has('CARGO') ? diretrizComercial : null,
+            periculosidade: tipos.has('CARGO') ? periculosidade : null,
+            aluguel_frota: tipos.has('CARGO') ? aluguelFrota : null,
             razoes: razoes.trim(),
             data_aplicacao: dataAplicacao,
             itens,
@@ -211,6 +226,31 @@ export default function NovaAlteracaoPage() {
 
   const has = (t: TipoAlteracaoContratual) => tipos.has(t);
   const cargoSelecionado = cargos.find((c) => c.id === cargoNovoId);
+
+  // Dados do termo (pré-visualização ao vivo).
+  const termoDados = {
+    tipos: Array.from(tipos),
+    colaboradorNome: nome,
+    colaboradorMatricula: matricula,
+    cargoAtual,
+    cargoNovo: cargoSelecionado
+      ? `${cargoSelecionado.titulo}${cargoSelecionado.senioridade ? ` — ${cargoSelecionado.senioridade}` : ''}`
+      : '',
+    cargoDescricao: cargoSelecionado?.descricao ?? null,
+    diretrizComercial,
+    periculosidade,
+    aluguelFrota,
+    centroAtual,
+    centroNovo: centros.find((c) => c.id === centroNovoId)?.nome ?? '',
+    unidadeAtual,
+    unidadeNovo: unidades.find((u) => u.id === unidadeNovaId)?.nome ?? '',
+    liderAtual,
+    liderNovo: novoLiderNome,
+    salarioAtual: moedaBR(salarioAnterior),
+    salarioNovo: moedaBR(salarioNovo),
+    razoes,
+    dataAplicacao,
+  };
 
   return (
     <div>
@@ -328,6 +368,23 @@ export default function NovaAlteracaoPage() {
                   {cargoSelecionado.descricao || 'Este cargo ainda não tem descrição cadastrada.'}
                 </p>
               )}
+              <div className="mt-3 space-y-2">
+                <SimNaoInput
+                  rotulo="Possui Diretriz Comercial"
+                  valor={diretrizComercial}
+                  onChange={setDiretrizComercial}
+                />
+                <SimNaoInput
+                  rotulo="Periculosidade"
+                  valor={periculosidade}
+                  onChange={setPericulosidade}
+                />
+                <SimNaoInput
+                  rotulo="Possui Locação de Veículo"
+                  valor={aluguelFrota}
+                  onChange={setAluguelFrota}
+                />
+              </div>
             </div>
           )}
 
@@ -472,6 +529,55 @@ export default function NovaAlteracaoPage() {
           <Campo label="Cargo" value={cargoAtual} />
           <Campo label="Líder" value={liderAtual} />
         </div>
+      </div>
+
+      {/* ---------- Pré-visualização do documento (ao vivo) ---------- */}
+      <div className="mt-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-grafite-400 mb-3 text-center">
+          Pré-visualização do documento
+        </h2>
+        <TermoDHO301 dados={termoDados} />
+      </div>
+    </div>
+  );
+}
+
+/** Toggle SIM/NÃO (tri-estado: null = não informado). */
+function SimNaoInput({
+  rotulo,
+  valor,
+  onChange,
+}: {
+  rotulo: string;
+  valor: boolean | null;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-sm text-grafite-700">{rotulo}</span>
+      <div className="flex gap-1">
+        <button
+          type="button"
+          onClick={() => onChange(true)}
+          className={
+            valor === true
+              ? 'btn-primary text-xs px-3 py-1'
+              : 'btn-secondary text-xs px-3 py-1'
+          }
+        >
+          SIM
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(false)}
+          className={
+            valor === false
+              ? 'btn-primary text-xs px-3 py-1'
+              : 'btn-secondary text-xs px-3 py-1'
+          }
+        >
+          NÃO
+        </button>
       </div>
     </div>
   );

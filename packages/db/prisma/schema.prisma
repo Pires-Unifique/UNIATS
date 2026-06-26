@@ -1077,6 +1077,14 @@ model SolicitacaoAlteracaoContratual {
   cargo_atual           String?
   lider_atual           String?
 
+  // Atributos da troca de CARGO (termo DHO-301). Só fazem sentido quando há item
+  // CARGO. `cargo_descricao` é snapshot da descrição do novo cargo; os 3 booleans
+  // são informados pelo líder (Diretriz Comercial / Periculosidade / Locação de Veículo).
+  cargo_descricao       String?   @db.Text
+  diretriz_comercial    Boolean?
+  periculosidade        Boolean?
+  aluguel_frota         Boolean?
+
   razoes                String    @db.Text
   data_aplicacao        DateTime  @db.Date          // dia EXATO em que deve ser aplicada
   status                StatusAlteracaoContratual @default(RASCUNHO)

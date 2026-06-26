@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { SolicitacaoAlteracaoDetalheDTO } from '@uniats/shared';
 
 import { PageHeader } from '@/components/PageHeader';
+import { TermoDHO301 } from '@/components/TermoDHO301';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import {
@@ -72,6 +73,29 @@ export default function AlteracaoDetalhePage() {
     );
   }
   if (!s) return <div className="p-8 text-sm text-grafite-400">Carregando…</div>;
+
+  const item = (t: string) => s.itens.find((i) => i.tipo === t);
+  const termoDados = {
+    tipos: s.itens.map((i) => i.tipo),
+    colaboradorNome: s.colaborador_nome,
+    colaboradorMatricula: s.colaborador_matricula,
+    cargoAtual: s.cargo_atual,
+    cargoNovo: item('CARGO')?.valor_novo ?? null,
+    cargoDescricao: s.cargo_descricao,
+    diretrizComercial: s.diretriz_comercial,
+    periculosidade: s.periculosidade,
+    aluguelFrota: s.aluguel_frota,
+    centroAtual: s.centro_custo_atual,
+    centroNovo: item('CENTRO_CUSTO')?.valor_novo ?? null,
+    unidadeAtual: s.unidade_atual,
+    unidadeNovo: item('UNIDADE')?.valor_novo ?? null,
+    liderAtual: s.lider_atual,
+    liderNovo: item('LIDER')?.valor_novo ?? null,
+    salarioAtual: item('SALARIO')?.valor_anterior ?? null,
+    salarioNovo: item('SALARIO')?.valor_novo ?? null,
+    razoes: s.razoes,
+    dataAplicacao: s.data_aplicacao,
+  };
 
   return (
     <div>
@@ -289,6 +313,14 @@ export default function AlteracaoDetalhePage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ---------- Pré-visualização do documento ---------- */}
+      <div className="mt-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-grafite-400 mb-3 text-center">
+          Pré-visualização do documento
+        </h2>
+        <TermoDHO301 dados={termoDados} />
       </div>
     </div>
   );

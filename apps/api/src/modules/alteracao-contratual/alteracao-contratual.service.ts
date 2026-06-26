@@ -115,6 +115,17 @@ export class AlteracaoContratualService {
       input.itens.map((item) => this.resolverItem(item, input)),
     );
 
+    // Snapshot da descrição do novo cargo (p/ o termo DHO-301), se houver troca de cargo.
+    let cargoDescricao: string | null = null;
+    const itemCargo = input.itens.find((i) => i.tipo === 'CARGO');
+    if (itemCargo?.cargo_novo_id) {
+      const cargo = await this.prisma.cargo.findUnique({
+        where: { id: itemCargo.cargo_novo_id },
+        select: { descricao: true },
+      });
+      cargoDescricao = cargo?.descricao ?? null;
+    }
+
     const criada = await this.prisma.solicitacaoAlteracaoContratual.create({
       data: {
         solicitante_id: usuario.id ?? null,
@@ -126,6 +137,10 @@ export class AlteracaoContratualService {
         centro_custo_atual: input.centro_custo_atual ?? null,
         cargo_atual: input.cargo_atual ?? null,
         lider_atual: input.lider_atual ?? null,
+        cargo_descricao: cargoDescricao,
+        diretriz_comercial: input.diretriz_comercial ?? null,
+        periculosidade: input.periculosidade ?? null,
+        aluguel_frota: input.aluguel_frota ?? null,
         razoes: input.razoes?.trim() ?? '',
         data_aplicacao: dataAplicacao,
         status: StatusAlteracaoContratual.RASCUNHO,
@@ -690,6 +705,10 @@ function mapDetalhe(
     centro_custo_atual: s.centro_custo_atual,
     cargo_atual: s.cargo_atual,
     lider_atual: s.lider_atual,
+    cargo_descricao: s.cargo_descricao,
+    diretriz_comercial: s.diretriz_comercial,
+    periculosidade: s.periculosidade,
+    aluguel_frota: s.aluguel_frota,
     razoes: s.razoes,
     data_aplicacao: toDateStr(s.data_aplicacao),
     autentique_documento_id: s.autentique_documento_id,
