@@ -356,6 +356,10 @@ model EnqueteHorario {
   // Opções oferecidas: [{ rotulo, inicio (ISO), fim (ISO) }] — `rotulo` é o texto
   // exato da opção na enquete; usado para casar com o voto recebido.
   opcoes            Json
+  // Pré-reservas (holds tentativos) criadas ao propor: [{rotulo, participante, eventId}].
+  // Bloqueiam a agenda de CADA participante; apagadas no auto-confirm (sobra só o
+  // horário escolhido, que vira reunião) ou pelo cron de limpeza de órfãos.
+  holds             Json?
   status            String        @default("AGUARDANDO") // AGUARDANDO | RESPONDIDA | CANCELADA
   opcao_escolhida   String?                              // rótulo escolhido pelo candidato
   inicio_escolhido  DateTime?
@@ -1026,6 +1030,7 @@ model Colaborador {
   unidade          Unidade?     @relation(fields: [unidade_id], references: [id])
   centro_custo     CentroCusto? @relation(fields: [centro_custo_id], references: [id])
   solicitacoes     SolicitacaoAlteracaoContratual[]
+  offboarding_solicitacoes SolicitacaoOffboarding[]
 
   @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([lider_matricula])
@@ -1221,4 +1226,295 @@ model ExecucaoAlteracaoContratual {
 
   @@index([agendada_para, sucesso])
   @@map("execucoes_alteracao_contratual")
+}
+
+// =====================================================================
+// OFFBOARDING (DHO) — solicitação de desligamento de colaboradores.
+//
+// Líder (empregador) OU o próprio colaborador solicita o desligamento.
+// Quando vem do empregador, passa por DUAS aprovações (gerente do CC + DHO);
+// negação motivada vira RECUSADO. Aprovado (ou auto-solicitado) → busca o
+// snapshot demissional no Senior, gera o documento no Autentique (+ PDF p/
+// download), colhe as assinaturas (COLABORADOR + REPRESENTANTE_EMPRESA), guarda
+// o documento e dispara as etapas de ENCERRAMENTO (remoção de acessos/TI,
+// benefícios, ponto + checklist do líder) até CONCLUIDO.
+//
+// Mesmos princípios da Alteração Contratual: snapshot textual congelado por
+// solicitação; conectores plugáveis em MODO SIMULADO (Senior/Autentique);
+// referências a usuário em UUID frouxo; log completo via eventos.
+// =====================================================================
+
+enum OrigemOffboarding {
+  COLABORADOR                                       // o próprio colaborador pede
+  EMPREGADOR                                        // líder/empresa pede (exige aprovações)
+
+  @@map("origem_offboarding")
+}
+
+enum TipoDesligamento {
+  PEDIDO_COLABORADOR                                // pedido de demissão
+  SEM_JUSTA_CAUSA                                   // iniciativa do empregador, sem justa causa
+  TERMINO_EXPERIENCIA_DISTRATO                      // fim de experiência / distrato (acordo)
+  JUSTA_CAUSA
+
+  @@map("tipo_desligamento")
+}
+
+enum FormaAssinatura {
+  DIGITAL                                           // Autentique
+  FISICA                                            // procurador assina presencialmente
+
+  @@map("forma_assinatura")
+}
+
+enum StatusOffboarding {
+  RASCUNHO
+  AGUARDANDO_APROVACAO_GESTOR                       // só origem EMPREGADOR
+  AGUARDANDO_APROVACAO_DHO                          // só origem EMPREGADOR
+  AGUARDANDO_ASSINATURAS
+  ASSINADO
+  EM_ENCERRAMENTO                                   // etapas pós-assinatura (TI/benefícios/ponto/checklist)
+  CONCLUIDO
+  RECUSADO                                          // negado numa aprovação (motivo registrado)
+  CANCELADO
+
+  @@map("status_offboarding")
+}
+
+enum PapelAssinanteOffboarding {
+  COLABORADOR                                       // o colaborador desligado
+  REPRESENTANTE_EMPRESA                             // pessoa do DHO (digital) ou procurador (física)
+
+  @@map("papel_assinante_offboarding")
+}
+
+enum CategoriaItemEncerramento {
+  INTEGRACAO                                        // ação automática/simulada (TI, benefícios, ponto)
+  CHECKLIST                                         // validação respondida pelo líder
+
+  @@map("categoria_item_encerramento")
+}
+
+enum StatusItemEncerramento {
+  PENDENTE
+  CONCLUIDO
+  NAO_APLICAVEL
+  FALHA
+
+  @@map("status_item_encerramento")
+}
+
+enum TipoRespostaItem {
+  AUTOMATICO                                        // resolvido por integração (sem input humano)
+  BOOLEANO                                          // sim/não
+  TEXTO                                             // observação livre
+
+  @@map("tipo_resposta_item")
+}
+
+// ---------------------------------------------------------------------
+// PROCURADORES — pessoas cadastradas pelo DHO que podem assinar como
+// REPRESENTANTE_EMPRESA na via FÍSICA (em nome da Unifique).
+// ---------------------------------------------------------------------
+model Procurador {
+  id            String    @id @default(uuid()) @db.Uuid
+  nome          String
+  email         String?
+  documento     String?                             // CPF/registro (opcional)
+  cargo         String?
+  ativo         Boolean   @default(true)
+  observacao    String?   @db.Text
+  criado_em     DateTime  @default(now())
+  atualizado_em DateTime  @updatedAt
+  excluido_em   DateTime?
+
+  assinaturas   AssinaturaOffboarding[]
+
+  @@index([ativo])
+  @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("procuradores")
+}
+
+// ---------------------------------------------------------------------
+// SOLICITAÇÃO DE OFFBOARDING — a "nova base" que reúne tudo das etapas.
+// ---------------------------------------------------------------------
+model SolicitacaoOffboarding {
+  id                    String    @id @default(uuid()) @db.Uuid
+  origem                OrigemOffboarding
+  solicitante_id        String?   @db.Uuid          // usuarios.id (frouxo)
+  solicitante_nome      String                      // snapshot p/ exibição
+
+  colaborador_id        String?   @db.Uuid          // FK frouxa p/ o espelho
+  colaborador_matricula String
+  colaborador_nome      String
+
+  // Formulário inicial
+  tipo_desligamento     TipoDesligamento
+  cumpre_aviso_previo   Boolean   @default(false)
+  aviso_previo_dias     Int?
+  motivo                String    @db.Text
+  email_pessoal         String?                     // obtido do Senior (verificar)
+  whatsapp_pessoal      String?
+  contatos_verificados  Boolean   @default(false)
+  forma_assinatura      FormaAssinatura @default(DIGITAL)
+
+  // Snapshot demissional do Senior (todos os ~30 campos como JSON tipado no shared)
+  senior_snapshot       Json?
+  snapshot_capturado_em DateTime?
+  // Promovidos a coluna p/ exibição/filtro (do snapshot/cabeçalho):
+  unidade_atual         String?
+  centro_custo_atual    String?
+  cargo_atual           String?
+  data_admissao         DateTime? @db.Date
+
+  status                StatusOffboarding @default(RASCUNHO)
+
+  // Aprovações (origem EMPREGADOR)
+  aprovado_gestor_por_id   String?   @db.Uuid
+  aprovado_gestor_por_nome String?
+  aprovado_gestor_em       DateTime?
+  aprovado_dho_por_id      String?   @db.Uuid
+  aprovado_dho_por_nome    String?
+  aprovado_dho_em          DateTime?
+  recusado_por_nome        String?
+  recusado_em              DateTime?
+  motivo_recusa            String?   @db.Text
+
+  // Documento (Autentique + PDF no storage)
+  autentique_documento_id String?
+  documento_storage_key   String?
+  documento_url           String?
+  documento_gerado_em     DateTime?
+  enviado_assinatura_em   DateTime?
+  assinado_em             DateTime?
+
+  // Documento ASSINADO enviado manualmente (assinatura física) + validação do DHO.
+  // Na via física, o DHO sobe o termo assinado e VALIDA as assinaturas antes de
+  // liberar o encerramento (os desligamentos de fato).
+  documento_assinado_storage_key String?
+  documento_assinado_url          String?
+  documento_assinado_nome         String?
+  documento_assinado_em           DateTime?
+  assinaturas_validadas_por_id    String?   @db.Uuid
+  assinaturas_validadas_por_nome  String?
+  assinaturas_validadas_em        DateTime?
+
+  observacoes           String?   @db.Text
+  criado_em             DateTime  @default(now())
+  atualizado_em         DateTime  @updatedAt
+  excluido_em           DateTime?
+
+  colaborador           Colaborador? @relation(fields: [colaborador_id], references: [id])
+  assinaturas           AssinaturaOffboarding[]
+  itens_encerramento    ItemEncerramentoOffboarding[]
+  eventos               EventoOffboarding[]
+
+  @@index([status])
+  @@index([origem])
+  @@index([colaborador_matricula])
+  @@index([solicitante_id])
+  @@map("solicitacoes_offboarding")
+}
+
+// ---------------------------------------------------------------------
+// ASSINATURAS — signatários do termo de desligamento (Autentique).
+// ---------------------------------------------------------------------
+model AssinaturaOffboarding {
+  id                       String   @id @default(uuid()) @db.Uuid
+  solicitacao_id           String   @db.Uuid
+  papel                    PapelAssinanteOffboarding
+  nome                     String                    // snapshot do signatário
+  email                    String
+  ordem                    Int      @default(1)
+  status                   StatusAssinatura @default(PENDENTE)
+  // Para REPRESENTANTE_EMPRESA: 'dho' (digital) ou 'procurador' (física).
+  representante_origem     String?
+  procurador_id            String?  @db.Uuid         // FK frouxa quando via física
+  autentique_signatario_id String?
+  link_assinatura          String?
+  assinado_em              DateTime?
+  recusado_em              DateTime?
+  motivo_recusa            String?
+  criado_em                DateTime @default(now())
+  atualizado_em            DateTime @updatedAt
+
+  solicitacao              SolicitacaoOffboarding @relation(fields: [solicitacao_id], references: [id], onDelete: Cascade)
+  procurador               Procurador?            @relation(fields: [procurador_id], references: [id], onDelete: SetNull)
+
+  @@unique([solicitacao_id, papel])
+  @@index([solicitacao_id])
+  @@map("assinaturas_offboarding")
+}
+
+// ---------------------------------------------------------------------
+// ITENS DE ENCERRAMENTO — integrações (TI/benefícios/ponto) + checklist do líder.
+// Semeados quando a solicitação entra em EM_ENCERRAMENTO.
+// ---------------------------------------------------------------------
+model ItemEncerramentoOffboarding {
+  id                String   @id @default(uuid()) @db.Uuid
+  solicitacao_id    String   @db.Uuid
+  chave             String                           // slug estável (ex.: ACESSO_TI)
+  categoria         CategoriaItemEncerramento
+  titulo            String
+  tipo_resposta     TipoRespostaItem
+  ordem             Int      @default(0)
+  status            StatusItemEncerramento @default(PENDENTE)
+  resposta_bool     Boolean?
+  resposta_texto    String?  @db.Text
+  payload           Json?                            // resultado simulado da integração
+  respondido_por_id String?  @db.Uuid
+  respondido_por_nome String?
+  respondido_em     DateTime?
+  criado_em         DateTime @default(now())
+  atualizado_em     DateTime @updatedAt
+
+  solicitacao       SolicitacaoOffboarding @relation(fields: [solicitacao_id], references: [id], onDelete: Cascade)
+
+  @@unique([solicitacao_id, chave])
+  @@index([solicitacao_id])
+  @@map("itens_encerramento_offboarding")
+}
+
+// ---------------------------------------------------------------------
+// EVENTOS — timeline das transições (log completo).
+// ---------------------------------------------------------------------
+model EventoOffboarding {
+  id             String   @id @default(uuid()) @db.Uuid
+  solicitacao_id String   @db.Uuid
+  de_status      StatusOffboarding?
+  para_status    StatusOffboarding
+  autor_id       String?  @db.Uuid
+  autor_nome     String?
+  observacao     String?  @db.Text
+  criado_em      DateTime @default(now())
+
+  solicitacao    SolicitacaoOffboarding @relation(fields: [solicitacao_id], references: [id], onDelete: Cascade)
+
+  @@index([solicitacao_id])
+  @@map("eventos_offboarding")
+}
+
+// ---------------------------------------------------------------------
+// CONVITES DE AUTODESLIGAMENTO — link com token que o DHO gera para um
+// colaborador pedir o PRÓPRIO desligamento sem login interno. Uso único, com
+// validade e cancelável. Ao usar, cria a SolicitacaoOffboarding (origem
+// COLABORADOR) e guarda o id aqui (UUID frouxo — sem FK, padrão do repo).
+// ---------------------------------------------------------------------
+model ConviteOffboarding {
+  id                    String    @id @default(uuid()) @db.Uuid
+  token                 String    @unique          // segredo da URL (aleatório)
+  colaborador_id        String?   @db.Uuid
+  colaborador_matricula String
+  colaborador_nome      String
+  criado_por_id         String?   @db.Uuid
+  criado_por_nome       String?
+  expira_em             DateTime
+  usado_em              DateTime?
+  cancelado_em          DateTime?
+  solicitacao_id        String?   @db.Uuid          // solicitação criada ao usar (frouxo)
+  criado_em             DateTime  @default(now())
+  atualizado_em         DateTime  @updatedAt
+
+  @@index([colaborador_matricula])
+  @@map("convites_offboarding")
 }

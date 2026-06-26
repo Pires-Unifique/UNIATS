@@ -119,3 +119,38 @@ export async function api<T = unknown>(
   }
   return data as T;
 }
+
+/**
+ * Baixa um arquivo de um endpoint autenticado (anexa o Bearer token e dispara o
+ * download no navegador via Blob). Usado p/ o termo de desligamento, que o `api`
+ * acima não atende (ele sempre faz parse de JSON).
+ */
+export async function baixarArquivo(
+  path: string,
+  filenameFallback = 'arquivo',
+): Promise<void> {
+  const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+  const headers: Record<string, string> = {};
+  const token = await tokenProvider();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const resp = await fetch(url, { headers, credentials: 'include' });
+  if (!resp.ok) {
+    throw new ApiError(`Erro HTTP ${resp.status}`, resp.status, null);
+  }
+
+  // Nome do arquivo a partir do Content-Disposition, se houver.
+  const cd = resp.headers.get('Content-Disposition') ?? '';
+  const m = /filename="?([^"]+)"?/.exec(cd);
+  const filename = m?.[1] ?? filenameFallback;
+
+  const blob = await resp.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}

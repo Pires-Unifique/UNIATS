@@ -9,6 +9,8 @@ export type StorageObjectKind =
   | 'transcricao'
   | 'template'
   | 'documento-admissional'
+  | 'offboarding-doc'
+  | 'offboarding-assinado'
   | 'tmp';
 
 export interface PutObjectInput {

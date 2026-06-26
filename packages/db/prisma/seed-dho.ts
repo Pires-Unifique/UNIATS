@@ -264,11 +264,29 @@ async function main() {
     });
   }
 
+  // ----- procuradores (offboarding) -----
+  // Pessoas que podem assinar como representante da empresa na via física.
+  // Sem chave natural única → idempotência por nome (findFirst + create).
+  const PROCURADORES = [
+    { nome: 'Beatriz Diretora', email: 'beatriz.diretora@unifique.com.br', cargo: 'Diretora de Operações' },
+    { nome: 'Carlos Procurador', email: 'carlos.procurador@unifique.com.br', cargo: 'Gerente Administrativo' },
+    { nome: 'Marina DHO', email: 'marina.dho@unifique.com.br', cargo: 'Coordenadora de DHO' },
+  ];
+  let procuradoresCriados = 0;
+  for (const p of PROCURADORES) {
+    const existente = await prisma.procurador.findFirst({ where: { nome: p.nome } });
+    if (!existente) {
+      await prisma.procurador.create({ data: p });
+      procuradoresCriados++;
+    }
+  }
+
   console.log('[seed:dho] concluído:');
   console.log(`  • ${cargosMap.size} cargos`);
   console.log(`  • ${unidadesMap.size} unidades/filiais`);
   console.log(`  • ${centrosMap.size} centros de custo`);
   console.log(`  • ${colaboradores.length} colaboradores (${comLider} com líder)`);
+  console.log(`  • ${procuradoresCriados} procurador(es) novo(s)`);
 }
 
 main()

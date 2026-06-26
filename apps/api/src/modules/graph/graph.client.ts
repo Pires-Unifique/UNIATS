@@ -281,6 +281,99 @@ export class GraphClient {
     }
   }
 
+  /**
+   * PRÉ-RESERVA — cria um HOLD tentativo na agenda de UM usuário (recrutador ou
+   * participante obrigatório): sem Teams, sem convidados, `showAs: tentative`.
+   * Bloqueia o horário na agenda DAQUELA pessoa enquanto o candidato decide, sem
+   * notificar ninguém. Devolve o id do evento (p/ remover/promover depois). O bloqueio
+   * é sempre na agenda do usuário informado — nunca numa agenda compartilhada.
+   */
+  async criarEventoTentativo(input: {
+    usuarioEmail: string;
+    inicio: Date;
+    fim: Date;
+    assunto: string;
+    corpoHtml?: string;
+  }): Promise<string> {
+    this.garantirHabilitado();
+    this.validarEmail(input.usuarioEmail, 'usuarioEmail');
+    if (input.fim.getTime() <= input.inicio.getTime()) {
+      throw new BadRequestException('fim deve ser depois de inicio.');
+    }
+    const corpo = {
+      subject: input.assunto.slice(0, 255),
+      body: { contentType: 'HTML', content: input.corpoHtml ?? '' },
+      start: { dateTime: this.formatarUtc(input.inicio), timeZone: 'UTC' },
+      end: { dateTime: this.formatarUtc(input.fim), timeZone: 'UTC' },
+      showAs: 'tentative',
+      isReminderOn: false,
+      // Categoria nossa: facilita identificar/limpar holds órfãos depois.
+      categories: ['Pré-reserva UniATS'],
+    };
+    const token = await this.obterToken();
+    try {
+      const resp = await this.http.post(this.paths.eventos(input.usuarioEmail), corpo, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Prefer: `outlook.timezone="${this.timezone}"`,
+        },
+      });
+      const id = (resp.data as { id?: string })?.id;
+      if (!id) throw new Error('Graph não devolveu id do evento tentativo.');
+      this.logger.log(`Hold tentativo criado: usuario=${input.usuarioEmail} id=${id}`);
+      return id;
+    } catch (err) {
+      throw this.normalizarErro(err, 'criarEventoTentativo');
+    }
+  }
+
+  /**
+   * FREE/BUSY — devolve, por e-mail, os blocos OCUPADOS de cada usuário numa janela
+   * (getSchedule). Usado pra só PROPOR horários em que o recrutador está livre. É
+   * best-effort: se falhar, devolve {} e o chamador segue sem filtrar.
+   */
+  async consultarFreeBusy(
+    emails: string[],
+    inicio: Date,
+    fim: Date,
+  ): Promise<Record<string, Array<{ inicio?: string; fim?: string }>>> {
+    this.garantirHabilitado();
+    const alvos = emails.filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (alvos.length === 0) return {};
+    const token = await this.obterToken();
+    try {
+      const resp = await this.http.post(
+        `/users/${encodeURIComponent(alvos[0])}/calendar/getSchedule`,
+        {
+          schedules: alvos,
+          startTime: { dateTime: this.formatarUtc(inicio), timeZone: 'UTC' },
+          endTime: { dateTime: this.formatarUtc(fim), timeZone: 'UTC' },
+          availabilityViewInterval: 30,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const value =
+        (resp.data as { value?: Array<Record<string, unknown>> })?.value ?? [];
+      const out: Record<string, Array<{ inicio?: string; fim?: string }>> = {};
+      for (const sched of value) {
+        const email = String(sched.scheduleId ?? '');
+        const itens = ((sched.scheduleItems as Array<Record<string, unknown>>) ?? [])
+          .filter((it) => it.status && it.status !== 'free')
+          .map((it) => ({
+            inicio: (it.start as { dateTime?: string })?.dateTime,
+            fim: (it.end as { dateTime?: string })?.dateTime,
+          }));
+        if (email) out[email] = itens;
+      }
+      return out;
+    } catch (err) {
+      this.logger.warn(
+        `getSchedule falhou (free/busy best-effort): ${(err as Error).message}`,
+      );
+      return {};
+    }
+  }
+
   /** ----------------------------------------------------------------------
    *  Transcript oficial (PULL — sem callback público; tudo saída p/ o Graph)
    *  Requer OnlineMeetingTranscript.Read.All + Application Access Policy.

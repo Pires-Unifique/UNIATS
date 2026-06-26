@@ -100,25 +100,48 @@ export default function AlteracaoDetalhePage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
-          {/* Alterações */}
+          {/* O que muda — destaque */}
           <div className="card p-5">
-            <h2 className="text-sm font-semibold text-grafite-700 mb-3">Alterações</h2>
-            <ul className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-grafite-400 mb-3">
+              O que muda
+            </h2>
+            <ul className="space-y-3">
               {s.itens.map((i) => (
-                <li key={i.id} className="text-sm flex items-center gap-2">
+                <li
+                  key={i.id}
+                  className="rounded-lg border border-grafite-100 bg-grafite-50 p-3"
+                >
                   <span className="badge-blue">{ROTULO_TIPO_ALTERACAO[i.tipo]}</span>
-                  <span className="text-grafite-500">{i.valor_anterior ?? '—'}</span>
-                  <span className="text-grafite-400">→</span>
-                  <span className="font-medium text-grafite-800">{i.valor_novo}</span>
+                  <div className="flex items-center gap-3 flex-wrap mt-2">
+                    <span className="text-sm text-grafite-400 line-through">
+                      {i.valor_anterior ?? '—'}
+                    </span>
+                    <span className="text-unifique-500 dark:text-unifique-400 text-xl leading-none">
+                      →
+                    </span>
+                    <span className="text-xl font-bold text-unifique-700 dark:text-unifique-400">
+                      {i.valor_novo}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>
-            {s.razoes && (
-              <p className="text-sm text-grafite-600 mt-4">
-                <span className="font-medium">Razões:</span> {s.razoes}
-              </p>
-            )}
           </div>
+
+          {/* Motivo — destaque com acento lateral */}
+          {s.razoes && (
+            <div className="card p-5">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-grafite-400 mb-2">
+                Motivo
+              </h2>
+              <div className="flex gap-3 rounded-lg bg-unifique-50 dark:bg-unifique-500/10 p-4">
+                <div className="w-1 shrink-0 rounded bg-unifique-500 dark:bg-unifique-400" aria-hidden />
+                <p className="text-base text-grafite-800 leading-relaxed whitespace-pre-line">
+                  {s.razoes}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Assinaturas */}
           {s.assinaturas.length > 0 && (
