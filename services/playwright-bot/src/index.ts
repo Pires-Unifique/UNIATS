@@ -3,7 +3,8 @@ import { unlinkSync } from 'node:fs';
 import { z } from 'zod';
 
 import { enviarTranscricao } from './api-callback.js';
-import { capturarReuniao, type Segmento } from './teams-meeting.js';
+import { criarSink, removerSink } from './audio.js';
+import { capturarReuniao, type ResultadoCaptura, type Segmento } from './teams-meeting.js';
 import { criarLogger } from './logger.js';
 import { loadConfig } from './config.js';
 import { transcreverComWhisper, wavTemConteudo } from './whisper.js';
@@ -36,21 +37,35 @@ async function main(): Promise<void> {
       const wavPath = cfg.WHISPER_ENABLED
         ? `/tmp/pw-${payload.entrevistaId}.wav`
         : undefined;
-      const resultado = await capturarReuniao(
-        {
-          joinUrl: payload.joinUrl,
-          displayName: payload.displayName ?? cfg.PLAYWRIGHT_DISPLAY_NAME,
-          headless: cfg.PLAYWRIGHT_HEADLESS,
-          navTimeoutMs: cfg.PLAYWRIGHT_NAV_TIMEOUT_MS,
-          lobbyTimeoutMs: cfg.PLAYWRIGHT_LOBBY_TIMEOUT_MS,
-          maxDuracaoMin: payload.maxDuracaoMin ?? cfg.PLAYWRIGHT_MAX_DURACAO_MIN,
-          ociosidadeMin: cfg.PLAYWRIGHT_OCIOSIDADE_MIN,
-          captionLang: cfg.PLAYWRIGHT_CAPTION_LANG,
-          wavPath,
-          audioSink: cfg.WHISPER_ENABLED ? cfg.MEETBOT_AUDIO_SINK : undefined,
-        },
-        log,
-      );
+      // Sink de áudio DEDICADO por reunião (prefixo + id) — calls simultâneas não
+      // misturam o áudio. É criado aqui, roteado no Chromium via PULSE_SINK
+      // (em teams-meeting.ts) e removido após a captura.
+      const audioSink = cfg.WHISPER_ENABLED
+        ? `${cfg.MEETBOT_AUDIO_SINK}_${payload.entrevistaId.replace(/-/g, '').slice(0, 16)}`
+        : undefined;
+      const sinkModulo = audioSink ? await criarSink(audioSink, log) : null;
+
+      let resultado: ResultadoCaptura;
+      try {
+        resultado = await capturarReuniao(
+          {
+            joinUrl: payload.joinUrl,
+            displayName: payload.displayName ?? cfg.PLAYWRIGHT_DISPLAY_NAME,
+            headless: cfg.PLAYWRIGHT_HEADLESS,
+            navTimeoutMs: cfg.PLAYWRIGHT_NAV_TIMEOUT_MS,
+            lobbyTimeoutMs: cfg.PLAYWRIGHT_LOBBY_TIMEOUT_MS,
+            maxDuracaoMin: payload.maxDuracaoMin ?? cfg.PLAYWRIGHT_MAX_DURACAO_MIN,
+            ociosidadeMin: cfg.PLAYWRIGHT_OCIOSIDADE_MIN,
+            captionLang: cfg.PLAYWRIGHT_CAPTION_LANG,
+            wavPath,
+            audioSink,
+          },
+          log,
+        );
+      } finally {
+        // o WAV já foi finalizado dentro de capturarReuniao → libera o sink dedicado
+        if (audioSink) await removerSink(sinkModulo, log);
+      }
 
       // 2º motor: Whisper no áudio capturado (já com o Chromium fechado — poupa RAM).
       let whisperSegmentos: Segmento[] = [];

@@ -31,7 +31,7 @@ const Schema = z.object({
   PLAYWRIGHT_CALLBACK_SECRET: z.string().min(8),
 
   // Identidade exibida do bot na sala.
-  PLAYWRIGHT_DISPLAY_NAME: z.string().min(1).default('Assistente de Transcrição (UniATS)'),
+  PLAYWRIGHT_DISPLAY_NAME: z.string().min(1).default('Recrutadora Monique'),
 
   // Chromium. Teams web às vezes recusa headless puro; default headless "new".
   // Em produção rodamos via xvfb-run (headful) se HEADLESS=false.

@@ -177,6 +177,13 @@ export async function capturarReuniao(
       // em vez do Chromium embutido — útil pra rodar local sem baixar nada. No
       // container (imagem oficial do Playwright) fica vazio → usa o Chromium da imagem.
       channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+      // Roteia o ÁUDIO deste Chromium para o sink dedicado DESTA reunião (PULSE_SINK):
+      // duas calls simultâneas não misturam o áudio no mesmo monitor. O Playwright
+      // SUBSTITUI o env do browser, então espalhamos process.env p/ manter
+      // PATH/DISPLAY/PULSE_RUNTIME_PATH/etc.
+      env: opts.audioSink
+        ? ({ ...process.env, PULSE_SINK: opts.audioSink } as Record<string, string>)
+        : undefined,
       args: [
         // Concede mídia falsa para não travar no pedido de permissão de mic/câmera.
         '--use-fake-ui-for-media-stream',
