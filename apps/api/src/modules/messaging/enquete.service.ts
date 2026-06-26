@@ -4,11 +4,14 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
 import { Prisma } from '@uniats/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { WahaClient } from '../waha/waha.client.js';
 import { GraphClient } from '../graph/graph.client.js';
+import { QUEUE_NAMES } from '../../queue/queue.module.js';
 
 export interface OpcaoHorario {
   /** Texto exato exibido na opção da enquete (casa com o voto). */
@@ -54,6 +57,8 @@ export class EnqueteService {
     private readonly prisma: PrismaService,
     private readonly waha: WahaClient,
     private readonly graph: GraphClient,
+    @InjectQueue(QUEUE_NAMES.CONFIRMAR_ENQUETE)
+    private readonly filaConfirmar: Queue,
   ) {}
 
   async enviar(input: EnviarEnqueteHorariosInput): Promise<{
@@ -270,14 +275,15 @@ export class EnqueteService {
       },
     });
 
-    // Confirma ao candidato (best-effort) — reforça que a escolha foi travada.
+    // Confirma ao candidato (best-effort). O LINK não vai agora — só dentro de 2h
+    // antes da reunião (ou na hora, se já estiver nessa janela).
     if (votanteChatId) {
       try {
         await this.waha.sendText({
           chatId: votanteChatId as `${string}@c.us`,
           texto:
             `✅ Recebemos sua escolha: *${opcao.rotulo}*. ` +
-            'Em breve confirmamos os detalhes da entrevista. Obrigado!',
+            'Sua entrevista está confirmada — o link da call chega aqui mais perto do horário. Até breve!',
         });
       } catch (err) {
         this.logger.warn(
@@ -286,8 +292,27 @@ export class EnqueteService {
       }
     }
 
+    // Auto-confirma a entrevista a partir do voto: cria a reunião no Teams + apaga
+    // os holds dos outros horários + agenda o envio do link. Assíncrono e idempotente
+    // (jobId por enquete) pra não travar o webhook do voto.
+    await this.filaConfirmar
+      .add(
+        'confirmar',
+        { enqueteId: enquete.id },
+        {
+          jobId: `confirmar-${enquete.id}`,
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 5_000 },
+        },
+      )
+      .catch((err) =>
+        this.logger.warn(
+          `Falha ao enfileirar auto-confirm da enquete ${enquete.id}: ${(err as Error).message}`,
+        ),
+      );
+
     this.logger.log(
-      `Voto registrado na enquete ${enquete.id}: "${opcao.rotulo}".`,
+      `Voto registrado na enquete ${enquete.id}: "${opcao.rotulo}" → auto-confirm enfileirado.`,
     );
     return { registrado: true };
   }
