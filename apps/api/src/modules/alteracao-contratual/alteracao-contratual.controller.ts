@@ -18,6 +18,7 @@ import { AreasGuard } from '../auth/areas.guard.js';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { UsuarioAtual } from '../auth/usuario-atual.decorator.js';
 import { AlteracaoContratualService } from './alteracao-contratual.service.js';
+import type { DadosTermo } from './documento-termo.js';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -96,6 +97,20 @@ export class AlteracaoContratualController {
   async obter(@Param('id') id: string) {
     assertUuid(id);
     return this.service.obter(id);
+  }
+
+  /** HTML do termo DHO-301 preenchido (pré-visualização) de uma solicitação salva. */
+  @Get(':id/documento')
+  async documento(@Param('id') id: string) {
+    assertUuid(id);
+    return { html: await this.service.documentoHtml(id) };
+  }
+
+  /** Pré-visualização ao vivo a partir dos dados do formulário (sem salvar). */
+  @Post('preview')
+  async preview(@Body() body: Partial<DadosTermo> & { tipos?: string[] }) {
+    const dados: DadosTermo = { ...body, tipos: Array.isArray(body?.tipos) ? body.tipos : [] };
+    return { html: await this.service.previewHtml(dados) };
   }
 
   @Post()

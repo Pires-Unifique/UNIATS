@@ -23,6 +23,11 @@ import {
   AutentiqueProvider,
   SignatarioInput,
 } from './providers/autentique.provider.js';
+import {
+  DadosTermo,
+  gerarDocxTermo,
+  gerarHtmlTermo,
+} from './documento-termo.js';
 import { SeniorProvider } from './providers/senior.provider.js';
 
 interface UsuarioCtx {
@@ -294,10 +299,16 @@ export class AlteracaoContratualService {
       },
     ];
 
+    // Documento = .docx oficial DHO-301 preenchido (variante por cargo×salário).
+    const { buffer, arquivo } = gerarDocxTermo(this.dadosTermo(s));
     const envio = await this.autentique.enviarParaAssinatura({
       solicitacaoId: id,
-      titulo: `Alteração contratual — ${s.colaborador_nome}`,
-      conteudo: this.montarConteudoDocumento(s),
+      titulo: `Alteração contratual - ${s.colaborador_nome}`,
+      arquivo: {
+        buffer,
+        nome: arquivo,
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
       signatarios,
     });
 
@@ -639,25 +650,55 @@ export class AlteracaoContratualService {
     return s;
   }
 
-  // Texto do documento (uma linha por \n) — o provider o transforma em PDF.
-  private montarConteudoDocumento(s: {
+  // Mapeia a solicitação (com itens) para os dados do termo DHO-301.
+  private dadosTermo(s: {
+    itens: Array<{ tipo: string; valor_anterior: string | null; valor_novo: string }>;
     colaborador_nome: string;
     colaborador_matricula: string;
+    cargo_atual: string | null;
+    cargo_descricao: string | null;
+    diretriz_comercial: boolean | null;
+    periculosidade: boolean | null;
+    aluguel_frota: boolean | null;
+    centro_custo_atual: string | null;
+    unidade_atual: string | null;
+    lider_atual: string | null;
     razoes: string;
     data_aplicacao: Date;
-    itens: Array<{ tipo: string; valor_anterior: string | null; valor_novo: string }>;
-  }): string {
-    return [
-      'DOCUMENTO DE ALTERAÇÃO CONTRATUAL',
-      '',
-      `Colaborador: ${s.colaborador_nome} (matrícula ${s.colaborador_matricula})`,
-      `Data de aplicação: ${toDateStr(s.data_aplicacao)}`,
-      '',
-      `Razões: ${s.razoes || '-'}`,
-      '',
-      'Alterações:',
-      ...s.itens.map((i) => `- ${i.tipo}: ${i.valor_anterior ?? '-'} -> ${i.valor_novo}`),
-    ].join('\n');
+  }): DadosTermo {
+    const item = (t: string) => s.itens.find((i) => i.tipo === t);
+    return {
+      tipos: s.itens.map((i) => i.tipo),
+      colaboradorNome: s.colaborador_nome,
+      colaboradorMatricula: s.colaborador_matricula,
+      cargoAtual: s.cargo_atual,
+      cargoNovo: item('CARGO')?.valor_novo ?? null,
+      cargoDescricao: s.cargo_descricao,
+      diretrizComercial: s.diretriz_comercial,
+      periculosidade: s.periculosidade,
+      aluguelFrota: s.aluguel_frota,
+      centroAtual: s.centro_custo_atual,
+      centroNovo: item('CENTRO_CUSTO')?.valor_novo ?? null,
+      unidadeAtual: s.unidade_atual,
+      unidadeNovo: item('UNIDADE')?.valor_novo ?? null,
+      liderAtual: s.lider_atual,
+      liderNovo: item('LIDER')?.valor_novo ?? null,
+      salarioAtual: item('SALARIO')?.valor_anterior ?? null,
+      salarioNovo: item('SALARIO')?.valor_novo ?? null,
+      razoes: s.razoes,
+      dataAplicacao: toDateStr(s.data_aplicacao),
+    };
+  }
+
+  /** HTML do termo de uma solicitação salva (detalhe). */
+  async documentoHtml(id: string): Promise<string> {
+    const s = await this.carregar(id);
+    return gerarHtmlTermo(this.dadosTermo(s));
+  }
+
+  /** HTML do termo a partir de dados não salvos (preview no formulário). */
+  async previewHtml(dados: DadosTermo): Promise<string> {
+    return gerarHtmlTermo(dados);
   }
 }
 

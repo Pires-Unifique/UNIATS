@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { gerarPdfSimples } from '../pdf.js';
-
 /**
  * Conector com o AUTENTIQUE (assinatura eletrônica do documento de alteração).
  * Assinam o GESTOR do colaborador (ou o NOVO líder, em troca de liderança) e
@@ -28,8 +26,8 @@ export interface SignatarioInput {
 export interface EnviarAssinaturaInput {
   solicitacaoId: string;
   titulo: string;
-  /** Texto do documento (uma linha por \n) — vira o PDF assinável. */
-  conteudo: string;
+  /** Arquivo assinável (o .docx oficial DHO-301 preenchido). */
+  arquivo: { buffer: Buffer; nome: string; mime: string };
   signatarios: SignatarioInput[];
 }
 
@@ -99,7 +97,11 @@ export class AutentiqueProvider {
           autentiqueSignatarioId: `simulado-${input.solicitacaoId}-${s.papel}`,
           linkAssinatura: null,
         })),
-        payloadEnviado: input,
+        payloadEnviado: {
+          titulo: input.titulo,
+          arquivo: input.arquivo.nome,
+          signatarios: input.signatarios,
+        },
         resposta: { simulado: true, documentoId },
       };
     }
@@ -115,7 +117,6 @@ export class AutentiqueProvider {
       );
     }
 
-    const pdf = gerarPdfSimples(input.titulo, input.conteudo.split('\n'));
     const variables = {
       document: { name: input.titulo },
       signers: input.signatarios.map((s) => ({ email: s.email, action: 'SIGN' })),
@@ -131,8 +132,8 @@ export class AutentiqueProvider {
     form.append('map', JSON.stringify({ '0': ['variables.file'] }));
     form.append(
       '0',
-      new Blob([pdf], { type: 'application/pdf' }),
-      `alteracao-contratual-${input.solicitacaoId}.pdf`,
+      new Blob([new Uint8Array(input.arquivo.buffer)], { type: input.arquivo.mime }),
+      input.arquivo.nome,
     );
 
     const ctrl = new AbortController();

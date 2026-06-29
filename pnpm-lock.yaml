@@ -89,11 +89,14 @@ importers:
       dotenv:
         specifier: ^16.4.5
         version: 16.4.5
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       ioredis:
         specifier: ^5.4.1
         version: 5.10.1
       mammoth:
-        specifier: ^1.8.0
+        specifier: ^1.12.0
         version: 1.12.0
       nestjs-pino:
         specifier: ^4.1.0

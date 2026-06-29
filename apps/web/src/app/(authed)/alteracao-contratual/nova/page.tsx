@@ -14,7 +14,6 @@ import type {
 } from '@uniats/shared';
 
 import { PageHeader } from '@/components/PageHeader';
-import { TermoDHO301 } from '@/components/TermoDHO301';
 import { api, ApiError } from '@/lib/api';
 import { TIPOS_ALTERACAO } from '@/lib/alteracao-contratual';
 
@@ -64,6 +63,9 @@ export default function NovaAlteracaoPage() {
   const [dataAplicacao, setDataAplicacao] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Pré-visualização (render do .docx oficial, sob demanda).
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -221,6 +223,22 @@ export default function NovaAlteracaoPage() {
     } catch (err) {
       setErro(err instanceof ApiError ? err.message : 'Falha ao salvar.');
       setSalvando(false);
+    }
+  }
+
+  async function previsualizar(dados: unknown) {
+    setPreviewLoading(true);
+    setErro(null);
+    try {
+      const r = await api<{ html: string }>('/api/alteracao-contratual/preview', {
+        method: 'POST',
+        body: dados,
+      });
+      setPreviewHtml(r.html);
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : 'Falha ao gerar a pré-visualização.');
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
@@ -531,12 +549,31 @@ export default function NovaAlteracaoPage() {
         </div>
       </div>
 
-      {/* ---------- Pré-visualização do documento (ao vivo) ---------- */}
+      {/* ---------- Pré-visualização do documento oficial (sob demanda) ---------- */}
       <div className="mt-6">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-grafite-400 mb-3 text-center">
-          Pré-visualização do documento
-        </h2>
-        <TermoDHO301 dados={termoDados} />
+        <div className="flex items-center justify-center gap-3 mb-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-grafite-400">
+            Pré-visualização do documento
+          </h2>
+          <button
+            type="button"
+            className="btn-soft text-xs"
+            disabled={previewLoading}
+            onClick={() => void previsualizar(termoDados)}
+          >
+            {previewLoading ? 'Gerando…' : 'Pré-visualizar'}
+          </button>
+        </div>
+        {previewHtml ? (
+          <div
+            className="termo-doc card p-6 max-w-[800px] mx-auto overflow-x-auto"
+            dangerouslySetInnerHTML={{ __html: previewHtml }}
+          />
+        ) : (
+          <p className="text-center text-sm text-grafite-400">
+            Preencha os campos e clique em “Pré-visualizar” para ver o termo preenchido.
+          </p>
+        )}
       </div>
     </div>
   );
