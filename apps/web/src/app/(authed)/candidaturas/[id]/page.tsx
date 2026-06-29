@@ -284,13 +284,13 @@ export default function CandidaturaPage({
           <>
             <Link
               href={`/vagas/${c.vaga_id}/ranking`}
-              className="btn-secondary"
+              className="btn-soft"
             >
               ← Ranking
             </Link>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-soft"
               onClick={() => setModalContato(true)}
             >
               💬 Contatar
@@ -513,7 +513,7 @@ export default function CandidaturaPage({
           <div className="flex gap-2">
             <button
               type="button"
-              className="btn-secondary text-xs"
+              className="btn-soft text-xs"
               onClick={() => setModalPropor(true)}
               title="Envia uma enquete no WhatsApp com opções de horário; o candidato vota e a escolha aparece aqui."
             >
@@ -529,7 +529,7 @@ export default function CandidaturaPage({
             </button>
             <button
               type="button"
-              className="btn-secondary text-xs"
+              className="btn-soft text-xs"
               onClick={() => void calcularScore()}
             >
               Recalcular score
@@ -553,7 +553,7 @@ export default function CandidaturaPage({
                 </div>
                 <Link
                   href={`/entrevistas/${enquetes[0].entrevista_id}`}
-                  className="btn-secondary text-xs"
+                  className="btn-soft text-xs"
                 >
                   Ver entrevista →
                 </Link>
@@ -580,7 +580,7 @@ export default function CandidaturaPage({
                   </button>
                   <button
                     type="button"
-                    className="btn-secondary text-xs"
+                    className="btn-soft text-xs"
                     onClick={() => {
                       setSlotAgendar({
                         inicio: enquetes[0].inicio_escolhido!,
@@ -647,7 +647,7 @@ export default function CandidaturaPage({
           <h2 className="font-medium text-grafite-900">Histórico de mensagens</h2>
           <button
             type="button"
-            className="btn-secondary text-xs"
+            className="btn-soft text-xs"
             onClick={() => setModalContato(true)}
           >
             Nova mensagem

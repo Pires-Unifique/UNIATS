@@ -124,7 +124,7 @@ export default function EntrevistasIndex() {
                   <Td className="text-right">
                     <Link
                       href={`/entrevistas/${e.id}`}
-                      className="text-unifique-700 hover:underline text-xs"
+                      className="btn-soft text-xs"
                     >
                       Abrir →
                     </Link>

@@ -49,13 +49,13 @@ export default function OffboardingListaPage() {
           <div className="flex gap-2">
             <Link
               href={'/offboarding/convites' as Route}
-              className="btn-secondary"
+              className="btn-soft"
             >
               Links de autodesligamento
             </Link>
             <Link
               href={'/offboarding/procuradores' as Route}
-              className="btn-secondary"
+              className="btn-soft"
             >
               Procuradores
             </Link>

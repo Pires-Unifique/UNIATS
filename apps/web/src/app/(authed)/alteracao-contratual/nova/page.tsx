@@ -599,7 +599,7 @@ function SimNaoInput({
           className={
             valor === true
               ? 'btn-primary text-xs px-3 py-1'
-              : 'btn-secondary text-xs px-3 py-1'
+              : 'btn-soft text-xs px-3 py-1'
           }
         >
           SIM
@@ -610,7 +610,7 @@ function SimNaoInput({
           className={
             valor === false
               ? 'btn-primary text-xs px-3 py-1'
-              : 'btn-secondary text-xs px-3 py-1'
+              : 'btn-soft text-xs px-3 py-1'
           }
         >
           NÃO

@@ -21,6 +21,7 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
       { href: '/vagas' as Route, label: 'Vagas', icon: '📋' },
       { href: '/entrevistas' as Route, label: 'Agenda', icon: '🗓️' },
       // Ações globais de recrutamento: só quem tem a área 'recrutamento'.
+      { href: '/cargos' as Route, label: 'Cargos', icon: '🏷️', areas: ['recrutamento'] },
       { href: '/vagas/publicar' as Route, label: 'Publicar vaga', icon: '➕', areas: ['recrutamento'] },
       { href: '/analise' as Route, label: 'Análise', icon: '📊', areas: ['recrutamento'] },
       { href: '/configuracoes/templates' as Route, label: 'Templates', icon: '✉️', areas: ['recrutamento'] },

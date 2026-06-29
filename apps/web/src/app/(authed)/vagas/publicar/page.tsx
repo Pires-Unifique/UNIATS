@@ -1,37 +1,13 @@
 'use client';
 
+import type { Route } from 'next';
 import Link from 'next/link';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { CargoDTO } from '@uniats/shared';
 
 import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';
 
-// --- Tipos (espelham @uniats/shared) ---
-type Grau = 'B' | 'I' | 'A';
-type Nivel = 'JR' | 'PL' | 'SR';
-
-interface Conhecimento {
-  texto: string;
-  grau: Grau | null;
-  nivel: Nivel | null;
-}
-interface TemplateParsed {
-  titulo: string | null;
-  departamentoNome: string | null;
-  missao: string | null;
-  formacaoMinima: string | null;
-  formacaoIdeal: string | null;
-  conhecimentos: Conhecimento[];
-  responsabilidades: string[];
-  autonomiaNivel: Nivel | null;
-  autonomiaParagrafos: string[];
-  mensuravel: boolean | null;
-  avisos: string[];
-}
-interface ImportarResp {
-  template: TemplateParsed;
-  arquivoSha256: string | null;
-}
 interface OpcaoEstrutura {
   id: number;
   nome: string;
@@ -46,30 +22,34 @@ const TIPOS: Array<{ v: string; l: string }> = [
   { v: 'talent_pool', l: 'Banco de talentos' },
 ];
 
+/** Quebra um textarea (um item por linha) em lista limpa. */
+function linhas(texto: string): string[] {
+  return texto
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export default function PublicarVagaPage() {
-  const [resp, setResp] = useState<ImportarResp | null>(null);
+  const [cargos, setCargos] = useState<CargoDTO[]>([]);
+  const [carregandoCargos, setCarregandoCargos] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
-  const [importando, setImportando] = useState(false);
   const [publicando, setPublicando] = useState(false);
   const [resultado, setResultado] = useState<{
     vagaId: string;
     status: string;
   } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  // Campos editáveis
+  // Cargo do catálogo (fonte da descrição) + conteúdo editável da vaga
+  const [cargoId, setCargoId] = useState('');
   const [titulo, setTitulo] = useState('');
-  const [missao, setMissao] = useState('');
-  const [formacaoMinima, setFormacaoMinima] = useState('');
-  const [formacaoIdeal, setFormacaoIdeal] = useState('');
-  const [conhecimentos, setConhecimentos] = useState('');
+  const [descricao, setDescricao] = useState('');
   const [responsabilidades, setResponsabilidades] = useState('');
-  const [autonomia, setAutonomia] = useState('');
-  const [nivel, setNivel] = useState<Nivel | ''>('');
+  const [requisitos, setRequisitos] = useState('');
 
-  // Campos Gupy
+  // Estrutura / publicação na Gupy
   const [departamento, setDepartamento] = useState<OpcaoEstrutura | null>(null);
-  const [cargo, setCargo] = useState<OpcaoEstrutura | null>(null);
+  const [role, setRole] = useState<OpcaoEstrutura | null>(null);
   const [filial, setFilial] = useState<OpcaoEstrutura | null>(null);
   const [tipo, setTipo] = useState('effective');
   const [numVagas, setNumVagas] = useState(1);
@@ -80,71 +60,48 @@ export default function PublicarVagaPage() {
   const [recrutador, setRecrutador] = useState('');
   const [gestor, setGestor] = useState('');
 
-  const aplicarTemplate = useCallback((t: TemplateParsed) => {
-    setTitulo(t.titulo ?? '');
-    setMissao(t.missao ?? '');
-    setFormacaoMinima(t.formacaoMinima ?? '');
-    setFormacaoIdeal(t.formacaoIdeal ?? '');
-    setConhecimentos(
-      t.conhecimentos
-        .map((c) => (c.grau ? `${c.texto} [${c.grau}]` : c.texto))
-        .join('\n'),
-    );
-    setResponsabilidades(t.responsabilidades.join('\n'));
-    setAutonomia(t.autonomiaParagrafos.join('\n'));
-    setNivel(t.autonomiaNivel ?? '');
+  useEffect(() => {
+    (async () => {
+      setCarregandoCargos(true);
+      try {
+        const r = await api<CargoDTO[]>(
+          '/api/alteracao-contratual/catalogo/cargos',
+        );
+        setCargos(r);
+      } catch (err) {
+        setErro(
+          err instanceof ApiError ? err.message : 'Falha ao carregar cargos.',
+        );
+      } finally {
+        setCarregandoCargos(false);
+      }
+    })();
   }, []);
 
-  async function importar() {
-    const file = fileRef.current?.files?.[0];
-    if (!file) {
-      setErro('Selecione um arquivo .xlsx.');
-      return;
-    }
-    setErro(null);
-    setResultado(null);
-    setImportando(true);
-    try {
-      const fd = new FormData();
-      fd.append('arquivo', file);
-      const data = await api<ImportarResp>('/api/vagas/template/importar', {
-        method: 'POST',
-        body: fd,
-      });
-      setResp(data);
-      aplicarTemplate(data.template);
-    } catch (err) {
-      setErro(err instanceof ApiError ? err.message : 'Falha ao importar.');
-    } finally {
-      setImportando(false);
-    }
-  }
+  const cargoSelecionado = cargos.find((c) => c.id === cargoId) ?? null;
 
-  function parseConhecimentos(): Conhecimento[] {
-    return conhecimentos
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .map((l) => {
-        const m = l.match(/^(.*?)\s*\[([BIA])\]\s*$/i);
-        if (m)
-          return {
-            texto: m[1].trim(),
-            grau: m[2].toUpperCase() as Grau,
-            nivel: null,
-          };
-        return { texto: l, grau: null, nivel: null };
-      });
+  function selecionarCargo(id: string) {
+    setCargoId(id);
+    const c = cargos.find((x) => x.id === id);
+    if (c) {
+      setTitulo(c.titulo);
+      setDescricao(c.descricao ?? '');
+      if (c.codigo) setCodigo(c.codigo);
+    }
   }
 
   async function publicar(publicarAgora: boolean) {
     setErro(null);
-    if (!titulo.trim() || !missao.trim()) {
-      setErro('Título e missão são obrigatórios.');
+    if (!cargoId) {
+      setErro('Selecione um cargo do catálogo.');
       return;
     }
-    if (!departamento || !cargo) {
-      setErro('Selecione o departamento e o cargo da Gupy.');
+    if (!titulo.trim() || !descricao.trim()) {
+      setErro('Título e descrição da vaga são obrigatórios.');
+      return;
+    }
+    if (!departamento || !role) {
+      setErro('Selecione o departamento e o cargo (role) da Gupy.');
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
@@ -156,22 +113,20 @@ export default function PublicarVagaPage() {
       const body = {
         titulo: titulo.trim(),
         departamentoNome: departamento.nome,
-        missao: missao.trim(),
-        formacaoMinima: formacaoMinima.trim() || null,
-        formacaoIdeal: formacaoIdeal.trim() || null,
-        conhecimentos: parseConhecimentos(),
-        responsabilidades: responsabilidades
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean),
-        autonomiaNivel: nivel || null,
-        autonomiaParagrafos: autonomia
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean),
+        missao: descricao.trim(),
+        formacaoMinima: null,
+        formacaoIdeal: null,
+        conhecimentos: linhas(requisitos).map((texto) => ({
+          texto,
+          grau: null,
+          nivel: null,
+        })),
+        responsabilidades: linhas(responsabilidades),
+        autonomiaNivel: null,
+        autonomiaParagrafos: [],
         mensuravel: null,
         departmentId: departamento.id,
-        roleId: cargo.id,
+        roleId: role.id,
         branchId: filial?.id ?? null,
         type: tipo,
         numVacancies: numVagas,
@@ -182,7 +137,7 @@ export default function PublicarVagaPage() {
         recruiterEmail: recrutador.trim() || null,
         managerEmail: gestor.trim() || null,
         publicarAgora,
-        arquivoSha256: resp?.arquivoSha256 ?? null,
+        arquivoSha256: null,
       };
       const r = await api<{ vagaId: string; status: string }>(
         '/api/vagas/template/publicar',
@@ -200,7 +155,7 @@ export default function PublicarVagaPage() {
     <div>
       <PageHeader
         titulo="Publicar vaga"
-        subtitulo="Importe o template padrão (Descrição do Cargo) e publique a vaga na Gupy."
+        subtitulo="Escolha um cargo do catálogo, confira a descrição e publique a vaga na Gupy."
       />
 
       {erro && (
@@ -210,7 +165,10 @@ export default function PublicarVagaPage() {
       {resultado ? (
         <div className="card p-6 space-y-3">
           <div className="badge-green w-full justify-start px-3 py-2">
-            Vaga {resultado.status === 'PUBLICADA' ? 'publicada' : 'salva como rascunho'}{' '}
+            Vaga{' '}
+            {resultado.status === 'PUBLICADA'
+              ? 'publicada'
+              : 'salva como rascunho'}{' '}
             na Gupy com sucesso.
           </div>
           <Link href="/vagas" className="btn-primary inline-block">
@@ -219,111 +177,96 @@ export default function PublicarVagaPage() {
         </div>
       ) : (
         <>
-          {/* Etapa A — upload */}
-          <div className="card p-4 mb-4">
-            <label className="block text-sm font-medium text-grafite-700 mb-2">
-              Arquivo do template (.xlsx)
-            </label>
-            <div className="flex gap-3 items-center">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx"
-                className="flex-1 text-sm"
-              />
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={importando}
-                onClick={() => void importar()}
-              >
-                {importando ? 'Importando…' : 'Importar template'}
-              </button>
-            </div>
+          {/* Etapa A — cargo do catálogo */}
+          <div className="card p-4 mb-4 space-y-4">
+            <h2 className="font-semibold text-grafite-900">Cargo do catálogo</h2>
+            {carregandoCargos ? (
+              <p className="text-sm text-grafite-400">Carregando cargos…</p>
+            ) : cargos.length === 0 ? (
+              <p className="text-sm text-grafite-500">
+                Nenhum cargo cadastrado.{' '}
+                <Link
+                  href={'/cargos' as Route}
+                  className="text-unifique-700 hover:underline"
+                >
+                  Cadastre um cargo
+                </Link>{' '}
+                antes de publicar a vaga.
+              </p>
+            ) : (
+              <>
+                <Campo label="Cargo *">
+                  <select
+                    className="inp"
+                    value={cargoId}
+                    onChange={(e) => selecionarCargo(e.target.value)}
+                  >
+                    <option value="">Selecione o cargo</option>
+                    {cargos.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.titulo}
+                        {c.senioridade ? ` — ${c.senioridade}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </Campo>
+                {cargoSelecionado && (
+                  <div className="rounded-md bg-grafite-50 border border-grafite-100 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-grafite-400 mb-1">
+                      Descrição do cargo
+                    </p>
+                    <p className="text-sm text-grafite-700 leading-relaxed whitespace-pre-wrap">
+                      {cargoSelecionado.descricao ||
+                        'Este cargo ainda não tem descrição cadastrada. Edite-o em Cargos para preenchê-la.'}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
-          {resp && (
+          {cargoSelecionado && (
             <>
-              {resp.template.avisos.length > 0 && (
-                <div className="badge-yellow mb-4 w-full justify-start px-3 py-2 flex-col items-start">
-                  <strong>Confira os campos abaixo:</strong>
-                  <ul className="list-disc ml-5 mt-1">
-                    {resp.template.avisos.map((a, i) => (
-                      <li key={i}>{a}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Etapa B — conteúdo (editável) */}
+              {/* Etapa B — conteúdo da vaga (editável) */}
               <div className="card p-4 mb-4 space-y-4">
-                <h2 className="font-semibold text-grafite-900">Conteúdo da vaga</h2>
-                <Campo label="Título do cargo">
+                <h2 className="font-semibold text-grafite-900">
+                  Conteúdo da vaga
+                </h2>
+                <Campo label="Título da vaga *">
                   <input
                     className="inp"
                     value={titulo}
                     onChange={(e) => setTitulo(e.target.value)}
                   />
                 </Campo>
-                <Campo label="Missão">
+                <Campo label="Descrição da vaga *">
                   <textarea
-                    className="inp h-24"
-                    value={missao}
-                    onChange={(e) => setMissao(e.target.value)}
+                    className="inp h-40"
+                    value={descricao}
+                    onChange={(e) => setDescricao(e.target.value)}
                   />
+                  <span className="block text-xs text-grafite-400 mt-1">
+                    Pré-preenchida com a descrição do cargo. Ajuste para esta vaga
+                    se precisar.
+                  </span>
                 </Campo>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Campo label="Formação mínima">
-                    <textarea
-                      className="inp h-24"
-                      value={formacaoMinima}
-                      onChange={(e) => setFormacaoMinima(e.target.value)}
-                    />
-                  </Campo>
-                  <Campo label="Formação ideal">
-                    <textarea
-                      className="inp h-24"
-                      value={formacaoIdeal}
-                      onChange={(e) => setFormacaoIdeal(e.target.value)}
-                    />
-                  </Campo>
-                </div>
-                <Campo label="Conhecimentos específicos (um por linha; grau opcional ex.: [A])">
+                <Campo label="Responsabilidades (opcional, uma por linha)">
                   <textarea
-                    className="inp h-24"
-                    value={conhecimentos}
-                    onChange={(e) => setConhecimentos(e.target.value)}
-                  />
-                </Campo>
-                <Campo label="Responsabilidades (uma por linha)">
-                  <textarea
-                    className="inp h-32"
+                    className="inp h-28"
                     value={responsabilidades}
                     onChange={(e) => setResponsabilidades(e.target.value)}
                   />
                 </Campo>
-                <Campo label="Autonomia e complexidade (uma por linha)">
+                <Campo label="Requisitos / conhecimentos (opcional, um por linha)">
                   <textarea
-                    className="inp h-24"
-                    value={autonomia}
-                    onChange={(e) => setAutonomia(e.target.value)}
+                    className="inp h-28"
+                    value={requisitos}
+                    onChange={(e) => setRequisitos(e.target.value)}
                   />
-                </Campo>
-                <Campo label="Nível do cargo">
-                  <select
-                    className="inp"
-                    value={nivel}
-                    onChange={(e) => setNivel(e.target.value as Nivel | '')}
-                  >
-                    <option value="">—</option>
-                    <option value="JR">Júnior</option>
-                    <option value="PL">Pleno</option>
-                    <option value="SR">Sênior</option>
-                  </select>
                 </Campo>
               </div>
 
-              {/* Etapa B — estrutura Gupy */}
+              {/* Etapa C — estrutura Gupy */}
               <div className="card p-4 mb-4 space-y-4">
                 <h2 className="font-semibold text-grafite-900">
                   Estrutura e publicação na Gupy
@@ -332,17 +275,17 @@ export default function PublicarVagaPage() {
                   <Campo label="Departamento *">
                     <EstruturaSelect
                       endpoint="departamentos"
-                      sugestao={resp.template.departamentoNome}
+                      sugestao={null}
                       valor={departamento}
                       onSelect={setDepartamento}
                     />
                   </Campo>
-                  <Campo label="Cargo (role) *">
+                  <Campo label="Cargo na Gupy (role) *">
                     <EstruturaSelect
                       endpoint="cargos"
-                      sugestao={resp.template.titulo}
-                      valor={cargo}
-                      onSelect={setCargo}
+                      sugestao={cargoSelecionado.titulo}
+                      valor={role}
+                      onSelect={setRole}
                     />
                   </Campo>
                   <Campo label="Filial">
@@ -440,7 +383,7 @@ export default function PublicarVagaPage() {
               <div className="flex gap-3 justify-end mb-10">
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="btn-soft"
                   disabled={publicando}
                   onClick={() => void publicar(false)}
                 >
@@ -556,7 +499,7 @@ function EstruturaSelect({
             />
             <button
               type="button"
-              className="btn-secondary px-2"
+              className="btn-soft px-2"
               onClick={() => void carregar(busca)}
             >
               🔍

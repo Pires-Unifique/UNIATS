@@ -215,7 +215,7 @@ export default function AdmissaoDetalhePage({
             )}
             {anterior && (
               <button
-                className="btn-secondary text-sm disabled:opacity-50"
+                className="btn-soft text-sm disabled:opacity-50"
                 disabled={salvando}
                 onClick={() => transicionar(anterior)}
               >

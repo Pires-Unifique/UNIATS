@@ -345,7 +345,7 @@ export default function OffboardingDetalhePage() {
                   Aprovar (gestor do CC)
                 </button>
                 <button
-                  className="btn-secondary w-full"
+                  className="btn-soft w-full"
                   disabled={acao}
                   onClick={() => setModalMotivo('recusar')}
                 >
@@ -364,7 +364,7 @@ export default function OffboardingDetalhePage() {
                   Aprovar (DHO) e gerar documento
                 </button>
                 <button
-                  className="btn-secondary w-full"
+                  className="btn-soft w-full"
                   disabled={acao}
                   onClick={() => setModalMotivo('recusar')}
                 >

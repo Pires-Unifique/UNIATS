@@ -415,7 +415,7 @@ export default function TemplatesPage() {
                       <button
                         key={m.codigo}
                         type="button"
-                        className="btn-secondary text-xs"
+                        className="btn-soft text-xs"
                         onClick={() => aplicarModelo(m)}
                       >
                         {m.rotuloBotao}
@@ -517,7 +517,7 @@ export default function TemplatesPage() {
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="btn-soft"
                   onClick={() => {
                     setForm(null);
                     setEditando(null);

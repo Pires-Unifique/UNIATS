@@ -291,7 +291,7 @@ export function EnviarMensagemModal({
               <div className="mb-3 flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  className="btn-secondary text-xs"
+                  className="btn-soft text-xs"
                   onClick={() => setMostrarPicker(true)}
                 >
                   📅 Escolher horários da minha agenda
@@ -362,7 +362,7 @@ export function EnviarMensagemModal({
             )}
 
             <div className="flex justify-end gap-2 mt-2">
-              <button type="button" className="btn-secondary" onClick={onClose}>
+              <button type="button" className="btn-soft" onClick={onClose}>
                 Cancelar
               </button>
               <button

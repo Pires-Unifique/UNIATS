@@ -26,7 +26,9 @@ function assertUuid(id: string, campo = 'id'): void {
 /**
  * Catálogo do módulo: cargos (próprio) e colaboradores/centros de custo/unidades
  * (view do Senior). Leitura liberada a qualquer autenticado (alimenta os
- * pickers do formulário); escrita de cargos e SYNC restritos ao DHO/admin.
+ * pickers do formulário); escrita de cargos liberada ao DHO e ao Recrutamento
+ * (cadastram cargos para publicar vagas); importação CSV e SYNC seguem restritos
+ * ao DHO/admin.
  */
 @Controller('api/alteracao-contratual/catalogo')
 @UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
@@ -41,7 +43,7 @@ export class CatalogoController {
   }
 
   @Post('cargos')
-  @Areas('dho')
+  @Areas('dho', 'recrutamento')
   async criarCargo(
     @Body()
     body: {
@@ -63,7 +65,7 @@ export class CatalogoController {
   }
 
   @Patch('cargos/:id')
-  @Areas('dho')
+  @Areas('dho', 'recrutamento')
   async atualizarCargo(
     @Param('id') id: string,
     @Body()

@@ -238,7 +238,7 @@ export default function AlteracaoDetalhePage() {
                   Aprovar e enviar p/ assinatura
                 </button>
                 <button
-                  className="btn-secondary w-full"
+                  className="btn-soft w-full"
                   disabled={acao}
                   onClick={() => {
                     const motivo = window.prompt('Motivo da recusa:');

@@ -62,6 +62,16 @@
   .btn-soft {
     @apply btn whitespace-nowrap bg-unifique-50 text-unifique-700 border border-unifique-200 hover:bg-unifique-100 dark:bg-unifique-400/15 dark:text-unifique-200 dark:border-unifique-400/40 dark:hover:bg-unifique-400/25;
   }
+  /* Variante destrutiva do btn-soft (desativar/excluir): mesmo formato, tom
+     avermelhado. Funciona nos dois temas. */
+  .btn-soft-danger {
+    @apply btn whitespace-nowrap bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 dark:bg-red-500/15 dark:text-red-300 dark:border-red-500/40 dark:hover:bg-red-500/25;
+  }
+  /* Variante positiva do btn-soft (reativar/confirmar): mesmo formato, tom
+     esverdeado. Funciona nos dois temas. */
+  .btn-soft-success {
+    @apply btn whitespace-nowrap bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/40 dark:hover:bg-emerald-500/25;
+  }
   .input {
     @apply border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white text-grafite-800;
   }

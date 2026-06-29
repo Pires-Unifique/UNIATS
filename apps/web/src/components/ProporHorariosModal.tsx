@@ -118,7 +118,7 @@ export function ProporHorariosModal({
               : `${slots.length} horário(s) na enquete`}
           </span>
           <div className="flex gap-2">
-            <button type="button" className="btn-secondary" onClick={onClose}>
+            <button type="button" className="btn-soft" onClick={onClose}>
               Cancelar
             </button>
             <button

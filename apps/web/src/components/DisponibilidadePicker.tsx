@@ -300,7 +300,7 @@ export function DisponibilidadePicker({
                 />
                 <button
                   type="button"
-                  className="btn-secondary text-xs"
+                  className="btn-soft text-xs"
                   disabled={!EMAIL_REGEX.test(novoEmail.trim())}
                   onClick={adicionarExtra}
                 >
@@ -331,7 +331,7 @@ export function DisponibilidadePicker({
             </div>
             <button
               type="button"
-              className="btn-secondary text-xs"
+              className="btn-soft text-xs"
               disabled={carregando}
               onClick={() => void buscar()}
             >
@@ -522,7 +522,7 @@ export function DisponibilidadePicker({
 
         {habilitado && (
           <div className="mt-3 flex shrink-0 justify-end gap-2">
-            <button type="button" className="btn-secondary" onClick={onClose}>
+            <button type="button" className="btn-soft" onClick={onClose}>
               Cancelar
             </button>
             <button

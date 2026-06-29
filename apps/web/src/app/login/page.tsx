@@ -107,7 +107,7 @@ function LoginInner() {
               )}
               <button
                 type="submit"
-                className="btn-secondary w-full"
+                className="btn-soft w-full"
                 disabled={entrando || !user || !senha}
               >
                 {entrando ? 'Entrando…' : 'Entrar com conta local'}

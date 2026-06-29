@@ -63,7 +63,7 @@ export default function AdmissaoBoardPage() {
         subtitulo="Acompanhe as etapas da admissão dos candidatos contratados."
         acoes={
           <button
-            className="btn-secondary text-sm disabled:opacity-50"
+            className="btn-soft text-sm disabled:opacity-50"
             disabled={importando}
             onClick={() => void importarContratados()}
             title="Cria admissões para contratados (últimos 180 dias) que ainda não têm uma"

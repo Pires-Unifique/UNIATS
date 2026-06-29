@@ -108,7 +108,7 @@ export function EsteiraGupy({ jobId, applicationId, etapaAtual, onMoved }: Props
           <div className="flex gap-2">
             <button
               type="button"
-              className="btn-secondary text-xs"
+              className="btn-soft text-xs"
               disabled={!podeAnterior || movendo}
               onClick={() => etapas && void mover(etapas[idxAtual - 1])}
             >
@@ -216,7 +216,7 @@ export function EsteiraGupy({ jobId, applicationId, etapaAtual, onMoved }: Props
               </button>
               <button
                 type="button"
-                className="btn-secondary text-xs"
+                className="btn-soft text-xs"
                 disabled={movendo}
                 onClick={() => {
                   setReprovando(false);

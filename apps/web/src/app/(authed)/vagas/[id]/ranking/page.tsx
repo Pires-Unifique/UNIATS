@@ -348,12 +348,12 @@ export default function CandidatosVagaPage({
         }
         acoes={
           <>
-            <Link href="/vagas" className="btn-secondary">
+            <Link href="/vagas" className="btn-soft">
               ← Vagas
             </Link>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-soft"
               disabled={classificacaoOcupada || !data}
               onClick={() => void sincronizar()}
             >

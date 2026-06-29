@@ -168,7 +168,7 @@ export default function EntrevistaPage({
           <>
             <Link
               href={`/candidaturas/${e.candidatura_id}`}
-              className="btn-secondary"
+              className="btn-soft"
             >
               ← Candidato
             </Link>
@@ -177,7 +177,7 @@ export default function EntrevistaPage({
                 href={e.meet_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="btn-secondary"
+                className="btn-soft"
               >
                 Abrir Meet
               </a>
@@ -199,7 +199,7 @@ export default function EntrevistaPage({
             </h2>
             <button
               type="button"
-              className="btn-secondary text-xs"
+              className="btn-soft text-xs"
               disabled={gerandoPerguntas}
               onClick={() => void gerarPerguntas()}
             >
@@ -287,7 +287,7 @@ export default function EntrevistaPage({
             </p>
             <button
               type="button"
-              className="btn-secondary text-xs"
+              className="btn-soft text-xs"
               disabled={salvandoNota}
               onClick={() => void salvarAnotacoes()}
             >
