@@ -368,12 +368,9 @@ export class EnqueteService {
     extras: string[],
   ): Promise<Array<{ rotulo: string; participante: string; eventId: string }>> {
     if (!this.graph.enabled) return [];
-    // Recrutador + gestor da vaga + participantes extras (ex.: líder da área).
-    const emails = [
-      candidatura.vaga?.recrutador?.email,
-      candidatura.vaga?.gestor?.email,
-      ...extras,
-    ]
+    // Recrutador (sempre) + apenas os participantes EXPLICITAMENTE convidados no
+    // propor (gestor/líderes entram só se o recrutador marcar — não automático).
+    const emails = [candidatura.vaga?.recrutador?.email, ...extras]
       .filter((e): e is string => !!e && e.includes('@'))
       .map((e) => e.toLowerCase());
     const participantes = [...new Set(emails)];

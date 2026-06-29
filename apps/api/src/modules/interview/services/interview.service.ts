@@ -425,7 +425,6 @@ export class InterviewService {
     }
 
     const recrutadorEmail = enquete.candidatura.vaga?.recrutador?.email ?? null;
-    const gestorEmail = enquete.candidatura.vaga?.gestor?.email ?? null;
     // Organizador FIXO (conta de serviço/bot) tem prioridade: garante que o transcript
     // via Graph seja sempre acessível sob um único usuário, e a agenda lotada dele NÃO
     // afeta a disponibilidade dos recrutadores. Sem ele, cai no recrutador.
@@ -440,11 +439,11 @@ export class InterviewService {
           'um recrutador à vaga (ou AGENDA_ORGANIZADOR_FALLBACK_EMAIL).',
       );
     }
-    // Quem foi PRÉ-RESERVADO (recrutador + gestor + participantes extras) é também
-    // convidado p/ a reunião — cai na agenda dele. Derivamos da lista de holds (assim
-    // os extras informados no propor entram automaticamente); sem holds (Graph off no
-    // propor), caímos em recrutador + gestor. O candidato NÃO é convidado aqui: o link
-    // só chega por WhatsApp na janela de 2h antes (regra de envio do link).
+    // Convidamos quem foi PRÉ-RESERVADO — derivado da lista de holds (recrutador +
+    // os participantes que o recrutador convidou no propor, ex.: gestor/líder). O
+    // gestor NÃO entra automaticamente: só se foi convidado. Sem holds (Graph off no
+    // propor), cai no recrutador. O candidato NÃO é convidado aqui — o link só chega
+    // por WhatsApp na janela de 2h antes (regra de envio do link).
     const participantesHolds = Array.isArray(enquete.holds)
       ? (enquete.holds as Array<{ participante?: string }>)
           .map((h) => h?.participante)
@@ -453,7 +452,7 @@ export class InterviewService {
     const participantesInternos =
       participantesHolds.length > 0
         ? participantesHolds
-        : [recrutadorEmail, gestorEmail].filter((e): e is string => !!e);
+        : [recrutadorEmail].filter((e): e is string => !!e);
     const convidadosExtra = [...new Set(participantesInternos)]
       .filter((e) => e !== organizadorEmail)
       .map((email) => ({ email }));

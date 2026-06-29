@@ -69,7 +69,8 @@ export function DisponibilidadePicker({
 
   // Convidados gerenciados pela própria agenda (quando permitirConvidar).
   const temGestor = Boolean(gestorEmail && EMAIL_REGEX.test(gestorEmail));
-  const [incluirGestor, setIncluirGestor] = useState(true);
+  // Opt-in: o gestor só é convidado/pré-reservado se o recrutador marcar.
+  const [incluirGestor, setIncluirGestor] = useState(false);
   const [extras, setExtras] = useState<string[]>([]);
   const [novoEmail, setNovoEmail] = useState('');
 
