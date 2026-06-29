@@ -165,6 +165,9 @@ export class MessagingController {
       candidaturaId?: string;
       opcoes?: Array<{ rotulo?: string; inicio?: string; fim?: string }>;
       pergunta?: string;
+      // E-mails de participantes extras (ex.: líder da área) — agendas pré-reservadas
+      // junto e convidados na reunião ao confirmar.
+      participantes?: string[];
     },
   ) {
     if (!body || !UUID_REGEX.test(body.candidaturaId ?? '')) {
@@ -179,10 +182,16 @@ export class MessagingController {
       inicio: String(o?.inicio ?? ''),
       fim: String(o?.fim ?? ''),
     }));
+    const participantes = Array.isArray(body.participantes)
+      ? body.participantes
+          .map((e) => String(e).trim().toLowerCase())
+          .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+      : [];
     return this.enquetes.enviar({
       candidaturaId: body.candidaturaId!,
       opcoes,
       pergunta: body.pergunta,
+      participantes,
     });
   }
 

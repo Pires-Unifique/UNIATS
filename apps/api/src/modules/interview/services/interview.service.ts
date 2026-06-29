@@ -440,11 +440,22 @@ export class InterviewService {
           'um recrutador à vaga (ou AGENDA_ORGANIZADOR_FALLBACK_EMAIL).',
       );
     }
-    // Participantes INTERNOS convidados (recrutador + gestor) — entram como convidados
-    // p/ a reunião cair na agenda DELES. O candidato NÃO é convidado aqui: o link só
-    // chega por WhatsApp na janela de 2h antes (regra de envio do link).
-    const convidadosExtra = [...new Set([recrutadorEmail, gestorEmail])]
-      .filter((e): e is string => !!e && e !== organizadorEmail)
+    // Quem foi PRÉ-RESERVADO (recrutador + gestor + participantes extras) é também
+    // convidado p/ a reunião — cai na agenda dele. Derivamos da lista de holds (assim
+    // os extras informados no propor entram automaticamente); sem holds (Graph off no
+    // propor), caímos em recrutador + gestor. O candidato NÃO é convidado aqui: o link
+    // só chega por WhatsApp na janela de 2h antes (regra de envio do link).
+    const participantesHolds = Array.isArray(enquete.holds)
+      ? (enquete.holds as Array<{ participante?: string }>)
+          .map((h) => h?.participante)
+          .filter((e): e is string => !!e)
+      : [];
+    const participantesInternos =
+      participantesHolds.length > 0
+        ? participantesHolds
+        : [recrutadorEmail, gestorEmail].filter((e): e is string => !!e);
+    const convidadosExtra = [...new Set(participantesInternos)]
+      .filter((e) => e !== organizadorEmail)
       .map((email) => ({ email }));
 
     if (provedor === 'teams' && !this.graph.enabled) {

@@ -27,6 +27,12 @@ export interface EnviarEnqueteHorariosInput {
   opcoes: OpcaoHorario[];
   /** Pergunta da enquete (default amigável com o título da vaga). */
   pergunta?: string;
+  /**
+   * E-mails de participantes EXTRAS (ex.: líder da área) cujas agendas também são
+   * pré-reservadas, além de recrutador + gestor da vaga. Eles também são convidados
+   * para a reunião ao confirmar.
+   */
+  participantes?: string[];
 }
 
 /**
@@ -162,7 +168,11 @@ export class EnqueteService {
     // (recrutador + gestor da vaga) com holds tentativos. Best-effort — se o Graph
     // falhar, a enquete segue (não trava o WhatsApp). Os holds são apagados no
     // auto-confirm (sobra só o escolhido) ou pelo cron de limpeza de órfãos.
-    const holds = await this.criarHoldsPreReserva(opcoes, candidatura);
+    const holds = await this.criarHoldsPreReserva(
+      opcoes,
+      candidatura,
+      input.participantes ?? [],
+    );
     if (holds.length > 0) {
       await this.prisma.enqueteHorario.update({
         where: { id: enquete.id },
@@ -355,11 +365,14 @@ export class EnqueteService {
         gestor: { email: string | null } | null;
       } | null;
     },
+    extras: string[],
   ): Promise<Array<{ rotulo: string; participante: string; eventId: string }>> {
     if (!this.graph.enabled) return [];
+    // Recrutador + gestor da vaga + participantes extras (ex.: líder da área).
     const emails = [
       candidatura.vaga?.recrutador?.email,
       candidatura.vaga?.gestor?.email,
+      ...extras,
     ]
       .filter((e): e is string => !!e && e.includes('@'))
       .map((e) => e.toLowerCase());
