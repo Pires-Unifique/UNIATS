@@ -596,9 +596,9 @@ export default function CandidatosVagaPage({
                   <Td className="text-right">
                     <Link
                       href={`/candidaturas/${it.candidaturaId}`}
-                      className="text-unifique-700 hover:underline text-xs"
+                      className="btn-soft text-xs"
                     >
-                      Detalhe →
+                      Ver detalhe →
                     </Link>
                   </Td>
                 </tr>
