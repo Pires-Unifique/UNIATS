@@ -30,6 +30,8 @@ export function ProporHorariosModal({
   onEnviada,
 }: Props) {
   const [slots, setSlots] = useState<SlotLivre[]>([]);
+  // Convidados (gestor incluído + extras) — pré-reservamos a agenda deles também.
+  const [participantes, setParticipantes] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -48,6 +50,9 @@ export function ProporHorariosModal({
             inicio: s.inicio,
             fim: s.fim,
           })),
+          // Participantes convidados → suas agendas também são pré-reservadas e
+          // eles entram na reunião ao confirmar.
+          participantes,
         },
       });
       onEnviada();
@@ -96,6 +101,7 @@ export function ProporHorariosModal({
             gestorEmail={gestorEmail}
             gestorNome={gestorNome}
             onChange={setSlots}
+            onParticipantesChange={setParticipantes}
           />
         </div>
 

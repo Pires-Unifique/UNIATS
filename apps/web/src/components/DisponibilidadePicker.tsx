@@ -30,6 +30,8 @@ interface Props {
   inline?: boolean;
   /** Disparado a cada mudança de seleção (principal no modo inline). */
   onChange?: (slots: SlotLivre[]) => void;
+  /** Reporta os convidados (gestor incluído + extras) — p/ pré-reservar a agenda deles. */
+  onParticipantesChange?: (emails: string[]) => void;
   onUsar?: (slots: SlotLivre[]) => void;
   onClose?: () => void;
 }
@@ -54,6 +56,7 @@ export function DisponibilidadePicker({
   gestorNome,
   inline = false,
   onChange,
+  onParticipantesChange,
   onUsar,
   onClose,
 }: Props) {
@@ -114,6 +117,15 @@ export function DisponibilidadePicker({
   useEffect(() => {
     void buscar();
   }, [buscar]);
+
+  // Reporta os convidados (gestor incluído + extras) ao pai — p/ pré-reservar a
+  // agenda deles além de checar a disponibilidade.
+  useEffect(() => {
+    onParticipantesChange?.(
+      participantesEfetivos.map((e) => e.trim()).filter(Boolean),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participantesKey]);
 
   function adicionarExtra() {
     const e = novoEmail.trim().toLowerCase();
