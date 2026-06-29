@@ -347,19 +347,19 @@ export function DisponibilidadePicker({
           {/* Legenda */}
           <div className="mb-2 flex flex-wrap items-center gap-4 text-xs text-grafite-500">
             <Legenda
-              cor="border-[#3d3d3d]"
+              cor="border-grafite-300 dark:border-[#3d3d3d]"
               rotulo="Livre"
-              estilo={{ backgroundColor: '#2d2d2d' }}
+              swatch="bg-white dark:bg-[#2d2d2d]"
             />
             <Legenda
               cor="border-[#479ef5]"
               rotulo="Selecionado"
-              estilo={{ backgroundColor: '#479ef5' }}
+              swatch="bg-[#479ef5]"
             />
             <Legenda
               cor="border-[#5b5fc7]"
               rotulo="Ocupado"
-              estilo={{ backgroundColor: '#5b5fc7' }}
+              swatch="bg-[#5b5fc7]"
             />
             {grade && (
               <span className="ml-auto">
@@ -381,24 +381,24 @@ export function DisponibilidadePicker({
             </div>
           )}
 
-          {/* Grade estilo Teams (modo escuro: livre preto, ocupado/seleção em azul) */}
+          {/* Grade estilo Teams — adapta ao tema (claro: fundo branco; escuro: grafite). */}
           {grade && grade.dias.length > 0 && (
-            <div className="overflow-auto rounded-xl border border-[#3d3d3d] bg-[#1f1f1f]">
+            <div className="overflow-auto rounded-xl border border-grafite-200 bg-white dark:border-[#3d3d3d] dark:bg-[#1f1f1f]">
               <table className="w-full border-collapse text-xs">
                 <thead>
                   <tr>
-                    <th className="sticky left-0 top-0 z-20 border-b border-[#3d3d3d] bg-[#2a2a2a] px-2 py-1.5" />
+                    <th className="sticky left-0 top-0 z-20 border-b border-grafite-200 bg-grafite-50 px-2 py-1.5 dark:border-[#3d3d3d] dark:bg-[#2a2a2a]" />
                     {grade.dias.map((dia) => {
                       const [semana, data] = dia.rotuloDia.split(', ');
                       return (
                         <th
                           key={dia.data}
-                          className="sticky top-0 z-10 min-w-[4.5rem] border-b border-l border-[#3d3d3d] bg-[#2a2a2a] px-2 py-1.5 text-center font-medium"
+                          className="sticky top-0 z-10 min-w-[4.5rem] border-b border-l border-grafite-200 bg-grafite-50 px-2 py-1.5 text-center font-medium dark:border-[#3d3d3d] dark:bg-[#2a2a2a]"
                         >
-                          <div className="capitalize text-neutral-200">
+                          <div className="capitalize text-grafite-900 dark:text-neutral-200">
                             {semana}
                           </div>
-                          <div className="text-neutral-500">{data}</div>
+                          <div className="text-grafite-400 dark:text-neutral-500">{data}</div>
                         </th>
                       );
                     })}
@@ -412,12 +412,12 @@ export function DisponibilidadePicker({
                       linha === 0
                         ? ''
                         : horaCheia
-                          ? 'border-t border-[#454545]'
-                          : 'border-t border-[#363636]';
+                          ? 'border-t border-grafite-200 dark:border-[#454545]'
+                          : 'border-t border-grafite-100 dark:border-[#363636]';
                     return (
                       <tr key={hora}>
                         <td
-                          className={`sticky left-0 z-10 whitespace-nowrap border-r border-[#3d3d3d] bg-[#1f1f1f] px-2 py-0 text-right align-top text-[10px] tabular-nums ${horaCheia ? 'text-neutral-400' : 'text-neutral-600'}`}
+                          className={`sticky left-0 z-10 whitespace-nowrap border-r border-grafite-200 bg-white px-2 py-0 text-right align-top text-[10px] tabular-nums dark:border-[#3d3d3d] dark:bg-[#1f1f1f] ${horaCheia ? 'text-grafite-500 dark:text-neutral-400' : 'text-grafite-300 dark:text-neutral-600'}`}
                         >
                           {hora}
                         </td>
@@ -430,7 +430,7 @@ export function DisponibilidadePicker({
                           return (
                             <td
                               key={dia.data}
-                              className={`border-l border-[#363636] p-0 ${sep}`}
+                              className={`border-l border-grafite-100 p-0 dark:border-[#363636] ${sep}`}
                             >
                               <button
                                 type="button"
@@ -444,9 +444,9 @@ export function DisponibilidadePicker({
                                   (coberto
                                     ? 'bg-[#479ef5] text-white'
                                     : podeClicar
-                                      ? 'bg-[#2a2a2a] text-transparent hover:bg-[#383838]'
+                                      ? 'bg-white text-transparent hover:bg-grafite-100 dark:bg-[#2a2a2a] dark:hover:bg-[#383838]'
                                       : livre
-                                        ? 'bg-[#232323] text-transparent'
+                                        ? 'bg-grafite-50 text-transparent dark:bg-[#232323]'
                                         : 'cursor-not-allowed bg-[#5b5fc7] text-transparent')
                                 }
                               >
@@ -546,18 +546,16 @@ export function DisponibilidadePicker({
 function Legenda({
   cor,
   rotulo,
-  estilo,
+  swatch,
 }: {
   cor: string;
   rotulo: string;
-  estilo?: React.CSSProperties;
+  /** Classes Tailwind do fundo do quadradinho (com variante dark:). */
+  swatch: string;
 }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span
-        className={`inline-block h-3 w-3 rounded-sm border ${cor}`}
-        style={estilo}
-      />
+      <span className={`inline-block h-3 w-3 rounded-sm border ${cor} ${swatch}`} />
       {rotulo}
     </span>
   );
