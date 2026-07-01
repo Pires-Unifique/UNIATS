@@ -120,6 +120,9 @@ export class AlteracaoContratualService {
       input.itens.map((item) => this.resolverItem(item, input)),
     );
 
+    // Regra: troca de líder só entre líderes do MESMO centro de custo.
+    await this.validarTrocaLiderMesmoCC(input);
+
     // Snapshot da descrição do novo cargo (p/ o termo DHO-301), se houver troca de cargo.
     let cargoDescricao: string | null = null;
     const itemCargo = input.itens.find((i) => i.tipo === 'CARGO');
@@ -161,6 +164,54 @@ export class AlteracaoContratualService {
       },
     });
     return this.obter(criada.id);
+  }
+
+  /**
+   * Regra de negócio: a troca de líder só pode ocorrer entre líderes do MESMO
+   * centro de custo do colaborador (o CC do líder vem do departamento dele, no
+   * espelho). Se o novo líder for de OUTRO CC, a solicitação precisa incluir
+   * TAMBÉM a alteração de CENTRO_CUSTO para o CC do novo líder (mover o
+   * colaborador junto) — senão bloqueia com mensagem orientando a incluir.
+   *
+   * Validação defensiva (a UI já solicita/inclui a mudança de CC): só roda
+   * quando dá para resolver os dois CCs no espelho (novo líder com matrícula
+   * conhecida + colaborador com CC). Sem isso, não bloqueia.
+   */
+  private async validarTrocaLiderMesmoCC(
+    input: CriarSolicitacaoAlteracaoInputDTO,
+  ): Promise<void> {
+    const itemLider = input.itens.find((i) => i.tipo === 'LIDER');
+    if (!itemLider?.novo_lider_matricula?.trim()) return;
+
+    const colab = input.colaborador_id
+      ? await this.prisma.colaborador.findUnique({
+          where: { id: input.colaborador_id },
+          select: { centro_custo_id: true },
+        })
+      : await this.prisma.colaborador.findUnique({
+          where: { matricula: input.colaborador_matricula.trim() },
+          select: { centro_custo_id: true },
+        });
+    const novoLider = await this.prisma.colaborador.findUnique({
+      where: { matricula: itemLider.novo_lider_matricula.trim() },
+      select: { centro_custo_id: true, centro_custo: { select: { nome: true } } },
+    });
+
+    const ccColab = colab?.centro_custo_id ?? null;
+    const ccLider = novoLider?.centro_custo_id ?? null;
+    // CCs indefinidos ou iguais → nada a exigir.
+    if (!ccColab || !ccLider || ccColab === ccLider) return;
+
+    // CC diferente: exige uma alteração de CENTRO_CUSTO para o CC do novo líder.
+    const itemCC = input.itens.find((i) => i.tipo === 'CENTRO_CUSTO');
+    if (!itemCC || itemCC.centro_custo_novo_id !== ccLider) {
+      const nomeCC = novoLider?.centro_custo?.nome ?? 'outro centro de custo';
+      throw new BadRequestException(
+        `O novo líder pertence a outro centro de custo (${nomeCC}). ` +
+          `Inclua também a alteração de centro de custo para "${nomeCC}" ` +
+          '(o colaborador precisa ser movido junto).',
+      );
+    }
   }
 
   /** Resolve um item de entrada em dados do Prisma, derivando os rótulos "de → para". */

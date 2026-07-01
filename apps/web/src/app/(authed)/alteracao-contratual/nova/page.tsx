@@ -40,6 +40,7 @@ export default function NovaAlteracaoPage() {
   const [nome, setNome] = useState('');
   const [unidadeAtual, setUnidadeAtual] = useState('');
   const [centroAtual, setCentroAtual] = useState('');
+  const [colaboradorCentroId, setColaboradorCentroId] = useState<string | null>(null);
   const [cargoAtual, setCargoAtual] = useState('');
   const [liderAtual, setLiderAtual] = useState('');
 
@@ -54,6 +55,10 @@ export default function NovaAlteracaoPage() {
   const [novoLiderMatricula, setNovoLiderMatricula] = useState('');
   const [liderBusca, setLiderBusca] = useState('');
   const [liderResultados, setLiderResultados] = useState<ColaboradorDTO[]>([]);
+  // CC do novo líder — regra: troca de líder só no MESMO CC; se for outro, o
+  // sistema inclui também a mudança de CC (mover o colaborador junto).
+  const [liderCentroId, setLiderCentroId] = useState<string | null>(null);
+  const [liderCentroNome, setLiderCentroNome] = useState('');
   // Atributos do termo de cargo (SIM/NÃO) — null = não informado.
   const [diretrizComercial, setDiretrizComercial] = useState<boolean | null>(null);
   const [periculosidade, setPericulosidade] = useState<boolean | null>(null);
@@ -106,6 +111,7 @@ export default function NovaAlteracaoPage() {
     setNome(c.nome);
     setUnidadeAtual(c.unidade_nome ?? '');
     setCentroAtual(c.centro_custo_nome ?? '');
+    setColaboradorCentroId(c.centro_custo_id ?? null);
     setCargoAtual(c.cargo_atual ?? '');
     setLiderAtual(c.lider_nome ?? '');
     setBusca(`${c.nome} (${c.matricula})`);
@@ -133,8 +139,21 @@ export default function NovaAlteracaoPage() {
   function selecionarLider(c: ColaboradorDTO) {
     setNovoLiderNome(c.nome);
     setNovoLiderMatricula(c.matricula);
+    setLiderCentroId(c.centro_custo_id ?? null);
+    setLiderCentroNome(c.centro_custo_nome ?? '');
     setLiderBusca(`${c.nome} (${c.matricula})`);
     setLiderResultados([]);
+
+    // Regra: se o novo líder é de OUTRO centro de custo, inclui também a
+    // mudança de CC (o colaborador precisa ser movido junto).
+    if (
+      c.centro_custo_id &&
+      colaboradorCentroId &&
+      c.centro_custo_id !== colaboradorCentroId
+    ) {
+      setTipos((prev) => new Set(prev).add('CENTRO_CUSTO'));
+      setCentroNovoId(c.centro_custo_id);
+    }
   }
 
   function toggleTipo(t: TipoAlteracaoContratual) {
@@ -196,6 +215,14 @@ export default function NovaAlteracaoPage() {
       });
     }
 
+    // Regra: troca de líder cross-CC exige incluir a mudança de CC para o CC do líder.
+    if (liderOutroCC && (!tipos.has('CENTRO_CUSTO') || centroNovoId !== liderCentroId)) {
+      return setErro(
+        `O novo líder é de outro centro de custo${liderCentroNome ? ` (${liderCentroNome})` : ''}. ` +
+          `Inclua também a mudança de centro de custo para ${liderCentroNome || 'o CC do novo líder'}.`,
+      );
+    }
+
     setSalvando(true);
     try {
       const criada = await api<SolicitacaoAlteracaoDetalheDTO>(
@@ -244,6 +271,12 @@ export default function NovaAlteracaoPage() {
 
   const has = (t: TipoAlteracaoContratual) => tipos.has(t);
   const cargoSelecionado = cargos.find((c) => c.id === cargoNovoId);
+  // Novo líder é de outro centro de custo? (exige mover o CC junto)
+  const liderOutroCC =
+    tipos.has('LIDER') &&
+    !!liderCentroId &&
+    !!colaboradorCentroId &&
+    liderCentroId !== colaboradorCentroId;
 
   // Dados do termo (pré-visualização ao vivo).
   const termoDados = {
@@ -515,6 +548,15 @@ export default function NovaAlteracaoPage() {
                 <p className="text-xs text-grafite-500 mt-1">
                   Matrícula do novo líder: <strong>{novoLiderMatricula}</strong>
                 </p>
+              )}
+              {liderOutroCC && (
+                <div className="mt-2 rounded-md bg-unifique-50 dark:bg-unifique-500/10 border border-unifique-100 dark:border-unifique-500/20 p-2.5 text-xs text-grafite-700">
+                  O novo líder é de <strong>outro centro de custo</strong>
+                  {liderCentroNome ? ` (${liderCentroNome})` : ''}. A troca de líder
+                  só ocorre no mesmo CC, então incluímos automaticamente a{' '}
+                  <strong>mudança de centro de custo</strong> — o colaborador será
+                  movido junto{liderCentroNome ? ` para ${liderCentroNome}` : ''}.
+                </div>
               )}
             </div>
           )}
