@@ -477,3 +477,61 @@ export interface CandidaturaDetalheDTO {
   scores: ScoreDTO[];
   entrevistas: EntrevistaDTO[];
 }
+
+// ---------- Sistema: usuários, chaves de API e WhatsApp (WAHA) ----------
+
+// Usuário na tela de gestão (seção Sistema → Usuários). `areas` usa os valores
+// internos ('admin' | 'recrutamento' | 'admissao' | 'dho' | 'offboarding');
+// o rótulo exibido de 'dho' no produto é "Administração de Pessoas".
+export interface UsuarioAdminDTO {
+  id: string;
+  nome: string;
+  email: string;
+  areas: string[];
+  ativo: boolean;
+  ultimo_login_em: string | null;
+  criado_em: string;
+  /** Nº de vagas em que é gestor (vínculo automático por e-mail da Gupy). */
+  vagas_como_gestor: number;
+  /** Admin garantido por AUTH_ADMIN_EMAILS — remover 'admin' volta no próximo login. */
+  admin_via_ambiente: boolean;
+  /** Pré-cadastrado por e-mail e ainda sem 1º login (azure_oid provisório). */
+  aguardando_primeiro_login: boolean;
+}
+
+export interface ChaveApiDTO {
+  id: string;
+  nome: string;
+  /** Trecho exibível da chave (ex.: "clb_9f2a41c8") — nunca a chave completa. */
+  prefixo: string;
+  escopos: string[];
+  criado_por_nome: string | null;
+  expira_em: string | null;
+  ultimo_uso_em: string | null;
+  revogado_em: string | null;
+  criado_em: string;
+}
+
+// Resposta da CRIAÇÃO — única vez em que a chave completa sai do servidor.
+export interface ChaveApiCriadaDTO extends ChaveApiDTO {
+  chave: string;
+}
+
+// Status da sessão WhatsApp (WAHA), proxiado pela API. `status` cru do WAHA
+// (WORKING | SCAN_QR_CODE | STARTING | STOPPED | FAILED) ou os nossos
+// NAO_CONFIGURADO | INDISPONIVEL.
+export interface WahaStatusDTO {
+  configurado: boolean;
+  sessao: string;
+  status: string;
+  numero: string | null;
+  nome_exibicao: string | null;
+  engine: string | null;
+  ultimo_webhook_em: string | null;
+  ultimo_webhook_evento: string | null;
+}
+
+export interface WahaQrDTO {
+  /** Data URL (image/png;base64) — o QR expira; re-buscar a cada ~20 s. */
+  image: string;
+}

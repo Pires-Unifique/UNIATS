@@ -13,7 +13,7 @@ import {
   InteractionRequiredAuthError,
 } from '@azure/msal-browser';
 
-import { api, configurarTokenProvider } from './api';
+import { api, ApiError, configurarTokenProvider } from './api';
 import { apiTokenRequest, authEnabled, getMsal, loginRequest } from './msal';
 
 /** Áreas de acesso (módulos). 'admin' libera tudo. Espelha o backend. */
@@ -37,6 +37,8 @@ interface AuthCtx {
   areas: Area[];
   /** true = pode ver todas as vagas (admin/recrutamento); false = só as próprias (gestor). */
   podeVerTudo: boolean;
+  /** true = o acesso foi DESATIVADO na tela de Usuários (API recusa com 403). */
+  bloqueado: boolean;
   login: () => Promise<void>;
   /** Login local (sem SSO) — dev/teste. Retorna false se credenciais inválidas. */
   loginLocal: (usuario: string, senha: string) => Promise<boolean>;
@@ -94,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [pronto, setPronto] = useState(false);
   const [usuario, setUsuario] = useState<UsuarioInfo | null>(null);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [bloqueado, setBloqueado] = useState(false);
 
   // Carrega as áreas do backend (fonte de verdade) sempre que houver usuário.
   // Funciona em todos os modos: com SSO usa o token; em dev/local o backend
@@ -101,15 +104,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!usuario) {
       setAreas([]);
+      setBloqueado(false);
       return;
     }
     let cancelado = false;
     api<{ areas?: Area[] }>('/api/auth/me')
       .then((me) => {
-        if (!cancelado) setAreas(me.areas ?? []);
+        if (cancelado) return;
+        setAreas(me.areas ?? []);
+        setBloqueado(false);
       })
-      .catch(() => {
-        if (!cancelado) setAreas([]);
+      .catch((err) => {
+        if (cancelado) return;
+        setAreas([]);
+        // 403 USUARIO_DESATIVADO: a pessoa autentica no AD, mas o Collab a
+        // desativou (tela de Usuários). Mostramos tela própria em vez de app vazio.
+        setBloqueado(
+          err instanceof ApiError &&
+            err.status === 403 &&
+            (err.body as { code?: string } | null)?.code === 'USUARIO_DESATIVADO',
+        );
       });
     return () => {
       cancelado = true;
@@ -206,6 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       usuario,
       areas,
       podeVerTudo: areas.includes('admin') || areas.includes('recrutamento'),
+      bloqueado,
       async login() {
         if (!authEnabled()) {
           // Sem SSO: se o login local é obrigatório, o botão "Microsoft" NÃO
@@ -259,17 +274,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await getMsal().logoutRedirect();
       },
     }),
-    [pronto, usuario, areas],
+    [pronto, usuario, areas, bloqueado],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 /**
- * Guard simples — redireciona para /login se não autenticado.
+ * Guard simples — redireciona para /login se não autenticado; se o acesso foi
+ * DESATIVADO na tela de Usuários, mostra o motivo em vez do app vazio.
  */
 export function AuthGuard({ children }: { children: ReactNode }) {
-  const { pronto, usuario } = useAuth();
+  const { pronto, usuario, bloqueado, logout } = useAuth();
   useEffect(() => {
     if (pronto && !usuario && typeof window !== 'undefined') {
       window.location.href = '/login';
@@ -282,5 +298,30 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     );
   }
   if (!usuario) return null;
+  if (bloqueado) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <div className="card p-8 max-w-md text-center space-y-3">
+          <p className="text-3xl" aria-hidden>
+            🔒
+          </p>
+          <h1 className="text-lg font-semibold text-grafite-900">
+            Acesso desativado
+          </h1>
+          <p className="text-sm text-grafite-600">
+            Seu acesso ao Collab foi desativado. Se acha que isso é um engano,
+            procure o DHO ou um administrador do sistema.
+          </p>
+          <button
+            type="button"
+            className="btn-secondary text-sm"
+            onClick={() => void logout()}
+          >
+            Sair
+          </button>
+        </div>
+      </div>
+    );
+  }
   return <>{children}</>;
 }

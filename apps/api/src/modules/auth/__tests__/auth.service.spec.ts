@@ -1,5 +1,10 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { createHash } from 'node:crypto';
 
 import { AuthService } from '../auth.service.js';
 
@@ -16,6 +21,7 @@ type MockPrisma = {
   };
   vaga: { updateMany: jest.Mock; findFirst: jest.Mock };
   candidatura: { findFirst: jest.Mock };
+  chaveApi: { findUnique: jest.Mock; update: jest.Mock };
 };
 
 function montar(envOverrides: Record<string, unknown> = {}) {
@@ -31,6 +37,10 @@ function montar(envOverrides: Record<string, unknown> = {}) {
       findFirst: jest.fn(),
     },
     candidatura: { findFirst: jest.fn() },
+    chaveApi: {
+      findUnique: jest.fn(),
+      update: jest.fn().mockResolvedValue({}),
+    },
   };
   const env: Record<string, unknown> = {
     AUTH_DEV_OID: '00000000-0000-0000-0000-000000000001',
@@ -229,6 +239,106 @@ describe('AuthService.resolverPorOid', () => {
     const { service, prisma } = montar();
     prisma.usuario.findUnique.mockResolvedValue(null);
     expect(await service.resolverPorOid('inexistente')).toBeNull();
+  });
+
+  it('devolve null para usuário DESATIVADO (bypass de dev segue a mesma regra)', async () => {
+    const { service, prisma } = montar();
+    prisma.usuario.findUnique.mockResolvedValue({ ...usuarioDb, ativo: false });
+    expect(await service.resolverPorOid('oid-1')).toBeNull();
+  });
+});
+
+describe('AuthService — usuário desativado no provisionamento', () => {
+  it('recusa login de usuário com ativo=false (403 com code USUARIO_DESATIVADO)', async () => {
+    const { service, prisma } = montar();
+    prisma.usuario.findUnique.mockResolvedValue({ ...usuarioDb, ativo: false });
+
+    await expect(
+      service.provisionarUsuario({
+        azure_oid: 'oid-1',
+        email: 'fulano@unifique.com.br',
+        nome: 'Fulano',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.usuario.update).not.toHaveBeenCalled();
+    expect(prisma.usuario.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.autenticarPorChaveApi', () => {
+  const chaveRaw = 'clb_abc123';
+  const hash = createHash('sha256').update(chaveRaw, 'utf8').digest('hex');
+  const chaveDb = {
+    id: 'ch-1',
+    nome: 'Integração UNIIT',
+    prefixo: 'clb_abc123'.slice(0, 12),
+    hash,
+    escopos: ['recrutamento'],
+    expira_em: null,
+    ultimo_uso_em: null,
+    revogado_em: null,
+  };
+
+  it('vira usuário de sistema com areas = escopos (busca por hash SHA-256)', async () => {
+    const { service, prisma } = montar();
+    prisma.chaveApi.findUnique.mockResolvedValue(chaveDb);
+
+    const r = await service.autenticarPorChaveApi(chaveRaw);
+
+    const arg = prisma.chaveApi.findUnique.mock.calls[0][0] as any;
+    expect(arg.where).toEqual({ hash }); // nunca busca pela chave em claro
+    expect(r.chave_api).toBe(true);
+    expect(r.areas).toEqual(['recrutamento']);
+    expect(r.nome).toBe('Integração UNIIT');
+  });
+
+  it('recusa chave inexistente ou revogada', async () => {
+    const { service, prisma } = montar();
+    prisma.chaveApi.findUnique.mockResolvedValue(null);
+    await expect(service.autenticarPorChaveApi('clb_x')).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    prisma.chaveApi.findUnique.mockResolvedValue({
+      ...chaveDb,
+      revogado_em: new Date(),
+    });
+    await expect(service.autenticarPorChaveApi(chaveRaw)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('recusa chave expirada', async () => {
+    const { service, prisma } = montar();
+    prisma.chaveApi.findUnique.mockResolvedValue({
+      ...chaveDb,
+      expira_em: new Date(Date.now() - 1000),
+    });
+    await expect(service.autenticarPorChaveApi(chaveRaw)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('atualiza ultimo_uso_em quando defasado (>1 min), sem bloquear a requisição', async () => {
+    const { service, prisma } = montar();
+    prisma.chaveApi.findUnique.mockResolvedValue({
+      ...chaveDb,
+      ultimo_uso_em: new Date(Date.now() - 5 * 60_000),
+    });
+
+    await service.autenticarPorChaveApi(chaveRaw);
+    expect(prisma.chaveApi.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('NÃO regrava ultimo_uso_em em uso recente (menos de 1 min)', async () => {
+    const { service, prisma } = montar();
+    prisma.chaveApi.findUnique.mockResolvedValue({
+      ...chaveDb,
+      ultimo_uso_em: new Date(),
+    });
+
+    await service.autenticarPorChaveApi(chaveRaw);
+    expect(prisma.chaveApi.update).not.toHaveBeenCalled();
   });
 });
 

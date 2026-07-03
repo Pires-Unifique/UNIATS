@@ -9,9 +9,31 @@ export type Area =
   | 'recrutamento'
   | 'admissao'
   | 'offboarding'
-  // DHO — aprova/assina alterações contratuais. (O acesso do LÍDER ao módulo não
-  // é uma área: virá da detecção de liderança no Senior/MS — como gestor↔vaga.)
+  // DHO — aprova/assina alterações contratuais. Exibida no produto como
+  // "Administração de Pessoas" (o valor interno continua 'dho'). (O acesso do
+  // LÍDER ao módulo não é uma área: virá da detecção de liderança — Senior/MS.)
   | 'dho';
+
+/**
+ * Áreas que a tela de Usuários pode ATRIBUIR. 'offboarding' fica de fora:
+ * está no tipo por compatibilidade, mas nenhum endpoint a usa hoje.
+ */
+export const AREAS_ATRIBUIVEIS: readonly Area[] = [
+  'admin',
+  'recrutamento',
+  'admissao',
+  'dho',
+];
+
+/**
+ * Escopos válidos para CHAVES DE API — as mesmas áreas dos usuários, exceto
+ * 'admin': gestão de usuários/chaves/sistema é só para humanos logados.
+ */
+export const ESCOPOS_CHAVE_API: readonly Area[] = [
+  'recrutamento',
+  'admissao',
+  'dho',
+];
 
 /**
  * Identidade resolvida pela camada de auth e anexada à requisição (`req.user`).
@@ -26,6 +48,8 @@ export interface UsuarioAutenticado {
   papel: PapelUsuario;
   areas: Area[];
   ativo: boolean;
+  /** Presente (true) quando a requisição autenticou por CHAVE DE API (x-api-key). */
+  chave_api?: boolean;
 }
 
 // Tipa `req.user` (Express/passport) como o nosso usuário autenticado.
