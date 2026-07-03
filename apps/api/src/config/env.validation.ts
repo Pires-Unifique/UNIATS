@@ -325,7 +325,10 @@ const EnvSchema = z.object({
   FRONTEND_ORIGIN: z.string().url().optional(),
 
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
-  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+  // 600/min: mesmo com trust proxy, usuários atrás do proxy corporativo podem
+  // compartilhar o MESMO IP (um balde coletivo) — 120/min derrubava uso normal
+  // com 429. O throttle aqui é anti-runaway, não fronteira de segurança.
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(600),
 }).superRefine((env, ctx) => {
   // FALHA-FECHADO: em produção a autenticação real é OBRIGATÓRIA. Sem esta trava,
   // AUTH_ENABLED=false (o default) faz o AuthGuard injetar um ADMIN de dev em TODA

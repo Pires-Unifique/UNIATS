@@ -93,13 +93,89 @@ describe('GupyService.sincronizarTodasAsVagas', () => {
     expect(prisma.vaga.upsert).toHaveBeenCalledTimes(3);
   });
 
-  it('varre SEM filtro de status (rascunhos/aprovadas também entram)', async () => {
+  it('varre um STATUS por vez (a Gupy não devolve rascunho/aprovação sem filtro)', async () => {
     const { service, client, prisma } = montarMocks();
-    (client.iterarVagas as any).mockReturnValue(gen([]));
+    (client.iterarVagas as any).mockImplementation(() => gen([]));
     prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
 
     await service.sincronizarTodasAsVagas();
-    expect(client.iterarVagas).toHaveBeenCalledWith();
+    const statuses = (client.iterarVagas as any).mock.calls.map(
+      (c: any[]) => c[0]?.status,
+    );
+    for (const s of ['published', 'approved', 'waiting_approval', 'draft']) {
+      expect(statuses).toContain(s);
+    }
+  });
+
+  it('falha em UM status não derruba o backfill dos demais', async () => {
+    const { service, client, prisma } = montarMocks();
+    const vaga = VagaGupySchema.parse(vagaFakeJson);
+    (client.iterarVagas as any).mockImplementation(({ status }: any) => {
+      if (status === 'published') {
+        return (async function* (): AsyncGenerator<never, void, void> {
+          throw new Error('Gupy 500');
+        })();
+      }
+      return gen(status === 'draft' ? [vaga] : []);
+    });
+    prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
+
+    const r = await service.sincronizarTodasAsVagas();
+    expect(r.total).toBe(1); // o draft entrou apesar do published ter falhado
+  });
+});
+
+describe('GupyService.iniciarSyncVagas', () => {
+  it('retorna na hora e conclui em background com a contagem', async () => {
+    const { service, client, prisma } = montarMocks();
+    const vaga = VagaGupySchema.parse(vagaFakeJson);
+    (client.iterarVagas as any).mockReturnValue(gen([vaga, vaga]));
+    prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
+
+    const r = service.iniciarSyncVagas();
+    expect(r.iniciado).toBe(true);
+    expect(r.emAndamento).toBe(true);
+
+    // Cede o event loop até o varredor em background terminar.
+    await new Promise((res) => setImmediate(res));
+    const st = service.statusSyncVagas();
+    expect(st.emAndamento).toBe(false);
+    expect(st.importadas).toBe(2);
+    expect(st.erro).toBeNull();
+  });
+
+  it('NÃO dispara de novo enquanto um sync está em andamento', async () => {
+    const { service, client, prisma } = montarMocks();
+    const vaga = VagaGupySchema.parse(vagaFakeJson);
+    (client.iterarVagas as any).mockReturnValue(gen([vaga]));
+    prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
+
+    const primeiro = service.iniciarSyncVagas();
+    const segundo = service.iniciarSyncVagas();
+    expect(primeiro.iniciado).toBe(true);
+    expect(segundo.iniciado).toBe(false);
+
+    await new Promise((res) => setImmediate(res));
+    // Uma varredura só (1 chamada por status), não duas.
+    const qtdStatus = (GupyService as any).STATUS_SYNC.length;
+    expect(client.iterarVagas).toHaveBeenCalledTimes(qtdStatus);
+  });
+
+  it('falha TOTAL do client vira `erro` no status (não derruba nada)', async () => {
+    const { service, client } = montarMocks();
+    // Todos os status falham (ex.: token inválido) — gerador novo por chamada.
+    (client.iterarVagas as any).mockImplementation(() =>
+      (async function* (): AsyncGenerator<never, void, void> {
+        throw new Error('Gupy 500');
+      })(),
+    );
+
+    service.iniciarSyncVagas();
+    await new Promise((res) => setImmediate(res));
+
+    const st = service.statusSyncVagas();
+    expect(st.emAndamento).toBe(false);
+    expect(st.erro).toContain('Gupy 500');
   });
 });
 

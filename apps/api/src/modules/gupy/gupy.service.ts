@@ -44,21 +44,93 @@ export class GupyService {
   }
 
   /**
-   * Sincroniza TODAS as vagas (paginado), SEM filtro de status: rascunhos e
-   * aprovadas também entram (o gestor precisa ver as dele antes da publicação)
-   * e vagas encerradas/canceladas na Gupy convergem em vez de ficarem com
-   * status desatualizado no banco.
+   * Status varridos no backfill. A listagem SEM filtro da Gupy não devolve
+   * rascunho/aprovação (validado em produção: sem filtro só vieram
+   * published/closed/canceled; draft=539, approved=44 e waiting_approval=48
+   * só saem com o filtro explícito). Varremos um status por vez.
+   */
+  private static readonly STATUS_SYNC = [
+    'published',
+    'approved',
+    'waiting_approval',
+    'draft',
+    'frozen',
+    'closed',
+    'canceled',
+  ] as const;
+
+  /**
+   * Sincroniza TODAS as vagas (paginado), varrendo um STATUS por vez:
+   * rascunhos e aprovadas também entram (o gestor precisa ver as dele antes
+   * da publicação) e vagas encerradas/canceladas na Gupy convergem em vez de
+   * ficarem com status desatualizado no banco.
+   * perPage 50: com fields=all as descrições HTML deixam a página pesada
+   * (100 estourava o maxContentLength do client).
    * Em produção, agendamos via cron + filtramos por delta usando `gupy_sincronizado_em`.
    */
   async sincronizarTodasAsVagas(): Promise<{ total: number }> {
     let total = 0;
-    for await (const v of this.client.iterarVagas()) {
-      const vaga = await this.prisma.vaga.upsert(paraUpsertVaga(v));
-      await this.auth.vincularGestorAoSincronizar(vaga.id, vaga.gestor_email);
-      total += 1;
+    const falhas: string[] = [];
+    for (const status of GupyService.STATUS_SYNC) {
+      try {
+        for await (const v of this.client.iterarVagas({ status, perPage: 50 })) {
+          const vaga = await this.prisma.vaga.upsert(paraUpsertVaga(v));
+          await this.auth.vincularGestorAoSincronizar(vaga.id, vaga.gestor_email);
+          total += 1;
+          this.syncVagas.importadas = total; // progresso p/ quem roda em background
+        }
+      } catch (err) {
+        // Um status inválido/indisponível na Gupy não derruba o backfill inteiro.
+        falhas.push(`${status}: ${(err as Error).message}`);
+        this.logger.warn(
+          `Sync de vagas: status='${status}' falhou: ${(err as Error).message}`,
+        );
+      }
     }
-    this.logger.log(`Backfill de vagas concluído: total=${total}`);
+    // Falha TOTAL (ex.: token inválido) precisa aparecer como erro no painel —
+    // senão o usuário veria "0 importadas" como se fosse sucesso.
+    if (falhas.length === GupyService.STATUS_SYNC.length) {
+      throw new Error(`Todas as varreduras falharam — ${falhas[0]}`);
+    }
+    this.logger.log(
+      `Backfill de vagas concluído: total=${total}` +
+        (falhas.length ? ` (status com falha: ${falhas.length})` : ''),
+    );
     return { total };
+  }
+
+  // Progresso do sync de vagas em background (in-memory; 1 instância).
+  private syncVagas = {
+    emAndamento: false,
+    importadas: 0,
+    erro: null as string | null,
+  };
+
+  statusSyncVagas() {
+    return { ...this.syncVagas };
+  }
+
+  /**
+   * Dispara, em BACKGROUND, a sincronização de TODAS as vagas e retorna na
+   * hora — o request não fica preso atrás do timeout do proxy (nginx 504,
+   * que o navegador reporta como erro de CORS). Acompanhe via `statusSyncVagas`.
+   */
+  iniciarSyncVagas(): { iniciado: boolean } & ReturnType<
+    GupyService['statusSyncVagas']
+  > {
+    if (this.syncVagas.emAndamento) {
+      return { iniciado: false, ...this.statusSyncVagas() };
+    }
+    this.syncVagas = { emAndamento: true, importadas: 0, erro: null };
+    void this.sincronizarTodasAsVagas()
+      .catch((err) => {
+        this.syncVagas.erro = (err as Error).message;
+        this.logger.error(`Sync de vagas falhou: ${(err as Error).message}`);
+      })
+      .finally(() => {
+        this.syncVagas.emAndamento = false;
+      });
+    return { iniciado: true, ...this.statusSyncVagas() };
   }
 
   /**

@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
 import { StatusBadge } from '@/components/StatusBadge';
 import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { formatarData } from '@/lib/format';
 
 interface VagaResumo {
@@ -26,6 +27,9 @@ interface VagaResumo {
 }
 
 export default function VagasPage() {
+  // O sync org-wide da Gupy exige área recrutamento/admin (guard na API);
+  // gestor sem essas áreas nem vê o botão — clicar só renderia um 403.
+  const { podeVerTudo } = useAuth();
   const [vagas, setVagas] = useState<VagaResumo[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
@@ -40,7 +44,9 @@ export default function VagasPage() {
         '/api/vagas',
         {
           query: {
-            status: statusFiltro || undefined,
+            // Sempre explícito: o padrão do servidor é SÓ publicadas; ver
+            // todos os status é escolha deliberada ('TODOS').
+            status: statusFiltro,
             q: busca || undefined,
             limite: 200,
           },
@@ -66,9 +72,27 @@ export default function VagasPage() {
     setAviso(null);
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
-      // 1) Vagas — endpoint síncrono.
+      // 1) Vagas — background na API (resposta imediata; um sync longo atrás do
+      // proxy estourava o timeout do nginx e aparecia como erro de CORS).
       setAviso('Sincronizando vagas…');
       await api('/api/gupy/sync/vagas', { method: 'POST' });
+      for (let i = 0; i < 300; i++) {
+        await sleep(3000);
+        const st = await api<{
+          emAndamento: boolean;
+          importadas: number;
+          erro: string | null;
+        }>('/api/gupy/sync/vagas/status');
+        if (!st.emAndamento) {
+          if (st.erro) {
+            setErro(`Sincronização de vagas falhou: ${st.erro}`);
+            return;
+          }
+          setAviso(`Vagas sincronizadas: ${st.importadas}. Buscando candidatos…`);
+          break;
+        }
+        setAviso(`Sincronizando vagas: ${st.importadas} importada(s)…`);
+      }
       await carregar();
 
       // 2) Candidatos de todas as vagas — background + polling de progresso.
@@ -82,8 +106,11 @@ export default function VagasPage() {
           vagasProcessadas: number;
           candidaturasImportadas: number;
         }>('/api/gupy/sync/candidaturas-todas/status');
-        await carregar();
+        // Recarrega a lista só de tempos em tempos: recarregar a cada tick
+        // consumia o rate limit e derrubava (429) as outras telas do usuário.
+        if (i % 5 === 4) await carregar();
         if (!st.emAndamento) {
+          await carregar();
           setAviso(
             `Sincronização concluída: ${st.candidaturasImportadas} candidatura(s) em ${st.vagasProcessadas} vaga(s).`,
           );
@@ -107,14 +134,16 @@ export default function VagasPage() {
         titulo="Vagas"
         subtitulo="Vagas importadas da Gupy. Clique em uma vaga para ver o ranking de candidatos."
         acoes={
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={sincronizando}
-            onClick={() => void sincronizar()}
-          >
-            {sincronizando ? 'Sincronizando…' : 'Sincronizar Gupy'}
-          </button>
+          podeVerTudo ? (
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={sincronizando}
+              onClick={() => void sincronizar()}
+            >
+              {sincronizando ? 'Sincronizando…' : 'Sincronizar Gupy'}
+            </button>
+          ) : undefined
         }
       />
 
@@ -137,7 +166,7 @@ export default function VagasPage() {
           value={statusFiltro}
           onChange={(e) => setStatusFiltro(e.target.value)}
         >
-          <option value="">Todos status</option>
+          <option value="TODOS">Todos status</option>
           <option value="PUBLICADA">Publicadas</option>
           <option value="APROVADA">Aprovadas</option>
           <option value="RASCUNHO">Rascunhos</option>
@@ -158,7 +187,11 @@ export default function VagasPage() {
       ) : vagas.length === 0 ? (
         <EmptyState
           titulo="Nenhuma vaga ainda"
-          descricao="Clique em 'Sincronizar Gupy' para importar."
+          descricao={
+            podeVerTudo
+              ? "Clique em 'Sincronizar Gupy' para importar."
+              : 'Você verá aqui as vagas em que é o gestor.'
+          }
         />
       ) : (
         <div className="card overflow-hidden">

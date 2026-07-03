@@ -43,8 +43,12 @@ COPY . .
 # Remove `node-options=--use-system-ca` do .npmrc (válida só p/ dev em Node 22+;
 # o Node 20 da imagem rejeita a flag quando o pnpm spawna o node).
 RUN sed -i '/^node-options/d' .npmrc 2>/dev/null || true
+# O rm PRECISA ficar no mesmo RUN do build: .next/cache (webpack) é cache de
+# rebuild incremental — inútil no runtime — e já estourou o disco do servidor
+# ao ser exportado como layer da imagem (~centenas de MB por deploy).
 RUN pnpm --filter @uniats/shared build \
- && pnpm --filter @uniats/web build
+ && pnpm --filter @uniats/web build \
+ && rm -rf apps/web/.next/cache
 
 # ---- test (typecheck) — alvo usado só no CI -----------------------------------------
 # (lint removido: sem config de ESLint commitada; next lint exigiria setup interativo)

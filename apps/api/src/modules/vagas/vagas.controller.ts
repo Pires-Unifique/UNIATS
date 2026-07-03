@@ -18,6 +18,17 @@ import { traduzirTipoContrato } from '../gupy/mappers/gupy.mapper.js';
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// Valores aceitos no filtro de status da listagem (enum StatusVaga do Prisma).
+// Valor fora da lista viraria erro 500 do Prisma — barramos com 400 antes.
+const STATUS_VAGA_VALIDOS = new Set([
+  'RASCUNHO',
+  'APROVADA',
+  'PUBLICADA',
+  'PAUSADA',
+  'ENCERRADA',
+  'CANCELADA',
+]);
+
 /**
  * Escopo de leitura por ÁREA: quem tem 'admin' ou 'recrutamento' enxerga TODAS
  * as vagas; os demais (ex.: gestor) só as vagas em que são o gestor (gestor_id).
@@ -78,7 +89,15 @@ export class VagasController {
       limite = n;
     }
     const where: Record<string, unknown> = { excluido_em: null };
-    if (status) where.status = status;
+    // PADRÃO: só PUBLICADAS. Outros status (ou todos) são escolha EXPLÍCITA do
+    // usuário via filtro — 'TODOS' desliga o filtro de status.
+    if (status !== 'TODOS') {
+      const s = status || 'PUBLICADA';
+      if (!STATUS_VAGA_VALIDOS.has(s)) {
+        throw new BadRequestException(`status inválido: ${s}`);
+      }
+      where.status = s;
+    }
     // Busca livre casa título OU código interno da vaga (jobCode da Gupy).
     if (q) {
       where.OR = [

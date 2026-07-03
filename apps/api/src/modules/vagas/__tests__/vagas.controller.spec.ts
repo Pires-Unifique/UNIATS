@@ -79,6 +79,33 @@ describe('VagasController.listar — busca', () => {
   });
 });
 
+describe('VagasController.listar — filtro de status', () => {
+  it('PADRÃO (sem status) lista SÓ publicadas', async () => {
+    const { controller, prisma } = montar();
+    await controller.listar(usuario(['recrutamento']));
+    const arg = prisma.vaga.findMany.mock.calls[0][0] as any;
+    expect(arg.where.status).toBe('PUBLICADA');
+  });
+
+  it("'TODOS' desliga o filtro de status (escolha explícita)", async () => {
+    const { controller, prisma } = montar();
+    await controller.listar(usuario(['recrutamento']), 'TODOS');
+    const arg = prisma.vaga.findMany.mock.calls[0][0] as any;
+    expect(arg.where).not.toHaveProperty('status');
+  });
+
+  it('status específico filtra por ele; inválido → 400', async () => {
+    const { controller, prisma } = montar();
+    await controller.listar(usuario(['recrutamento']), 'RASCUNHO');
+    const arg = prisma.vaga.findMany.mock.calls[0][0] as any;
+    expect(arg.where.status).toBe('RASCUNHO');
+
+    await expect(
+      controller.listar(usuario(['recrutamento']), 'INVALIDO'),
+    ).rejects.toThrow('status inválido');
+  });
+});
+
 describe('VagasController.obter — escopo', () => {
   const UUID = '11111111-1111-4111-8111-111111111111';
 
