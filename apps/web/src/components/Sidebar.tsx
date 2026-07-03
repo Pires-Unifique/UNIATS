@@ -45,6 +45,16 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
       { href: '/offboarding/procuradores' as Route, label: 'Procuradores', icon: '🖊️', areas: ['dho'] },
     ],
   },
+  {
+    // Operação do Collab — só admin (a área 'admin' passa no filtro de qualquer
+    // item; listamos explicitamente para a seção sumir para os demais).
+    titulo: 'Sistema',
+    itens: [
+      { href: '/configuracoes/usuarios' as Route, label: 'Usuários', icon: '👥', areas: ['admin'] },
+      { href: '/configuracoes/whatsapp' as Route, label: 'WhatsApp', icon: '💬', areas: ['admin'] },
+      { href: '/configuracoes/chaves-api' as Route, label: 'Chaves de API', icon: '🔑', areas: ['admin'] },
+    ],
+  },
 ];
 
 /** Item visível se não exige área, ou se o usuário tem 'admin' ou a área exigida. */

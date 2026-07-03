@@ -14,6 +14,7 @@ import { AlteracaoContratualModule } from './modules/alteracao-contratual/altera
 import { AnaliseModule } from './modules/analise/analise.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CandidaturasModule } from './modules/candidaturas/candidaturas.module.js';
+import { ChavesApiModule } from './modules/chaves-api/chaves-api.module.js';
 import { ClaudeModule } from './modules/claude/claude.module.js';
 import { CryptoModule } from './modules/crypto/crypto.module.js';
 import { CurriculoModule } from './modules/curriculo/curriculo.module.js';
@@ -29,7 +30,9 @@ import { RankingModule } from './modules/ranking/ranking.module.js';
 import { VagasModule } from './modules/vagas/vagas.module.js';
 import { VagaTemplateModule } from './modules/vaga-template/vaga-template.module.js';
 import { SendGridModule } from './modules/sendgrid/sendgrid.module.js';
+import { SistemaModule } from './modules/sistema/sistema.module.js';
 import { StorageModule } from './modules/storage/storage.module.js';
+import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
 import { VoyageModule } from './modules/voyage/voyage.module.js';
 import { WahaModule } from './modules/waha/waha.module.js';
 
@@ -102,6 +105,9 @@ import { WahaModule } from './modules/waha/waha.module.js';
     AcessoModule,
     AlteracaoContratualModule,
     OffboardingModule,
+    UsuariosModule,
+    ChavesApiModule,
+    SistemaModule,
   ],
   providers: [
     // Rate limit global como defesa em profundidade

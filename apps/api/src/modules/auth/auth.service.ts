@@ -1,6 +1,13 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { PapelUsuario, Usuario } from '@uniats/db';
+import { createHash } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { Area, UsuarioAutenticado } from './auth.types.js';
@@ -47,6 +54,17 @@ export class AuthService {
       (await this.prisma.usuario.findUnique({
         where: { email: claims.email },
       }));
+
+    // Usuário DESATIVADO na tela de Usuários é recusado aqui — a conta Microsoft
+    // ainda existe (AD autentica), mas o Collab bloqueia. Reativação: tela de
+    // Usuários (ou allowlist/DB). O `code` permite ao front exibir tela própria.
+    if (existente && !existente.ativo) {
+      throw new ForbiddenException({
+        code: 'USUARIO_DESATIVADO',
+        message:
+          'Seu acesso ao Collab foi desativado. Procure o DHO ou um administrador.',
+      });
+    }
 
     const usuario = existente
       ? await this.prisma.usuario.update({
@@ -233,12 +251,65 @@ export class AuthService {
       .filter(Boolean);
   }
 
+  /**
+   * True se o e-mail é admin POR AMBIENTE (AUTH_ADMIN_EMAILS). A tela de
+   * Usuários exibe isso — remover 'admin' desses e-mails "não pega": a
+   * allowlist reaplica no próximo login.
+   */
+  ehAdminPorAmbiente(email: string): boolean {
+    return this.emailsAdmin().includes(email.trim().toLowerCase());
+  }
+
   /** Resolve um usuário pelo Object ID do Azure (usado pelo bypass de teste). */
   async resolverPorOid(azureOid: string): Promise<UsuarioAutenticado | null> {
     const u = await this.prisma.usuario.findUnique({
       where: { azure_oid: azureOid },
     });
+    // Desativado não entra nem pelo bypass de dev (mesma regra do SSO).
+    if (u && !u.ativo) return null;
     return u ? this.toAutenticado(u) : null;
+  }
+
+  /**
+   * Autentica uma CHAVE DE API (header `x-api-key`). A chave é tratada como um
+   * "usuário de sistema" cujas áreas são os escopos — assim os guards e o
+   * escopo por vaga existentes funcionam sem mudança. Recusa revogada/expirada.
+   */
+  async autenticarPorChaveApi(chaveRaw: string): Promise<UsuarioAutenticado> {
+    const hash = createHash('sha256').update(chaveRaw, 'utf8').digest('hex');
+    const chave = await this.prisma.chaveApi.findUnique({ where: { hash } });
+
+    if (!chave || chave.revogado_em) {
+      throw new UnauthorizedException('Chave de API inválida ou revogada.');
+    }
+    if (chave.expira_em && chave.expira_em.getTime() < Date.now()) {
+      throw new UnauthorizedException('Chave de API expirada.');
+    }
+
+    // `ultimo_uso_em` é informativo — atualiza no máximo 1×/min para não
+    // transformar cada request em um write, e nunca derruba a requisição.
+    const staleMs = 60_000;
+    if (
+      !chave.ultimo_uso_em ||
+      Date.now() - chave.ultimo_uso_em.getTime() > staleMs
+    ) {
+      this.prisma.chaveApi
+        .update({ where: { id: chave.id }, data: { ultimo_uso_em: new Date() } })
+        .catch((err: Error) =>
+          this.logger.warn(`Falha ao gravar ultimo_uso_em da chave: ${err.message}`),
+        );
+    }
+
+    return {
+      id: chave.id,
+      azure_oid: `chave-api:${chave.id}`,
+      email: `${chave.prefixo}@chave-api.collab`,
+      nome: chave.nome,
+      papel: 'VISUALIZADOR' as PapelUsuario,
+      areas: (chave.escopos ?? []) as Area[],
+      ativo: true,
+      chave_api: true,
+    };
   }
 
   /**

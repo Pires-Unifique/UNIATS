@@ -647,6 +647,32 @@ model RegistroAuditoria {
 }
 
 // ---------------------------------------------------------------------
+// CHAVES DE API — acesso de MÁQUINA (integrações/BI) à API do Collab.
+// A chave completa NUNCA é armazenada: guardamos só o SHA-256 (hex) e um
+// prefixo visível para identificação na UI. Escopos usam as MESMAS áreas
+// dos usuários ('recrutamento' | 'admissao' | 'dho') — nunca 'admin'.
+// Autoria/revogação em UUID frouxo (sem FK), padrão do repo.
+// ---------------------------------------------------------------------
+model ChaveApi {
+  id               String    @id @default(uuid()) @db.Uuid
+  nome             String                          // para que serve (ex.: "Integração UNIIT")
+  prefixo          String                          // ex.: "clb_9f2a41c8" — identificação sem revelar
+  hash             String    @unique               // SHA-256 hex da chave completa
+  escopos          String[]  @default([])
+  criado_por_id    String?   @db.Uuid
+  criado_por_nome  String?
+  expira_em        DateTime?
+  ultimo_uso_em    DateTime?
+  revogado_em      DateTime?
+  revogado_por_id  String?   @db.Uuid
+  criado_em        DateTime  @default(now())
+  atualizado_em    DateTime  @updatedAt
+
+  @@index([revogado_em])
+  @@map("chaves_api")
+}
+
+// ---------------------------------------------------------------------
 // TEMPLATES DE MENSAGEM — editáveis pelo recrutador (WhatsApp / E-mail)
 // ---------------------------------------------------------------------
 // Substitui o catálogo "in-code". As variáveis ({{nome}}) NÃO são colunas:

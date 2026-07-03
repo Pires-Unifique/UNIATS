@@ -214,6 +214,77 @@ export class WahaClient {
     }
   }
 
+  /** True quando WAHA_BASE_URL/WAHA_API_KEY estão configurados no ambiente. */
+  get configurado(): boolean {
+    return this.http !== null;
+  }
+
+  /** Nome da sessão configurada (WAHA_SESSION). */
+  get nomeSessao(): string {
+    return this.session;
+  }
+
+  /**
+   * Estado da sessão no WAHA (`GET /api/sessions/{session}`). Estados típicos:
+   * WORKING (pareado), SCAN_QR_CODE (aguardando pareamento), STARTING, STOPPED,
+   * FAILED. `me` só vem quando pareado.
+   */
+  async statusSessao(): Promise<{
+    status: string;
+    me: { id?: string; pushName?: string } | null;
+    engine: string | null;
+  }> {
+    try {
+      const resp = await this.client.get(
+        `/api/sessions/${encodeURIComponent(this.session)}`,
+      );
+      const data = resp.data as {
+        status?: string;
+        me?: { id?: string; pushName?: string } | null;
+        engine?: { engine?: string } | string | null;
+      };
+      const engine =
+        typeof data.engine === 'string'
+          ? data.engine
+          : (data.engine?.engine ?? null);
+      return {
+        status: data.status ?? 'DESCONHECIDO',
+        me: data.me ?? null,
+        engine,
+      };
+    } catch (err) {
+      throw this.normalizarErro(err, 'statusSessao');
+    }
+  }
+
+  /**
+   * QR de pareamento como PNG base64 (`GET /api/{session}/auth/qr`). Só faz
+   * sentido com a sessão em SCAN_QR_CODE — fora disso o WAHA responde erro,
+   * que normalizamos como 400. O QR expira: o front deve re-buscar (~20 s).
+   */
+  async qrPareamento(): Promise<string> {
+    try {
+      const resp = await this.client.get(
+        `/api/${encodeURIComponent(this.session)}/auth/qr`,
+        { headers: { Accept: 'image/png' }, responseType: 'arraybuffer' },
+      );
+      return Buffer.from(resp.data as ArrayBuffer).toString('base64');
+    } catch (err) {
+      throw this.normalizarErro(err, 'qrPareamento');
+    }
+  }
+
+  /** Reinicia a sessão (`POST /api/sessions/{session}/restart`) — destrava sem SSH. */
+  async reiniciarSessao(): Promise<void> {
+    try {
+      await this.client.post(
+        `/api/sessions/${encodeURIComponent(this.session)}/restart`,
+      );
+    } catch (err) {
+      throw this.normalizarErro(err, 'reiniciarSessao');
+    }
+  }
+
   /** Marca como lidas as mensagens de um chat (boa cidadania WhatsApp). */
   async sendSeen(chatId: WahaChatId): Promise<void> {
     this.validarChatId(chatId);
