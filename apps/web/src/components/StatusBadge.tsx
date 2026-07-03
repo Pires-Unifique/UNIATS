@@ -3,6 +3,7 @@ import clsx from 'clsx';
 const mapa: Record<string, string> = {
   // Vagas
   PUBLICADA: 'badge-green',
+  APROVADA: 'badge-blue',
   RASCUNHO: 'badge-gray',
   PAUSADA: 'badge-yellow',
   ENCERRADA: 'badge-gray',

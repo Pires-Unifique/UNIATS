@@ -139,9 +139,11 @@ export default function VagasPage() {
         >
           <option value="">Todos status</option>
           <option value="PUBLICADA">Publicadas</option>
+          <option value="APROVADA">Aprovadas</option>
+          <option value="RASCUNHO">Rascunhos</option>
           <option value="PAUSADA">Pausadas</option>
           <option value="ENCERRADA">Encerradas</option>
-          <option value="RASCUNHO">Rascunhos</option>
+          <option value="CANCELADA">Canceladas</option>
         </select>
       </div>
 

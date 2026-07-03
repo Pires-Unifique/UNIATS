@@ -11,8 +11,12 @@ import {
 
 const STATUS_VAGA: Record<string, StatusVaga> = {
   draft: 'RASCUNHO',
+  // Aguardando aprovação interna na Gupy — ainda editável, tratamos como rascunho.
+  waiting_approval: 'RASCUNHO',
+  approved: 'APROVADA',
   published: 'PUBLICADA',
   paused: 'PAUSADA',
+  frozen: 'PAUSADA', // termo da API real da Gupy para vaga congelada/pausada
   closed: 'ENCERRADA',
   canceled: 'CANCELADA',
 };
@@ -31,8 +35,13 @@ const STATUS_CANDIDATURA: Record<string, StatusCandidatura> = {
 };
 
 export function mapearStatusVaga(s?: string | null): StatusVaga {
+  // Sem status no payload: forma antiga da API/webhook, que só tratava vaga
+  // publicada — mantemos o default histórico.
   if (!s) return 'PUBLICADA';
-  return STATUS_VAGA[s.toLowerCase()] ?? 'PUBLICADA';
+  // Status DESCONHECIDO vira RASCUNHO (fica fora da visão padrão de publicadas),
+  // não PUBLICADA — o sync agora varre todos os status, então valor novo da Gupy
+  // não deve poluir a lista de vagas ativas.
+  return STATUS_VAGA[s.toLowerCase()] ?? 'RASCUNHO';
 }
 
 export function mapearStatusCandidatura(s?: string | null): StatusCandidatura {

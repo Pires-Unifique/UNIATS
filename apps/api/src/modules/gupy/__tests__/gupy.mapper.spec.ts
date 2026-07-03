@@ -25,19 +25,25 @@ import {
 describe('mapearStatusVaga', () => {
   it.each([
     ['draft', 'RASCUNHO'],
+    ['waiting_approval', 'RASCUNHO'],
+    ['approved', 'APROVADA'],
     ['published', 'PUBLICADA'],
     ['PUBLISHED', 'PUBLICADA'],
     ['paused', 'PAUSADA'],
+    ['frozen', 'PAUSADA'],
     ['closed', 'ENCERRADA'],
     ['canceled', 'CANCELADA'],
   ])('"%s" → %s', (input, esperado) => {
     expect(mapearStatusVaga(input)).toBe(esperado);
   });
 
-  it('default para PUBLICADA quando indefinido ou desconhecido', () => {
+  it('sem status (payload antigo/webhook) → PUBLICADA', () => {
     expect(mapearStatusVaga(undefined)).toBe('PUBLICADA');
     expect(mapearStatusVaga(null)).toBe('PUBLICADA');
-    expect(mapearStatusVaga('xyz')).toBe('PUBLICADA');
+  });
+
+  it('status desconhecido → RASCUNHO (não polui a visão de publicadas)', () => {
+    expect(mapearStatusVaga('xyz')).toBe('RASCUNHO');
   });
 });
 

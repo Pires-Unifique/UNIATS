@@ -44,12 +44,15 @@ export class GupyService {
   }
 
   /**
-   * Sincroniza TODAS as vagas (paginado).
+   * Sincroniza TODAS as vagas (paginado), SEM filtro de status: rascunhos e
+   * aprovadas também entram (o gestor precisa ver as dele antes da publicação)
+   * e vagas encerradas/canceladas na Gupy convergem em vez de ficarem com
+   * status desatualizado no banco.
    * Em produção, agendamos via cron + filtramos por delta usando `gupy_sincronizado_em`.
    */
   async sincronizarTodasAsVagas(): Promise<{ total: number }> {
     let total = 0;
-    for await (const v of this.client.iterarVagas({ status: 'published' })) {
+    for await (const v of this.client.iterarVagas()) {
       const vaga = await this.prisma.vaga.upsert(paraUpsertVaga(v));
       await this.auth.vincularGestorAoSincronizar(vaga.id, vaga.gestor_email);
       total += 1;
@@ -138,8 +141,15 @@ export class GupyService {
     };
 
     void (async () => {
+      // Só vagas "vivas": com o sync trazendo TODOS os status da Gupy, puxar
+      // candidaturas de encerradas/canceladas históricas inflaria a fila de CVs
+      // (download + embedding) sem valor para o fluxo atual. Atualização pontual
+      // de candidatura de vaga encerrada continua chegando via webhook.
       const vagas = await this.prisma.vaga.findMany({
-        where: { excluido_em: null },
+        where: {
+          excluido_em: null,
+          status: { notIn: ['ENCERRADA', 'CANCELADA'] },
+        },
         select: { gupy_id: true },
       });
       this.bulkCand.totalVagas = vagas.length;

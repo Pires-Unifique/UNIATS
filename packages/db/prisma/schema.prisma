@@ -123,6 +123,9 @@ enum StatusVaga {
   PAUSADA
   ENCERRADA
   CANCELADA
+  // Aprovada na Gupy (fluxo interno concluído) mas ainda não publicada.
+  // Fica por último: ALTER TYPE ADD VALUE anexa ao fim do tipo no Postgres.
+  APROVADA
 
   @@map("status_vaga")
 }

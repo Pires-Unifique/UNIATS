@@ -23,6 +23,7 @@ export type StatusCandidatura =
 
 export type StatusVaga =
   | 'RASCUNHO'
+  | 'APROVADA' // aprovada na Gupy, ainda não publicada
   | 'PUBLICADA'
   | 'PAUSADA'
   | 'ENCERRADA'

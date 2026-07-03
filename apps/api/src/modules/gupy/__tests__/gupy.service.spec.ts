@@ -22,7 +22,7 @@ import {
 
 type MockQueue = { add: jest.Mock };
 type MockPrisma = {
-  vaga: { upsert: jest.Mock; findUnique: jest.Mock };
+  vaga: { upsert: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock };
   candidato: { upsert: jest.Mock };
   candidatura: { upsert: jest.Mock };
 };
@@ -40,6 +40,7 @@ function montarMocks() {
     vaga: {
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     candidato: { upsert: jest.fn() },
     candidatura: { upsert: jest.fn() },
@@ -90,6 +91,34 @@ describe('GupyService.sincronizarTodasAsVagas', () => {
     const r = await service.sincronizarTodasAsVagas();
     expect(r.total).toBe(3);
     expect(prisma.vaga.upsert).toHaveBeenCalledTimes(3);
+  });
+
+  it('varre SEM filtro de status (rascunhos/aprovadas também entram)', async () => {
+    const { service, client, prisma } = montarMocks();
+    (client.iterarVagas as any).mockReturnValue(gen([]));
+    prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
+
+    await service.sincronizarTodasAsVagas();
+    expect(client.iterarVagas).toHaveBeenCalledWith();
+  });
+});
+
+describe('GupyService.iniciarSyncCandidaturasTodas', () => {
+  it('varre só vagas vivas (exclui ENCERRADA/CANCELADA)', async () => {
+    const { service, prisma } = montarMocks();
+    prisma.vaga.findMany.mockResolvedValue([]);
+
+    service.iniciarSyncCandidaturasTodas();
+    // O varredor roda em background — cede o event loop até ele consultar o banco.
+    await new Promise((r) => setImmediate(r));
+
+    expect(prisma.vaga.findMany).toHaveBeenCalledWith({
+      where: {
+        excluido_em: null,
+        status: { notIn: ['ENCERRADA', 'CANCELADA'] },
+      },
+      select: { gupy_id: true },
+    });
   });
 });
 
