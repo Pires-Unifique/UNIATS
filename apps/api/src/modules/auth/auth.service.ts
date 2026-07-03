@@ -96,15 +96,44 @@ export class AuthService {
   }
 
   /**
-   * Liga ao usuário (como gestor) toda vaga com `gestor_email` igual ao seu e
-   * ainda SEM gestor interno. Sentido login→vaga do auto-vínculo. Idempotente.
+   * Variações do e-mail nos DOMÍNIOS IRMÃOS do grupo (unifique.com.br ↔
+   * redeunifique.com.br, via AZURE_AD_ALLOWED_DOMAIN). A empresa está migrando
+   * de domínio: o SSO da pessoa pode ser @unifique enquanto a Gupy ainda tem o
+   * managerEmail @redeunifique (e vice-versa) — o auto-vínculo casa TODAS as
+   * variações do mesmo local-part. E-mail de domínio fora do grupo volta só ele.
+   */
+  private variantesDeEmail(email: string): string[] {
+    const e = email.trim().toLowerCase();
+    const arroba = e.lastIndexOf('@');
+    if (arroba < 1) return [e];
+    const local = e.slice(0, arroba);
+    const dominio = e.slice(arroba + 1);
+    const irmaos = (
+      this.config.get<string>('AZURE_AD_ALLOWED_DOMAIN') ??
+      'unifique.com.br,redeunifique.com.br'
+    )
+      .split(',')
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean);
+    if (!irmaos.includes(dominio)) return [e];
+    return irmaos.map((d) => `${local}@${d}`);
+  }
+
+  /**
+   * Liga ao usuário (como gestor) toda vaga com `gestor_email` igual ao seu —
+   * em QUALQUER domínio irmão — e ainda SEM gestor interno. Sentido login→vaga
+   * do auto-vínculo. Idempotente.
    */
   private async vincularVagasComoGestor(
     usuarioId: string,
     email: string,
   ): Promise<number> {
     const r = await this.prisma.vaga.updateMany({
-      where: { gestor_email: email, gestor_id: null, excluido_em: null },
+      where: {
+        gestor_email: { in: this.variantesDeEmail(email) },
+        gestor_id: null,
+        excluido_em: null,
+      },
       data: { gestor_id: usuarioId },
     });
     if (r.count > 0) {
@@ -116,16 +145,17 @@ export class AuthService {
   }
 
   /**
-   * Sentido inverso (vaga→usuário): ao SINCRONIZAR uma vaga da Gupy, liga-a a um
-   * gestor que JÁ tenha logado. Chamado pelo GupyService após o upsert da vaga.
+   * Sentido inverso (vaga→usuário): ao SINCRONIZAR uma vaga da Gupy, liga-a a
+   * um gestor que JÁ tenha logado — casando o managerEmail da vaga com o
+   * usuário em qualquer domínio irmão. Chamado pelo GupyService após o upsert.
    */
   async vincularGestorAoSincronizar(
     vagaId: string,
     gestorEmail: string | null,
   ): Promise<void> {
     if (!gestorEmail) return;
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { email: gestorEmail },
+    const usuario = await this.prisma.usuario.findFirst({
+      where: { email: { in: this.variantesDeEmail(gestorEmail) } },
     });
     if (!usuario) return;
     await this.prisma.vaga.updateMany({

@@ -16,6 +16,7 @@ type MockPrisma = {
   usuario: {
     upsert: jest.Mock;
     findUnique: jest.Mock;
+    findFirst: jest.Mock;
     update: jest.Mock;
     create: jest.Mock;
   };
@@ -29,6 +30,7 @@ function montar(envOverrides: Record<string, unknown> = {}) {
     usuario: {
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
       create: jest.fn(),
     },
@@ -149,7 +151,7 @@ describe('AuthService.provisionarUsuario', () => {
     expect(r.areas).toEqual(['admin']);
   });
 
-  it('roda o auto-vínculo de vagas no login (updateMany por gestor_email)', async () => {
+  it('roda o auto-vínculo de vagas no login casando os DOMÍNIOS IRMÃOS', async () => {
     const { service, prisma } = montar();
     prisma.usuario.findUnique.mockResolvedValue(null);
     prisma.usuario.create.mockResolvedValue(usuarioDb);
@@ -161,12 +163,32 @@ describe('AuthService.provisionarUsuario', () => {
       nome: 'Fulano',
     });
 
+    // Migração de domínio: login @unifique também assume vagas cujo
+    // managerEmail da Gupy ainda está @redeunifique (e vice-versa).
     const vinc = prisma.vaga.updateMany.mock.calls[0][0] as any;
-    expect(vinc.where).toMatchObject({
-      gestor_email: 'fulano@unifique.com.br',
-      gestor_id: null,
-    });
+    expect(vinc.where.gestor_email.in).toEqual(
+      expect.arrayContaining([
+        'fulano@unifique.com.br',
+        'fulano@redeunifique.com.br',
+      ]),
+    );
+    expect(vinc.where.gestor_id).toBeNull();
     expect(vinc.data).toEqual({ gestor_id: 'u-1' });
+  });
+
+  it('e-mail de domínio FORA do grupo não ganha variações', async () => {
+    const { service, prisma } = montar();
+    prisma.usuario.findUnique.mockResolvedValue(null);
+    prisma.usuario.create.mockResolvedValue(usuarioDb);
+
+    await service.provisionarUsuario({
+      azure_oid: 'oid-1',
+      email: 'alguem@parceiro.com.br',
+      nome: 'Alguém',
+    });
+
+    const vinc = prisma.vaga.updateMany.mock.calls[0][0] as any;
+    expect(vinc.where.gestor_email.in).toEqual(['alguem@parceiro.com.br']);
   });
 });
 
@@ -203,7 +225,7 @@ describe('AuthService.assertVagaPermitida', () => {
 describe('AuthService.vincularGestorAoSincronizar', () => {
   it('liga a vaga ao gestor já existente quando o e-mail casa', async () => {
     const { service, prisma } = montar();
-    prisma.usuario.findUnique.mockResolvedValue({ ...usuarioDb, id: 'g-9' });
+    prisma.usuario.findFirst.mockResolvedValue({ ...usuarioDb, id: 'g-9' });
 
     await service.vincularGestorAoSincronizar('vaga-1', 'fulano@unifique.com.br');
 
@@ -212,16 +234,35 @@ describe('AuthService.vincularGestorAoSincronizar', () => {
     expect(arg.data).toEqual({ gestor_id: 'g-9' });
   });
 
+  it('managerEmail @redeunifique acha o usuário logado @unifique (domínio irmão)', async () => {
+    const { service, prisma } = montar();
+    prisma.usuario.findFirst.mockResolvedValue({ ...usuarioDb, id: 'g-9' });
+
+    await service.vincularGestorAoSincronizar(
+      'vaga-1',
+      'rodrigo.amorim@redeunifique.com.br',
+    );
+
+    const busca = prisma.usuario.findFirst.mock.calls[0][0] as any;
+    expect(busca.where.email.in).toEqual(
+      expect.arrayContaining([
+        'rodrigo.amorim@unifique.com.br',
+        'rodrigo.amorim@redeunifique.com.br',
+      ]),
+    );
+    expect(prisma.vaga.updateMany).toHaveBeenCalled();
+  });
+
   it('no-op quando a vaga não tem e-mail de gestor', async () => {
     const { service, prisma } = montar();
     await service.vincularGestorAoSincronizar('vaga-1', null);
-    expect(prisma.usuario.findUnique).not.toHaveBeenCalled();
+    expect(prisma.usuario.findFirst).not.toHaveBeenCalled();
     expect(prisma.vaga.updateMany).not.toHaveBeenCalled();
   });
 
   it('no-op quando nenhum usuário tem aquele e-mail', async () => {
     const { service, prisma } = montar();
-    prisma.usuario.findUnique.mockResolvedValue(null);
+    prisma.usuario.findFirst.mockResolvedValue(null);
     await service.vincularGestorAoSincronizar('vaga-1', 'ninguem@unifique.com.br');
     expect(prisma.vaga.updateMany).not.toHaveBeenCalled();
   });
