@@ -113,7 +113,9 @@ export class GupyClient {
       timeout,
       headers: commonHeaders,
       // Hardening — limita o tamanho do payload aceito pelo cliente.
-      maxContentLength: 10 * 1024 * 1024,
+      // 50MB: uma página de /jobs com fields=all (descrições HTML inteiras)
+      // passa fácil de 10MB — o backfill de produção estourou o teto antigo.
+      maxContentLength: 50 * 1024 * 1024,
       maxBodyLength: 5 * 1024 * 1024,
       validateStatus: (s) => s >= 200 && s < 300,
     });

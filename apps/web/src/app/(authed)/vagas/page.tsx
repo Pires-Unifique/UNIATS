@@ -44,7 +44,9 @@ export default function VagasPage() {
         '/api/vagas',
         {
           query: {
-            status: statusFiltro || undefined,
+            // Sempre explícito: o padrão do servidor é SÓ publicadas; ver
+            // todos os status é escolha deliberada ('TODOS').
+            status: statusFiltro,
             q: busca || undefined,
             limite: 200,
           },
@@ -164,7 +166,7 @@ export default function VagasPage() {
           value={statusFiltro}
           onChange={(e) => setStatusFiltro(e.target.value)}
         >
-          <option value="">Todos status</option>
+          <option value="TODOS">Todos status</option>
           <option value="PUBLICADA">Publicadas</option>
           <option value="APROVADA">Aprovadas</option>
           <option value="RASCUNHO">Rascunhos</option>

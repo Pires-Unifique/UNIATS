@@ -93,13 +93,35 @@ describe('GupyService.sincronizarTodasAsVagas', () => {
     expect(prisma.vaga.upsert).toHaveBeenCalledTimes(3);
   });
 
-  it('varre SEM filtro de status (rascunhos/aprovadas também entram)', async () => {
+  it('varre um STATUS por vez (a Gupy não devolve rascunho/aprovação sem filtro)', async () => {
     const { service, client, prisma } = montarMocks();
-    (client.iterarVagas as any).mockReturnValue(gen([]));
+    (client.iterarVagas as any).mockImplementation(() => gen([]));
     prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
 
     await service.sincronizarTodasAsVagas();
-    expect(client.iterarVagas).toHaveBeenCalledWith();
+    const statuses = (client.iterarVagas as any).mock.calls.map(
+      (c: any[]) => c[0]?.status,
+    );
+    for (const s of ['published', 'approved', 'waiting_approval', 'draft']) {
+      expect(statuses).toContain(s);
+    }
+  });
+
+  it('falha em UM status não derruba o backfill dos demais', async () => {
+    const { service, client, prisma } = montarMocks();
+    const vaga = VagaGupySchema.parse(vagaFakeJson);
+    (client.iterarVagas as any).mockImplementation(({ status }: any) => {
+      if (status === 'published') {
+        return (async function* (): AsyncGenerator<never, void, void> {
+          throw new Error('Gupy 500');
+        })();
+      }
+      return gen(status === 'draft' ? [vaga] : []);
+    });
+    prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
+
+    const r = await service.sincronizarTodasAsVagas();
+    expect(r.total).toBe(1); // o draft entrou apesar do published ter falhado
   });
 });
 
@@ -134,12 +156,15 @@ describe('GupyService.iniciarSyncVagas', () => {
     expect(segundo.iniciado).toBe(false);
 
     await new Promise((res) => setImmediate(res));
-    expect(client.iterarVagas).toHaveBeenCalledTimes(1);
+    // Uma varredura só (1 chamada por status), não duas.
+    const qtdStatus = (GupyService as any).STATUS_SYNC.length;
+    expect(client.iterarVagas).toHaveBeenCalledTimes(qtdStatus);
   });
 
-  it('falha do client vira `erro` no status (não derruba nada)', async () => {
+  it('falha TOTAL do client vira `erro` no status (não derruba nada)', async () => {
     const { service, client } = montarMocks();
-    (client.iterarVagas as any).mockReturnValue(
+    // Todos os status falham (ex.: token inválido) — gerador novo por chamada.
+    (client.iterarVagas as any).mockImplementation(() =>
       (async function* (): AsyncGenerator<never, void, void> {
         throw new Error('Gupy 500');
       })(),
@@ -150,7 +175,7 @@ describe('GupyService.iniciarSyncVagas', () => {
 
     const st = service.statusSyncVagas();
     expect(st.emAndamento).toBe(false);
-    expect(st.erro).toBe('Gupy 500');
+    expect(st.erro).toContain('Gupy 500');
   });
 });
 
