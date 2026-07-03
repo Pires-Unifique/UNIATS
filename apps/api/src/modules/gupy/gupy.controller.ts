@@ -9,7 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Areas } from '../auth/areas.decorator.js';
@@ -185,7 +185,12 @@ export class GupyController {
     return this.service.iniciarSyncVagas();
   }
 
-  /** Progresso do import de vagas em background. */
+  /**
+   * Progresso do import de vagas em background. Fora do rate limit: é leitura
+   * de estado em memória e o front consulta em loop — contar no balde
+   * derrubava (429) as demais chamadas do usuário durante o sync.
+   */
+  @SkipThrottle()
   @Get('sync/vagas/status')
   async statusSyncVagas() {
     return this.service.statusSyncVagas();
@@ -205,7 +210,8 @@ export class GupyController {
     return this.service.iniciarSyncCandidaturasTodas();
   }
 
-  /** Progresso do import em massa de candidaturas. */
+  /** Progresso do import em massa de candidaturas. Fora do rate limit (idem vagas). */
+  @SkipThrottle()
   @Get('sync/candidaturas-todas/status')
   async statusCandidaturasTodas() {
     return this.service.statusBulkCandidaturas();

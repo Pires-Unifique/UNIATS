@@ -15,6 +15,12 @@ async function bootstrap() {
 
   const config = app.get(ConfigService);
 
+  // Atrás do nginx: sem isto, req.ip é o IP do PROXY para todo request e o
+  // rate limit global (ThrottlerGuard) vira UM balde compartilhado por todos
+  // os usuários — estourava 429 em uso normal. Confia em 1 salto (o nginx),
+  // que popula X-Forwarded-For.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   // Gupy: usa express.raw (body fica como Buffer em req.body) — controller faz
   // HMAC + JSON.parse manualmente. Padrão herdado da Camada 1.
   app.use(

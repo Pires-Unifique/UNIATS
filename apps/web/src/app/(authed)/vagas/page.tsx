@@ -104,8 +104,11 @@ export default function VagasPage() {
           vagasProcessadas: number;
           candidaturasImportadas: number;
         }>('/api/gupy/sync/candidaturas-todas/status');
-        await carregar();
+        // Recarrega a lista só de tempos em tempos: recarregar a cada tick
+        // consumia o rate limit e derrubava (429) as outras telas do usuário.
+        if (i % 5 === 4) await carregar();
         if (!st.emAndamento) {
+          await carregar();
           setAviso(
             `Sincronização concluída: ${st.candidaturasImportadas} candidatura(s) em ${st.vagasProcessadas} vaga(s).`,
           );
