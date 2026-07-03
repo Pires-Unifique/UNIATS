@@ -1,6 +1,6 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import type { Job } from 'bullmq';
+import { DelayedError, type Job } from 'bullmq';
 import { z } from 'zod';
 
 import { MessagingService } from '../messaging.service.js';
@@ -10,6 +10,7 @@ import { SendGridClient } from '../../sendgrid/sendgrid.client.js';
 import { WahaClient } from '../../waha/waha.client.js';
 import { renderizarTemplateResolvido } from '../templates/renderer.js';
 import { TemplatesService } from '../templates/templates.service.js';
+import { WhatsappPacerService } from '../whatsapp-pacer.service.js';
 
 const PayloadSchema = z.object({
   mensagemId: z.string().uuid(),
@@ -32,11 +33,12 @@ export class MensagemProcessor extends WorkerHost {
     private readonly waha: WahaClient,
     private readonly sendgrid: SendGridClient,
     private readonly prisma: PrismaService,
+    private readonly pacer: WhatsappPacerService,
   ) {
     super();
   }
 
-  async process(job: Job<unknown>): Promise<{
+  async process(job: Job<unknown>, token?: string): Promise<{
     mensagemId: string;
     canal: 'WHATSAPP' | 'EMAIL';
     providerMsgId: string;
@@ -63,7 +65,13 @@ export class MensagemProcessor extends WorkerHost {
         id: true,
         status: true,
         candidato: {
-          select: { email: true, telefone: true, excluido_em: true },
+          select: {
+            id: true,
+            nome_completo: true,
+            email: true,
+            telefone: true,
+            excluido_em: true,
+          },
         },
       },
     });
@@ -87,6 +95,20 @@ export class MensagemProcessor extends WorkerHost {
         canal: canalPrimario,
         providerMsgId: '(ja-enviada)',
       };
+    }
+
+    // PACING anti-banimento: fora da janela de envio ou acima do teto diário,
+    // reagenda o job para a próxima abertura SEM consumir tentativa (padrão
+    // moveToDelayed + DelayedError do BullMQ). Só vale para o canal WhatsApp.
+    if (canalPrimario === 'WHATSAPP') {
+      const decisao = await this.pacer.avaliarJanelaECap();
+      if (!decisao.liberado) {
+        this.logger.log(
+          `Mensagem ${mensagemId} adiada (${decisao.motivo}) — retoma em ${decisao.retomarEm.toISOString()}.`,
+        );
+        await job.moveToDelayed(decisao.retomarEm.getTime(), token);
+        throw new DelayedError();
+      }
     }
 
     // Tenta canal primário; se falhar de forma "permanente" (BadRequest do provider)
@@ -170,7 +192,12 @@ export class MensagemProcessor extends WorkerHost {
     canal: 'WHATSAPP' | 'EMAIL',
     templateCodigo: string,
     variaveis: Record<string, string | number>,
-    candidato: { email: string | null; telefone: string | null },
+    candidato: {
+      id: string;
+      nome_completo: string | null;
+      email: string | null;
+      telefone: string | null;
+    },
   ): Promise<{
     providerMsgId: string;
     destino: string;
@@ -195,6 +222,14 @@ export class MensagemProcessor extends WorkerHost {
           `Número ${candidato.telefone} não existe no WhatsApp.`,
         );
       }
+      // Reforços anti-banimento: contato salvo antes do 1º envio (best-effort)
+      // e intervalo aleatório entre envios consecutivos (fim da rajada).
+      await this.pacer.salvarContatoSeNovo(
+        candidato.id,
+        check.chatId,
+        candidato.nome_completo,
+      );
+      await this.pacer.aguardarVez();
       const out = await this.waha.sendText({
         chatId: check.chatId,
         texto: render.texto,

@@ -529,9 +529,32 @@ export interface WahaStatusDTO {
   engine: string | null;
   ultimo_webhook_em: string | null;
   ultimo_webhook_evento: string | null;
+  /** Pacing anti-banimento da fila de mensagens. Null quando desativado. */
+  pacing: {
+    enviadas_hoje: number;
+    cap_diario: number | null;
+    janela: string;
+    dentro_janela: boolean;
+  } | null;
 }
 
 export interface WahaQrDTO {
   /** Data URL (image/png;base64) — o QR expira; re-buscar a cada ~20 s. */
   image: string;
+}
+
+// Pacing anti-banimento do WhatsApp — config EFETIVA (env como padrão,
+// sobreposto pelo que foi salvo na tela WhatsApp da seção Sistema).
+export interface WahaPacingConfigDTO {
+  pacing: boolean;
+  /** Envios/dia; 0 = sem teto. Ramp-up é manual (número frio começa baixo). */
+  cap_diario: number;
+  janela_inicio: number; // hora local 0-23
+  janela_fim: number; // hora local 1-24 (exclusivo)
+  janela_dias: number[]; // 0=domingo … 6=sábado
+  jitter_min_ms: number;
+  jitter_max_ms: number;
+  salvar_contato: boolean;
+  /** true = nenhum override salvo (valores vêm do ambiente). */
+  padrao_ambiente: boolean;
 }

@@ -8,6 +8,7 @@ import { MessagingService } from './messaging.service.js';
 import { TemplatesService } from './templates/templates.service.js';
 import { SendGridWebhookController } from './webhooks/sendgrid-webhook.controller.js';
 import { WahaWebhookController } from './webhooks/waha-webhook.controller.js';
+import { WhatsappPacerService } from './whatsapp-pacer.service.js';
 
 /**
  * Camada 4a — Mensageria.
@@ -32,7 +33,14 @@ import { WahaWebhookController } from './webhooks/waha-webhook.controller.js';
     TemplatesService,
     MensagemProcessor,
     EnqueteService,
+    WhatsappPacerService,
   ],
-  exports: [MessagingService, TemplatesService, EnqueteService],
+  exports: [
+    MessagingService,
+    TemplatesService,
+    EnqueteService,
+    // Pacer exportado para a tela WhatsApp (seção Sistema) exibir cap/janela.
+    WhatsappPacerService,
+  ],
 })
 export class MessagingModule {}
