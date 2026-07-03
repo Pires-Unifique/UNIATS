@@ -173,6 +173,25 @@ export default function WhatsappPage() {
                 'nenhum evento recebido ainda'
               )}
             </dd>
+            {status.pacing && (
+              <>
+                <dt className="text-grafite-400">Envios hoje</dt>
+                <dd className="text-grafite-700">
+                  {status.pacing.enviadas_hoje}
+                  {status.pacing.cap_diario != null && (
+                    <> / {status.pacing.cap_diario} (teto diário)</>
+                  )}
+                  {' · '}janela {status.pacing.janela}{' '}
+                  {status.pacing.dentro_janela ? (
+                    <span className="badge-green px-2 py-0.5 text-xs">aberta</span>
+                  ) : (
+                    <span className="badge-gray px-2 py-0.5 text-xs">
+                      fechada — envios aguardam
+                    </span>
+                  )}
+                </dd>
+              </>
+            )}
           </dl>
         )}
       </div>

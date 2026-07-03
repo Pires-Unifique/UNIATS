@@ -146,6 +146,31 @@ const EnvSchema = z.object({
   WAHA_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
   WAHA_TYPING_MS: z.coerce.number().int().nonnegative().default(1500),
 
+  // Pacing anti-banimento do WhatsApp (fila de mensagens). WAHA automatiza o
+  // WhatsApp Web (não-oficial): rajada + volume alto derrubam o número. O pacer
+  // impõe janela de envio, teto diário e intervalo aleatório entre mensagens.
+  // Desligue apenas em dev (WHATSAPP_PACING=false).
+  WHATSAPP_PACING: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Teto de envios/dia (0 = sem teto). Ramp-up é manual: número novo/frio
+  // começa em ~30-50/dia e sobe aos poucos por semana.
+  WHATSAPP_CAP_DIARIO: z.coerce.number().int().nonnegative().default(80),
+  WHATSAPP_JANELA_INICIO: z.coerce.number().int().min(0).max(23).default(8),
+  WHATSAPP_JANELA_FIM: z.coerce.number().int().min(1).max(24).default(19),
+  // Dias permitidos (0=domingo … 6=sábado). Padrão: segunda a sábado.
+  WHATSAPP_JANELA_DIAS: z.string().default('1,2,3,4,5,6'),
+  WHATSAPP_JITTER_MIN_MS: z.coerce.number().int().nonnegative().default(20_000),
+  WHATSAPP_JITTER_MAX_MS: z.coerce.number().int().nonnegative().default(90_000),
+  // Salva o candidato na agenda do aparelho antes do 1º contato (best-effort;
+  // a doc do WAHA descreve o PUT como edição — se não criar, vira no-op).
+  WHATSAPP_SALVAR_CONTATO: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  WHATSAPP_TIMEZONE: z.string().default('America/Sao_Paulo'),
+
   // SendGrid (Camada 4)
   SENDGRID_API_KEY: z.string().startsWith('SG.').optional(),
   SENDGRID_FROM_EMAIL: z.string().email().optional(),

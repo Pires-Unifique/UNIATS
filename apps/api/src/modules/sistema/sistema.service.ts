@@ -3,6 +3,7 @@ import type { WahaQrDTO, WahaStatusDTO } from '@uniats/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { UsuarioAutenticado } from '../auth/auth.types.js';
+import { WhatsappPacerService } from '../messaging/whatsapp-pacer.service.js';
 import { WahaClient } from '../waha/waha.client.js';
 
 /** Saúde/operação do sistema (por ora, a sessão WhatsApp do WAHA). */
@@ -13,9 +14,11 @@ export class SistemaService {
   constructor(
     private readonly waha: WahaClient,
     private readonly prisma: PrismaService,
+    private readonly pacer: WhatsappPacerService,
   ) {}
 
   async statusWaha(): Promise<WahaStatusDTO> {
+    const pacing = await this.pacer.statusDoDia();
     const base: WahaStatusDTO = {
       configurado: this.waha.configurado,
       sessao: this.waha.nomeSessao,
@@ -25,6 +28,14 @@ export class SistemaService {
       engine: null,
       ultimo_webhook_em: null,
       ultimo_webhook_evento: null,
+      pacing: pacing.pacing_ativo
+        ? {
+            enviadas_hoje: pacing.enviadas_hoje,
+            cap_diario: pacing.cap_diario,
+            janela: pacing.janela,
+            dentro_janela: pacing.dentro_janela,
+          }
+        : null,
     };
 
     // Último evento recebido do WAHA (mostra se o webhook está chegando).

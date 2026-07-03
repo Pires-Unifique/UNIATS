@@ -529,6 +529,13 @@ export interface WahaStatusDTO {
   engine: string | null;
   ultimo_webhook_em: string | null;
   ultimo_webhook_evento: string | null;
+  /** Pacing anti-banimento da fila de mensagens. Null quando desativado. */
+  pacing: {
+    enviadas_hoje: number;
+    cap_diario: number | null;
+    janela: string;
+    dentro_janela: boolean;
+  } | null;
 }
 
 export interface WahaQrDTO {

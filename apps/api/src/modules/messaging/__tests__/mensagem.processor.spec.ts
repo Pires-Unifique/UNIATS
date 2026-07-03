@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import type { Job } from 'bullmq';
+import { DelayedError, type Job } from 'bullmq';
 
 import { MensagemProcessor } from '../processors/mensagem.processor.js';
 import { MessagingService } from '../messaging.service.js';
@@ -8,9 +8,15 @@ import type { TemplateResolvido } from '../templates/template.types.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { SendGridClient } from '../../sendgrid/sendgrid.client.js';
 import { WahaClient } from '../../waha/waha.client.js';
+import { WhatsappPacerService } from '../whatsapp-pacer.service.js';
 
 function fakeJob(data: unknown, id = '1'): Job<unknown> {
-  return { id, data, attemptsMade: 0 } as Job<unknown>;
+  return {
+    id,
+    data,
+    attemptsMade: 0,
+    moveToDelayed: jest.fn(),
+  } as unknown as Job<unknown>;
 }
 
 const CONVITE_RESOLVIDO: TemplateResolvido = {
@@ -32,6 +38,7 @@ describe('MensagemProcessor', () => {
   let waha: jest.Mocked<WahaClient>;
   let sendgrid: jest.Mocked<SendGridClient>;
   let prisma: any;
+  let pacer: jest.Mocked<WhatsappPacerService>;
   let processor: MensagemProcessor;
 
   const candidatoTelefone = '+5547999998888';
@@ -67,12 +74,20 @@ describe('MensagemProcessor', () => {
       mensagem: { findUnique: jest.fn() },
     };
 
+    // Pacer liberado por padrão — o comportamento de janela/cap tem spec próprio.
+    pacer = {
+      avaliarJanelaECap: jest.fn(async () => ({ liberado: true as const })),
+      aguardarVez: jest.fn(async () => undefined),
+      salvarContatoSeNovo: jest.fn(async () => undefined),
+    } as unknown as jest.Mocked<WhatsappPacerService>;
+
     processor = new MensagemProcessor(
       messaging,
       templates,
       waha,
       sendgrid,
       prisma as PrismaService,
+      pacer,
     );
   });
 
@@ -91,6 +106,8 @@ describe('MensagemProcessor', () => {
       id: mensagemId,
       status: opts.status ?? 'PENDENTE',
       candidato: {
+        id: '00000000-0000-4000-8000-000000000099',
+        nome_completo: 'Ana Souza',
         email: candidatoEmail,
         telefone: candidatoTelefone,
         excluido_em: opts.excluido ? new Date() : null,
@@ -111,6 +128,33 @@ describe('MensagemProcessor', () => {
     const out = await processor.process(fakeJob(basePayload('WHATSAPP')));
     expect(out.providerMsgId).toBe('(ja-enviada)');
     expect(waha.sendText).not.toHaveBeenCalled();
+  });
+
+  it('pacer bloqueado (janela/cap) → reagenda o job sem enviar nem consumir tentativa', async () => {
+    prisma.mensagem.findUnique.mockResolvedValue(mensagemFromDb());
+    const retomarEm = new Date(Date.now() + 60 * 60 * 1000);
+    pacer.avaliarJanelaECap.mockResolvedValue({
+      liberado: false,
+      retomarEm,
+      motivo: 'fora da janela de envio',
+    });
+    const job = fakeJob(basePayload('WHATSAPP'));
+
+    // DelayedError sinaliza ao BullMQ que o job foi movido, não que falhou.
+    await expect(processor.process(job, 'tok')).rejects.toThrow(DelayedError);
+    expect(job.moveToDelayed).toHaveBeenCalledWith(retomarEm.getTime(), 'tok');
+    expect(waha.sendText).not.toHaveBeenCalled();
+    expect(messaging.marcarFalha).not.toHaveBeenCalled();
+  });
+
+  it('pacer NÃO se aplica a canal EMAIL', async () => {
+    prisma.mensagem.findUnique.mockResolvedValue(mensagemFromDb());
+    sendgrid.enviarEmail.mockResolvedValue({ messageId: 'sg-1' } as any);
+
+    await processor.process(fakeJob(basePayload('EMAIL')));
+
+    expect(pacer.avaliarJanelaECap).not.toHaveBeenCalled();
+    expect(pacer.aguardarVez).not.toHaveBeenCalled();
   });
 
   it('cancela envio se candidato foi excluído após enfileirar', async () => {

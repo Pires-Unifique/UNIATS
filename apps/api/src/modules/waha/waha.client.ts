@@ -285,6 +285,27 @@ export class WahaClient {
     }
   }
 
+  /**
+   * Salva/edita o contato na agenda do aparelho pareado
+   * (`PUT /api/{session}/contacts/{chatId}`, engines WEBJS/NOWEB). A doc
+   * descreve como edição; no WEBJS o método subjacente é saveOrEdit — se a
+   * versão instalada não criar contato novo, o efeito é nulo. Best-effort:
+   * NUNCA falha o fluxo de envio.
+   */
+  async salvarContato(chatId: string, nome: string): Promise<void> {
+    const [firstName, ...resto] = nome.trim().split(/\s+/);
+    try {
+      await this.client.put(
+        `/api/${encodeURIComponent(this.session)}/contacts/${encodeURIComponent(chatId)}`,
+        { firstName, lastName: resto.join(' ') || undefined },
+      );
+    } catch (err) {
+      this.logger.debug(
+        `salvarContato falhou (não crítico): ${(err as Error).message}`,
+      );
+    }
+  }
+
   /** Marca como lidas as mensagens de um chat (boa cidadania WhatsApp). */
   async sendSeen(chatId: WahaChatId): Promise<void> {
     this.validarChatId(chatId);
