@@ -58,6 +58,27 @@ describe('VagasController.listar — escopo', () => {
   });
 });
 
+describe('VagasController.listar — busca', () => {
+  it('q casa título OU código (case-insensitive)', async () => {
+    const { controller, prisma } = montar();
+    await controller.listar(usuario(['recrutamento']), undefined, '3921');
+    const arg = prisma.vaga.findMany.mock.calls[0][0] as any;
+    expect(arg.where.OR).toEqual([
+      { titulo: { contains: '3921', mode: 'insensitive' } },
+      { codigo: { contains: '3921', mode: 'insensitive' } },
+    ]);
+    // A busca não pode vazar o escopo: segue combinada com o resto do where.
+    expect(arg.where.excluido_em).toBeNull();
+  });
+
+  it('sem q, não monta OR', async () => {
+    const { controller, prisma } = montar();
+    await controller.listar(usuario(['recrutamento']));
+    const arg = prisma.vaga.findMany.mock.calls[0][0] as any;
+    expect(arg.where).not.toHaveProperty('OR');
+  });
+});
+
 describe('VagasController.obter — escopo', () => {
   const UUID = '11111111-1111-4111-8111-111111111111';
 

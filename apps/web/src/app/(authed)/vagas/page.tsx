@@ -128,7 +128,7 @@ export default function VagasPage() {
         <input
           className="flex-1 border border-grafite-200 rounded-md px-3 py-2 text-sm"
           type="search"
-          placeholder="Buscar por título…"
+          placeholder="Buscar por título ou código…"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
         />

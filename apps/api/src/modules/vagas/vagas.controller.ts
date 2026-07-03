@@ -79,7 +79,13 @@ export class VagasController {
     }
     const where: Record<string, unknown> = { excluido_em: null };
     if (status) where.status = status;
-    if (q) where.titulo = { contains: q, mode: 'insensitive' };
+    // Busca livre casa título OU código interno da vaga (jobCode da Gupy).
+    if (q) {
+      where.OR = [
+        { titulo: { contains: q, mode: 'insensitive' } },
+        { codigo: { contains: q, mode: 'insensitive' } },
+      ];
+    }
     // Gestor/visualizador: restringe às vagas dele.
     const escopo = escopoPorArea(usuario);
     if (escopo) where.gestor_id = escopo.gestor_id;
