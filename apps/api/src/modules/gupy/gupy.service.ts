@@ -56,9 +56,44 @@ export class GupyService {
       const vaga = await this.prisma.vaga.upsert(paraUpsertVaga(v));
       await this.auth.vincularGestorAoSincronizar(vaga.id, vaga.gestor_email);
       total += 1;
+      this.syncVagas.importadas = total; // progresso p/ quem roda em background
     }
     this.logger.log(`Backfill de vagas concluído: total=${total}`);
     return { total };
+  }
+
+  // Progresso do sync de vagas em background (in-memory; 1 instância).
+  private syncVagas = {
+    emAndamento: false,
+    importadas: 0,
+    erro: null as string | null,
+  };
+
+  statusSyncVagas() {
+    return { ...this.syncVagas };
+  }
+
+  /**
+   * Dispara, em BACKGROUND, a sincronização de TODAS as vagas e retorna na
+   * hora — o request não fica preso atrás do timeout do proxy (nginx 504,
+   * que o navegador reporta como erro de CORS). Acompanhe via `statusSyncVagas`.
+   */
+  iniciarSyncVagas(): { iniciado: boolean } & ReturnType<
+    GupyService['statusSyncVagas']
+  > {
+    if (this.syncVagas.emAndamento) {
+      return { iniciado: false, ...this.statusSyncVagas() };
+    }
+    this.syncVagas = { emAndamento: true, importadas: 0, erro: null };
+    void this.sincronizarTodasAsVagas()
+      .catch((err) => {
+        this.syncVagas.erro = (err as Error).message;
+        this.logger.error(`Sync de vagas falhou: ${(err as Error).message}`);
+      })
+      .finally(() => {
+        this.syncVagas.emAndamento = false;
+      });
+    return { iniciado: true, ...this.statusSyncVagas() };
   }
 
   /**

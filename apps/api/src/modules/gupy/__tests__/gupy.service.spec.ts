@@ -103,6 +103,57 @@ describe('GupyService.sincronizarTodasAsVagas', () => {
   });
 });
 
+describe('GupyService.iniciarSyncVagas', () => {
+  it('retorna na hora e conclui em background com a contagem', async () => {
+    const { service, client, prisma } = montarMocks();
+    const vaga = VagaGupySchema.parse(vagaFakeJson);
+    (client.iterarVagas as any).mockReturnValue(gen([vaga, vaga]));
+    prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
+
+    const r = service.iniciarSyncVagas();
+    expect(r.iniciado).toBe(true);
+    expect(r.emAndamento).toBe(true);
+
+    // Cede o event loop até o varredor em background terminar.
+    await new Promise((res) => setImmediate(res));
+    const st = service.statusSyncVagas();
+    expect(st.emAndamento).toBe(false);
+    expect(st.importadas).toBe(2);
+    expect(st.erro).toBeNull();
+  });
+
+  it('NÃO dispara de novo enquanto um sync está em andamento', async () => {
+    const { service, client, prisma } = montarMocks();
+    const vaga = VagaGupySchema.parse(vagaFakeJson);
+    (client.iterarVagas as any).mockReturnValue(gen([vaga]));
+    prisma.vaga.upsert.mockResolvedValue({ id: 'x' });
+
+    const primeiro = service.iniciarSyncVagas();
+    const segundo = service.iniciarSyncVagas();
+    expect(primeiro.iniciado).toBe(true);
+    expect(segundo.iniciado).toBe(false);
+
+    await new Promise((res) => setImmediate(res));
+    expect(client.iterarVagas).toHaveBeenCalledTimes(1);
+  });
+
+  it('falha do client vira `erro` no status (não derruba nada)', async () => {
+    const { service, client } = montarMocks();
+    (client.iterarVagas as any).mockReturnValue(
+      (async function* (): AsyncGenerator<never, void, void> {
+        throw new Error('Gupy 500');
+      })(),
+    );
+
+    service.iniciarSyncVagas();
+    await new Promise((res) => setImmediate(res));
+
+    const st = service.statusSyncVagas();
+    expect(st.emAndamento).toBe(false);
+    expect(st.erro).toBe('Gupy 500');
+  });
+});
+
 describe('GupyService.iniciarSyncCandidaturasTodas', () => {
   it('varre só vagas vivas (exclui ENCERRADA/CANCELADA)', async () => {
     const { service, prisma } = montarMocks();

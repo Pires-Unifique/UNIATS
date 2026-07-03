@@ -179,9 +179,16 @@ export class GupyController {
     return this.service.sincronizarVaga(BigInt(gupyIdStr));
   }
 
+  /** Importa TODAS as vagas (background — retorna na hora, sem prender o proxy). */
   @Post('sync/vagas')
   async sincronizarTodas() {
-    return this.service.sincronizarTodasAsVagas();
+    return this.service.iniciarSyncVagas();
+  }
+
+  /** Progresso do import de vagas em background. */
+  @Get('sync/vagas/status')
+  async statusSyncVagas() {
+    return this.service.statusSyncVagas();
   }
 
   @Post('sync/vaga/:gupyId/candidaturas')
