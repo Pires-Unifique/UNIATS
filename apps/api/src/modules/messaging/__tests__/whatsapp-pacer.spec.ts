@@ -7,11 +7,18 @@ import { WhatsappPacerService } from '../whatsapp-pacer.service.js';
  * determinísticos, congelamos o relógio com jest.setSystemTime em instantes
  * UTC cuja hora em America/Sao_Paulo (UTC-3, sem DST) é conhecida.
  */
-type MockPrisma = { mensagem: { count: jest.Mock } };
+type MockPrisma = {
+  mensagem: { count: jest.Mock };
+  registroAuditoria: { create: jest.Mock };
+};
 
-function montar(envOverrides: Record<string, unknown> = {}) {
+function montar(
+  envOverrides: Record<string, unknown> = {},
+  overrideBanco: Record<string, unknown> | null = null,
+) {
   const prisma: MockPrisma = {
     mensagem: { count: jest.fn().mockResolvedValue(0) },
+    registroAuditoria: { create: jest.fn().mockResolvedValue({}) },
   };
   const waha = { salvarContato: jest.fn(async () => undefined) };
   const env: Record<string, unknown> = {
@@ -27,13 +34,27 @@ function montar(envOverrides: Record<string, unknown> = {}) {
     ...envOverrides,
   };
   const config = { get: jest.fn((k: string) => env[k]) };
+  // ConfiguracoesService mockado: `overrideBanco` simula o que foi salvo na tela.
+  const configuracoes = {
+    obter: jest.fn(async () => overrideBanco),
+    salvar: jest.fn(async () => undefined),
+    remover: jest.fn(async () => undefined),
+  };
   const service = new WhatsappPacerService(
     config as any,
     prisma as any,
     waha as any,
+    configuracoes as any,
   );
-  return { service, prisma, waha };
+  return { service, prisma, waha, configuracoes };
 }
+
+const ADMIN = {
+  id: 'adm-1',
+  email: 'admin@unifique.com.br',
+  nome: 'Admin',
+  areas: ['admin'],
+} as any;
 
 // Quarta-feira 2026-07-01: 14:00 UTC = 11:00 em São Paulo (dentro da janela 8-19).
 const QUARTA_11H_SP = new Date('2026-07-01T14:00:00Z');
@@ -191,5 +212,84 @@ describe('WhatsappPacerService.statusDoDia', () => {
       janela: '08h–19h',
       dentro_janela: true,
     });
+  });
+});
+
+describe('WhatsappPacerService — config editável (tela WhatsApp)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('override do banco VENCE o env (cap menor derruba o envio)', async () => {
+    jest.setSystemTime(QUARTA_11H_SP);
+    const { service, prisma } = montar(
+      { WHATSAPP_CAP_DIARIO: 80 },
+      { cap_diario: 10 }, // salvo na tela
+    );
+    prisma.mensagem.count.mockResolvedValue(10);
+
+    const r = await service.avaliarJanelaECap();
+    expect(r.liberado).toBe(false);
+    if (!r.liberado) expect(r.motivo).toMatch(/10\/10/);
+  });
+
+  it('obterConfig marca padrao_ambiente conforme existência do override', async () => {
+    const semOverride = montar();
+    expect((await semOverride.service.obterConfig()).padrao_ambiente).toBe(true);
+
+    const comOverride = montar({}, { cap_diario: 30 });
+    const cfg = await comOverride.service.obterConfig();
+    expect(cfg.padrao_ambiente).toBe(false);
+    expect(cfg.cap_diario).toBe(30);
+    expect(cfg.janela_inicio).toBe(8); // demais campos vêm do env
+  });
+
+  it('atualizarConfig valida, salva e audita', async () => {
+    const { service, configuracoes, prisma } = montar();
+
+    const salvo = await service.atualizarConfig(
+      {
+        pacing: true,
+        cap_diario: 40,
+        janela_inicio: 9,
+        janela_fim: 18,
+        janela_dias: [1, 2, 3, 4, 5],
+        jitter_min_ms: 10_000,
+        jitter_max_ms: 60_000,
+        salvar_contato: false,
+      },
+      ADMIN,
+    );
+
+    expect(salvo.padrao_ambiente).toBe(false);
+    expect(salvo.cap_diario).toBe(40);
+    expect(configuracoes.salvar).toHaveBeenCalledWith(
+      'whatsapp_pacing',
+      expect.objectContaining({ cap_diario: 40, janela_dias: [1, 2, 3, 4, 5] }),
+      ADMIN.id,
+    );
+    const audit = prisma.registroAuditoria.create.mock.calls[0][0] as any;
+    expect(audit.data.acao).toBe('waha_pacing_atualizado');
+  });
+
+  it('rejeita config inválida (janela invertida, jitter min>max, sem dias)', async () => {
+    const { service, configuracoes } = montar();
+    await expect(
+      service.atualizarConfig({ janela_inicio: 19, janela_fim: 8 }, ADMIN),
+    ).rejects.toThrow(/Janela inválida/);
+    await expect(
+      service.atualizarConfig({ jitter_min_ms: 60_000, jitter_max_ms: 10_000 }, ADMIN),
+    ).rejects.toThrow(/Jitter inválido/);
+    await expect(
+      service.atualizarConfig({ janela_dias: [] }, ADMIN),
+    ).rejects.toThrow(/ao menos um dia/);
+    expect(configuracoes.salvar).not.toHaveBeenCalled();
+  });
+
+  it('restaurarPadrao remove o override e volta aos envs', async () => {
+    const { service, configuracoes } = montar({}, { cap_diario: 10 });
+    const cfg = await service.restaurarPadrao(ADMIN);
+    expect(configuracoes.remover).toHaveBeenCalledWith('whatsapp_pacing');
+    expect(cfg.padrao_ambiente).toBe(true);
+    expect(cfg.cap_diario).toBe(80);
   });
 });

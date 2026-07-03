@@ -15,6 +15,7 @@ import { AnaliseModule } from './modules/analise/analise.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CandidaturasModule } from './modules/candidaturas/candidaturas.module.js';
 import { ChavesApiModule } from './modules/chaves-api/chaves-api.module.js';
+import { ConfiguracoesModule } from './modules/configuracoes/configuracoes.module.js';
 import { ClaudeModule } from './modules/claude/claude.module.js';
 import { CryptoModule } from './modules/crypto/crypto.module.js';
 import { CurriculoModule } from './modules/curriculo/curriculo.module.js';
@@ -81,6 +82,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
 
     PrismaModule,
     AuthModule,
+    ConfiguracoesModule,
     QueueModule,
     StorageModule,
     CryptoModule,

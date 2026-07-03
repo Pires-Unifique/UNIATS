@@ -647,6 +647,22 @@ model RegistroAuditoria {
 }
 
 // ---------------------------------------------------------------------
+// CONFIGURAÇÕES DO SISTEMA — chave/valor Json editável pela seção Sistema.
+// O env continua sendo o PADRÃO; a linha aqui, quando existe, sobrepõe
+// (ex.: chave 'whatsapp_pacing' guarda o pacing anti-banimento editado
+// na tela WhatsApp). Autoria em UUID frouxo (sem FK), padrão do repo.
+// ---------------------------------------------------------------------
+model ConfiguracaoSistema {
+  chave             String   @id
+  valor             Json
+  atualizado_por_id String?  @db.Uuid
+  criado_em         DateTime @default(now())
+  atualizado_em     DateTime @updatedAt
+
+  @@map("configuracoes_sistema")
+}
+
+// ---------------------------------------------------------------------
 // CHAVES DE API — acesso de MÁQUINA (integrações/BI) à API do Collab.
 // A chave completa NUNCA é armazenada: guardamos só o SHA-256 (hex) e um
 // prefixo visível para identificação na UI. Escopos usam as MESMAS áreas
