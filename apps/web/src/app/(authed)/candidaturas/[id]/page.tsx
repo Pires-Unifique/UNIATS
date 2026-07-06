@@ -367,9 +367,21 @@ export default function CandidaturaPage({
       )}
 
       <div className="grid grid-cols-3 gap-4 mb-4">
-        <Stat label="Score consolidado" valor={consolidado?.valor ?? null} />
-        <Stat label="Similaridade vetorial" valor={similaridade?.valor ?? null} />
-        <Stat label="Ranking LLM" valor={rankingCv?.valor ?? null} />
+        <Stat
+          label="Nota final da IA"
+          valor={consolidado?.valor ?? null}
+          info="Nota geral de 0 a 100 usada no ranking. Combina a aderência do currículo à vaga (similaridade) com a análise detalhada da IA."
+        />
+        <Stat
+          label="Aderência à vaga"
+          valor={similaridade?.valor ?? null}
+          info="Quanto o currículo se parece com a descrição e os requisitos da vaga, por comparação semântica (embeddings). 0 a 100."
+        />
+        <Stat
+          label="Análise do currículo"
+          valor={rankingCv?.valor ?? null}
+          info="Avaliação do currículo feita pela IA (Claude) frente aos requisitos da vaga, com justificativa e evidências. 0 a 100."
+        />
       </div>
 
       <div className="mb-4">
@@ -748,10 +760,30 @@ export default function CandidaturaPage({
   );
 }
 
-function Stat({ label, valor }: { label: string; valor: number | null }) {
+function Stat({
+  label,
+  valor,
+  info,
+}: {
+  label: string;
+  valor: number | null;
+  /** Texto do tooltip (ⓘ) explicando o índice. */
+  info?: string;
+}) {
   return (
     <div className="card p-4">
-      <div className="text-xs text-grafite-400 mb-1">{label}</div>
+      <div className="mb-1 flex items-center gap-1 text-xs text-grafite-400">
+        <span>{label}</span>
+        {info && (
+          <span
+            className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-grafite-300 text-[9px] font-semibold leading-none text-grafite-400"
+            title={info}
+            aria-label={info}
+          >
+            i
+          </span>
+        )}
+      </div>
       <div className="text-2xl font-semibold tabular-nums">
         {valor != null ? valor.toFixed(1) : '—'}
       </div>
