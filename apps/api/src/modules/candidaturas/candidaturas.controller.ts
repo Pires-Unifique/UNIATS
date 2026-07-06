@@ -118,6 +118,22 @@ export class CandidaturasController {
       },
     });
     if (!c) throw new NotFoundException(`Candidatura ${id} não existe.`);
+
+    // Auditoria de ACESSO a PII (LGPD): registra quem abriu a ficha completa do
+    // candidato (nome/e-mail/telefone/CV/notas). Fire-and-forget — nunca atrasa
+    // nem derruba a leitura; chave de API grava usuario_id nulo.
+    void this.prisma.registroAuditoria
+      .create({
+        data: {
+          usuario_id: usuario.chave_api ? null : usuario.id,
+          acao: 'candidatura_visualizada',
+          entidade: 'candidatura',
+          entidade_id: id,
+          diff: {},
+        },
+      })
+      .catch(() => undefined);
+
     // BigInt → string para serialização JSON (gupy_id não é serializável nativamente).
     return {
       ...c,
