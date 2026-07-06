@@ -47,7 +47,7 @@
     "passport": "^0.7.0",
     "passport-azure-ad": "^4.3.5",
     "passport-jwt": "^4.0.1",
-    "pdf-parse": "^1.1.1",
+    "pdf-parse": "^2.4.5",
     "pino": "^9.4.0",
     "pino-http": "^10.3.0",
     "reflect-metadata": "^0.2.2",
