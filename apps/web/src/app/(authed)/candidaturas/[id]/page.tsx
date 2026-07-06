@@ -163,34 +163,6 @@ export default function CandidaturaPage({
     void carregarEnquetes();
   }, [carregar, carregarMensagens, carregarEnquetes]);
 
-  async function aprovarScore() {
-    if (!c || !usuario) return;
-    setAcaoStatus(null);
-    try {
-      const r = await api<{ atualizados: number }>(
-        `/api/candidaturas/${id}/score/aprovar`,
-        {
-          method: 'POST',
-          body: { usuarioId: usuario.oid },
-        },
-      );
-      if (r.atualizados === 0) {
-        setAcaoStatus(
-          'Não há análise de IA para aprovar. Classifique o candidato com IA antes (botão "Classificar com IA" no ranking da vaga).',
-        );
-        return;
-      }
-      setAcaoStatus(
-        `Análise aprovada — revisão humana registrada (${r.atualizados} score(s)).`,
-      );
-      await carregar();
-    } catch (err) {
-      setAcaoStatus(
-        err instanceof ApiError ? err.message : 'Falha ao aprovar.',
-      );
-    }
-  }
-
   async function calcularScore() {
     setAcaoStatus(null);
     try {
@@ -295,21 +267,21 @@ export default function CandidaturaPage({
             >
               💬 Contatar
             </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={aprovado || !temAnaliseIa}
-              title={
-                !temAnaliseIa
-                  ? 'Sem análise de IA para aprovar — classifique o candidato com IA primeiro.'
-                  : 'Registra a revisão humana da avaliação automática (LGPD Art. 20).'
-              }
-              onClick={() => void aprovarScore()}
-            >
-              {aprovado
-                ? '✓ Análise aprovada'
-                : 'Aprovar análise (LGPD Art. 20)'}
-            </button>
+            {/* A revisão humana da análise da IA (LGPD Art. 20) é registrada
+                automaticamente quando o recrutador AGE sobre o candidato
+                (mover etapa, agendar entrevista, reprovar) — sem botão. */}
+            {temAnaliseIa && (
+              <span
+                className={`${aprovado ? 'badge-green' : 'badge-yellow'} cursor-help`}
+                title={
+                  aprovado
+                    ? 'Um humano já revisou a análise da IA (LGPD Art. 20) — registrado ao mover o candidato, agendar entrevista ou reprovar.'
+                    : 'A análise da IA ainda não foi revisada por um humano. A revisão é registrada automaticamente quando você mover o candidato de etapa, agendar entrevista ou reprovar (LGPD Art. 20).'
+                }
+              >
+                {aprovado ? '✓ Análise revisada' : 'Análise aguardando ação humana'}
+              </span>
+            )}
           </>
         }
       />
@@ -739,11 +711,11 @@ export default function CandidaturaPage({
               }
             >
               {aprovado
-                ? `aprovada em ${formatarData(
+                ? `revisada em ${formatarData(
                     rankingCv?.revisado_em ?? consolidado?.revisado_em,
                   )}`
                 : temAnaliseIa
-                  ? 'pendente de aprovação'
+                  ? 'registrada automaticamente ao mover etapa / agendar entrevista'
                   : 'sem análise de IA'}
             </span>
           </li>

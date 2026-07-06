@@ -97,6 +97,7 @@ export class InterviewController {
       entrevistadorId: body.entrevistadorId,
       googleEventId: body.googleEventId,
       consentirGravacao: body.consentirGravacao,
+      usuarioId: usuario.id,
     });
   }
 
@@ -135,6 +136,7 @@ export class InterviewController {
       provedor: body.provedor,
       duracaoEstimadaMin: body.duracaoEstimadaMin,
       consentirGravacao: body.consentirGravacao,
+      usuarioId: usuario.id,
     });
   }
 

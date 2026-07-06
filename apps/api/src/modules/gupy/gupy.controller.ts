@@ -15,6 +15,8 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { Areas } from '../auth/areas.decorator.js';
 import { AreasGuard } from '../auth/areas.guard.js';
 import { AuthGuard } from '../auth/auth.guard.js';
+import type { UsuarioAutenticado } from '../auth/auth.types.js';
+import { UsuarioAtual } from '../auth/usuario-atual.decorator.js';
 import { GupyService } from './gupy.service.js';
 import { GupyClient } from './gupy.client.js';
 
@@ -100,6 +102,7 @@ export class GupyController {
    */
   @Patch('vagas/:gupyId/candidaturas/:applicationId')
   async moverCandidatura(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('gupyId') gupyIdStr: string,
     @Param('applicationId') applicationIdStr: string,
     @Body()
@@ -166,6 +169,22 @@ export class GupyController {
         where: { gupy_id: BigInt(applicationIdStr) },
         data: dadosLocais,
       });
+    }
+
+    // LGPD Art. 20 — mover/reprovar é uma decisão humana baseada na análise da
+    // IA: registra a revisão humana automaticamente (se ainda não houver).
+    // Best-effort: não falha o move.
+    try {
+      await this.prisma.score.updateMany({
+        where: {
+          candidatura: { gupy_id: BigInt(applicationIdStr) },
+          tipo: { in: ['RANKING_CV', 'CONSOLIDADO'] },
+          revisado_em: null,
+        },
+        data: { revisado_por: usuario.id, revisado_em: new Date() },
+      });
+    } catch {
+      /* não crítico */
     }
 
     return { movido: true };
