@@ -1,27 +1,31 @@
-# Dependabot — varredura de dependências (SCA). Impacto ZERO no pipeline:
-# abre PRs de atualização/vulnerabilidade; não roda no runner nem bloqueia deploy.
-# Para ALERTAS de segurança, habilite também em Settings → Advanced Security:
-#   "Dependabot alerts" + "Dependabot security updates" + "Secret scanning".
+# Dependabot — SCA de dependências. Config ENXUTA de propósito: o CI roda num
+# runner self-hosted e cada PR dispara build Docker; então agrupamos tudo num PR
+# só, ignoramos bumps MAJOR (breaking, revisão manual) e reduzimos a frequência.
+# Alertas de CVE ligam em Settings → Advanced Security (Dependabot alerts).
 version: 2
 updates:
-  # Dependências npm/pnpm (lockfile único na raiz do monorepo pnpm).
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
-    # Agrupa dev-deps num PR só pra reduzir ruído; runtime vem em PRs separados.
+    open-pull-requests-limit: 3
+    # Um PR só com todos os minor/patch — menos ruído e menos builds no runner.
     groups:
-      dev-dependencies:
-        dependency-type: "development"
-    labels:
-      - "dependencies"
+      todas-deps:
+        patterns: ["*"]
+    # Bumps MAJOR são breaking (ex.: nestjs 10→11, pino 9→10) — revisar à mão,
+    # sem PR automático (evita a enxurrada que encheu o disco do runner).
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels: ["dependencies"]
 
-  # Versões das Actions usadas no CI/CD (.github/workflows).
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "ci"
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: ["dependencies", "ci"]
