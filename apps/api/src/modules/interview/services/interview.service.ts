@@ -39,6 +39,12 @@ export interface AgendarEntrevistaInput {
   graphOrganizadorEmail?: string | null;
   /** Registra consentimento de gravação do candidato no ato do agendamento. */
   consentirGravacao?: boolean;
+  /**
+   * Usuário que executou o agendamento. Agendar é uma DECISÃO HUMANA sobre o
+   * candidato — registramos automaticamente a revisão da análise da IA
+   * (LGPD Art. 20) em nome dele, sem exigir o clique num botão à parte.
+   */
+  usuarioId?: string;
 }
 
 export interface ConfirmarPorEnqueteInput {
@@ -47,6 +53,8 @@ export interface ConfirmarPorEnqueteInput {
   provedor?: 'teams';
   duracaoEstimadaMin?: number;
   consentirGravacao?: boolean;
+  /** Usuário que confirmou (ver AgendarEntrevistaInput.usuarioId). */
+  usuarioId?: string;
 }
 
 @Injectable()
@@ -223,6 +231,32 @@ export class InterviewService {
         `para=${input.agendadaPara.toISOString()} ` +
         `sala=${salaGeradaEventId ? 'gerada(Teams)' : 'link informado'}`,
     );
+
+    // LGPD Art. 20 — agendar entrevista é uma decisão humana baseada na análise
+    // da IA: registra a revisão humana automaticamente (se ainda não houver).
+    // Best-effort: falha aqui não desfaz o agendamento.
+    if (input.usuarioId) {
+      try {
+        const r = await this.prisma.score.updateMany({
+          where: {
+            candidatura_id: input.candidaturaId,
+            tipo: { in: ['RANKING_CV', 'CONSOLIDADO'] },
+            revisado_em: null,
+          },
+          data: { revisado_por: input.usuarioId, revisado_em: new Date() },
+        });
+        if (r.count > 0) {
+          this.logger.log(
+            `Revisão humana (Art. 20) registrada no agendamento: candidatura=${input.candidaturaId} usuario=${input.usuarioId}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Falha ao registrar revisão humana no agendamento (não crítico): ${(err as Error).message}`,
+        );
+      }
+    }
+
     return entrevista;
   }
 
@@ -567,6 +601,7 @@ export class InterviewService {
         graphOnlineMeetingId: onlineMeetingId,
         graphOrganizadorEmail: organizadorEmail,
         consentirGravacao: input.consentirGravacao,
+        usuarioId: input.usuarioId,
       });
     } catch (err) {
       // Reverte a reunião/bloqueio criados no Graph para não deixar evento órfão
