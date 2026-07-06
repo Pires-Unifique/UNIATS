@@ -54,8 +54,15 @@ import { WahaModule } from './modules/waha/waha.module.js';
         redact: {
           paths: [
             'req.headers.authorization',
-            'req.headers["x-gupy-signature"]',
             'req.headers.cookie',
+            // Segredos de webhook / chave de API — NUNCA logar em texto puro.
+            'req.headers["x-gupy-signature"]',
+            'req.headers["x-api-key"]',
+            'req.headers["x-autentique-secret"]',
+            'req.headers["x-autentique-signature"]',
+            'req.headers["x-webhook-hmac"]',
+            'req.headers["x-playwright-secret"]',
+            'req.headers["x-twilio-email-event-webhook-signature"]',
             '*.password',
             '*.token',
             '*.api_key',

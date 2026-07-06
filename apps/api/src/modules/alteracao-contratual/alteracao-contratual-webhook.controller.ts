@@ -5,6 +5,7 @@ import {
   Logger,
   Post,
   Req,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -41,6 +42,12 @@ export class AlteracaoContratualWebhookController {
         this.logger.warn('Webhook Autentique rejeitado: HMAC inválido.');
         throw new ForbiddenException('Assinatura do webhook inválida.');
       }
+    } else if (this.config.get<string>('NODE_ENV') === 'production') {
+      // Fail-closed: este webhook dispara ação contratual — sem segredo em
+      // produção, recusa (não aceita evento de assinatura forjado).
+      throw new ServiceUnavailableException(
+        'Webhook Autentique desabilitado: AUTENTIQUE_WEBHOOK_SECRET ausente em produção.',
+      );
     }
 
     // Aceita o shape oficial { event: { type, data } } e o shape interno (simulado).
