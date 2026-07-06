@@ -21,6 +21,18 @@ async function bootstrap() {
   // que popula X-Forwarded-For.
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
+  // Cabeçalhos de segurança em toda resposta (defesa em profundidade).
+  // SEM HSTS de propósito: o TLS/redirect fica no nginx + proxy corporativo, que
+  // não controlamos — não forçamos HTTPS aqui para não conflitar com esse caminho.
+  app.use(
+    (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      next();
+    },
+  );
+
   // Gupy: usa express.raw (body fica como Buffer em req.body) — controller faz
   // HMAC + JSON.parse manualmente. Padrão herdado da Camada 1.
   app.use(

@@ -7,7 +7,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { z } from 'zod';
 
 import { OffboardingService } from './offboarding.service.js';
@@ -30,6 +30,9 @@ const ConfirmarSchema = z.object({
  */
 @Controller('api/offboarding/auto')
 @UseGuards(ThrottlerGuard)
+// Endpoint PÚBLICO por token: limite mais apertado que o global (defesa extra
+// contra sondagem de token, mesmo o token sendo aleatório de 192 bits).
+@Throttle({ default: { limit: 20, ttl: 60_000 } })
 export class OffboardingAutoController {
   constructor(private readonly service: OffboardingService) {}
 
