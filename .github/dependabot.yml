@@ -1,0 +1,27 @@
+# Dependabot — varredura de dependências (SCA). Impacto ZERO no pipeline:
+# abre PRs de atualização/vulnerabilidade; não roda no runner nem bloqueia deploy.
+# Para ALERTAS de segurança, habilite também em Settings → Advanced Security:
+#   "Dependabot alerts" + "Dependabot security updates" + "Secret scanning".
+version: 2
+updates:
+  # Dependências npm/pnpm (lockfile único na raiz do monorepo pnpm).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # Agrupa dev-deps num PR só pra reduzir ruído; runtime vem em PRs separados.
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+    labels:
+      - "dependencies"
+
+  # Versões das Actions usadas no CI/CD (.github/workflows).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
