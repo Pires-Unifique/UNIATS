@@ -7,6 +7,7 @@ import {
   Logger,
   Post,
   Req,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -32,12 +33,14 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 export class SendGridWebhookController {
   private readonly logger = new Logger(SendGridWebhookController.name);
   private readonly publicKeyPem?: string;
+  private readonly ehProducao: boolean;
 
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
   ) {
+    this.ehProducao = config.get<string>('NODE_ENV') === 'production';
     const raw = config.get<string>('SENDGRID_WEBHOOK_PUBLIC_KEY');
     if (raw) {
       // SendGrid entrega a chave em base64-DER; normalizamos para PEM.
@@ -61,6 +64,12 @@ export class SendGridWebhookController {
   ): Promise<{ status: string; processados: number }> {
     if (this.publicKeyPem) {
       this.verificarAssinatura(req, assinatura, timestamp);
+    } else if (this.ehProducao) {
+      // Fail-closed em produção: sem a chave pública, não processa eventos
+      // (evita status forjado). Só o rastreamento para; o ENVIO não é afetado.
+      throw new ServiceUnavailableException(
+        'Webhook SendGrid desabilitado: SENDGRID_WEBHOOK_PUBLIC_KEY ausente em produção.',
+      );
     }
 
     if (!Array.isArray(body)) {

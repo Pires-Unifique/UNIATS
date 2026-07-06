@@ -7,6 +7,7 @@ import {
   Logger,
   Post,
   Req,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -34,6 +35,7 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 export class WahaWebhookController {
   private readonly logger = new Logger(WahaWebhookController.name);
   private readonly secret?: string;
+  private readonly ehProducao: boolean;
 
   constructor(
     config: ConfigService,
@@ -42,6 +44,7 @@ export class WahaWebhookController {
     private readonly enquetes: EnqueteService,
   ) {
     this.secret = config.get<string>('WAHA_WEBHOOK_SECRET');
+    this.ehProducao = config.get<string>('NODE_ENV') === 'production';
     if (!this.secret) {
       this.logger.warn(
         'WAHA_WEBHOOK_SECRET ausente — webhooks WAHA NÃO serão autenticados. ' +
@@ -57,9 +60,14 @@ export class WahaWebhookController {
     @Headers('x-webhook-hmac') assinatura: string | undefined,
     @Body() body: unknown,
   ): Promise<{ status: string; eventId?: string }> {
-    // 1) Autenticação
+    // 1) Autenticação — fail-closed em produção: sem secret, recusa (não aceita
+    // webhook não autenticado). Em dev, segue aceitando para facilitar testes.
     if (this.secret) {
       this.verificarHmac(req, assinatura);
+    } else if (this.ehProducao) {
+      throw new ServiceUnavailableException(
+        'Webhook WAHA desabilitado: WAHA_WEBHOOK_SECRET ausente em produção.',
+      );
     }
 
     // 2) Schema (parse permissivo — WAHA evolui rápido)

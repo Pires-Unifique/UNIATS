@@ -45,7 +45,9 @@ const EnvSchema = z.object({
   AUTH_DEV_EMAIL: z.string().email().default('admin@unifique.com.br'),
   // Lista (CSV) de e-mails que entram/permanecem como ADMIN geral no login SSO.
   // Promoção deliberada e idempotente — reaplica o papel ADMIN a cada login.
-  AUTH_ADMIN_EMAILS: z.string().default('guilherme.viana@unifique.com.br'),
+  // SEM default: defina explicitamente por ambiente (não acoplar e-mail pessoal
+  // ao código). Vazio = nenhum admin por allowlist (conceda via tela Usuários/DB).
+  AUTH_ADMIN_EMAILS: z.string().default(''),
 
   // Microsoft Graph (app-only / client credentials) — agendamento de entrevista:
   // cria a reunião Teams, bloqueia a agenda do recrutador e convida o candidato
