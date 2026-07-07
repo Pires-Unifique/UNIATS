@@ -347,12 +347,12 @@ export default function CandidaturaPage({
         <Stat
           label="Aderência à vaga"
           valor={similaridade?.valor ?? null}
-          info="Quanto o currículo se parece com a descrição e os requisitos da vaga, por comparação semântica (embeddings). 0 a 100."
+          info="Quanto o currículo se parece com a descrição e os requisitos da vaga, por comparação semântica. 0 a 100."
         />
         <Stat
           label="Análise do currículo"
           valor={rankingCv?.valor ?? null}
-          info="Avaliação do currículo feita pela IA (Claude) frente aos requisitos da vaga, com justificativa e evidências. 0 a 100."
+          info="Avaliação do currículo feita pela IA frente aos requisitos da vaga, com justificativa e evidências. 0 a 100."
         />
       </div>
 
@@ -739,23 +739,35 @@ function Stat({
 }: {
   label: string;
   valor: number | null;
-  /** Texto do tooltip (ⓘ) explicando o índice. */
+  /** Explicação do índice — abre num balão ao clicar/pairar no ⓘ. */
   info?: string;
 }) {
+  // Balão próprio (não usamos `title`: o tooltip nativo só aparece com o mouse
+  // parado e não abre no clique/toque — na prática ninguém via a explicação).
+  const [infoAberta, setInfoAberta] = useState(false);
   return (
-    <div className="card p-4">
+    <div className="card relative p-4">
       <div className="mb-1 flex items-center gap-1 text-xs text-grafite-400">
         <span>{label}</span>
         {info && (
-          <span
-            className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-grafite-300 text-[9px] font-semibold leading-none text-grafite-400"
-            title={info}
-            aria-label={info}
+          <button
+            type="button"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-grafite-300 text-[9px] font-semibold leading-none text-grafite-400 hover:border-unifique-500 hover:text-unifique-700"
+            onClick={() => setInfoAberta((v) => !v)}
+            onMouseEnter={() => setInfoAberta(true)}
+            onMouseLeave={() => setInfoAberta(false)}
+            aria-expanded={infoAberta}
+            aria-label={`O que é "${label}"?`}
           >
             i
-          </span>
+          </button>
         )}
       </div>
+      {info && infoAberta && (
+        <div className="absolute left-2 right-2 top-9 z-20 rounded-md border border-grafite-200 bg-white p-2.5 text-xs leading-relaxed text-grafite-700 shadow-lg">
+          {info}
+        </div>
+      )}
       <div className="text-2xl font-semibold tabular-nums">
         {valor != null ? valor.toFixed(1) : '—'}
       </div>
