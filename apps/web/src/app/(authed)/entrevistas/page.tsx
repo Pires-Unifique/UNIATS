@@ -81,7 +81,7 @@ export default function EntrevistasIndex() {
       ) : entrevistas.length === 0 ? (
         <EmptyState
           titulo="Nenhuma entrevista"
-          descricao="Agende uma entrevista a partir do detalhe de uma candidatura (vaga → ranking → candidato)."
+          descricao="Agende uma entrevista a partir do detalhe de uma candidatura (Vagas → Ver detalhes → candidato)."
         />
       ) : (
         <div className="card overflow-hidden">

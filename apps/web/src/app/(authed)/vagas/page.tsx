@@ -132,7 +132,7 @@ export default function VagasPage() {
     <div>
       <PageHeader
         titulo="Vagas"
-        subtitulo="Vagas importadas da Gupy. Clique em uma vaga para ver o ranking de candidatos."
+        subtitulo="Vagas importadas da Gupy. Clique em uma vaga para ver os detalhes e os candidatos."
         acoes={
           podeVerTudo ? (
             <button

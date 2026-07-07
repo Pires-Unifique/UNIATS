@@ -258,7 +258,7 @@ export default function CandidaturaPage({
               href={`/vagas/${c.vaga_id}/ranking`}
               className="btn-soft"
             >
-              ← Ranking
+              ← Detalhes da vaga
             </Link>
             <button
               type="button"
@@ -342,7 +342,7 @@ export default function CandidaturaPage({
         <Stat
           label="Nota final da IA"
           valor={consolidado?.valor ?? null}
-          info="Nota geral de 0 a 100 usada no ranking. Combina a aderência do currículo à vaga (similaridade) com a análise detalhada da IA."
+          info="Nota geral de 0 a 100 usada para ordenar os candidatos. Combina a aderência do currículo à vaga (similaridade) com a análise detalhada da IA."
         />
         <Stat
           label="Aderência à vaga"
