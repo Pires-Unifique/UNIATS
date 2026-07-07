@@ -220,19 +220,37 @@ export default function CandidatosVagaPage({
         );
       }
 
-      // Fase 2 — Claude apenas no top-N por similaridade vetorial
+      // Fase 2 — Claude apenas no top-N por similaridade vetorial. Roda em
+      // BACKGROUND no servidor (a rodada paralela do Claude pode passar do
+      // timeout do proxy); acompanhamos por polling até terminar.
       setAviso(`Passo 2 de 2: avaliando os ${TOP_N} currículos mais parecidos com a vaga…`);
-      const r = await api<{
-        avaliadosAgora: number;
-        pendentesLLM: number;
-        embedados: number;
-      }>(`/api/vagas/${vagaId}/vetorial/avaliar-proximos`, {
+      await api(`/api/vagas/${vagaId}/vetorial/avaliar-proximos`, {
         method: 'POST',
         body: { n: TOP_N, incluirReprovados: incluir },
       });
+      const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+      let r = {
+        avaliadosAgora: 0,
+        pendentesLLM: 0,
+        embedados: 0,
+        emAndamento: true,
+        ultimoErro: null as string | null,
+      };
+      for (let i = 0; i < 200; i++) {
+        await sleep(3000);
+        r = await api<typeof r>(
+          `/api/vagas/${vagaId}/vetorial/avaliar-proximos/status`,
+          { query: { incluirReprovados: incluir ? 'true' : undefined } },
+        );
+        if (!r.emAndamento) break;
+        setAviso('Passo 2 de 2: avaliando com IA… isso leva alguns instantes.');
+      }
       await carregarCandidaturas(busca);
       setPendentesLLM(r.pendentesLLM);
-      if (r.avaliadosAgora === 0 && r.embedados === 0) {
+      if (r.ultimoErro) {
+        setAviso(null);
+        setErro(`Não foi possível avaliar com IA. Motivo: ${r.ultimoErro}`);
+      } else if (r.avaliadosAgora === 0 && r.embedados === 0) {
         // Nada avaliado E nenhum CV embedado → o passo vetorial (Voyage) não
         // produziu vetores. O fluxo completo depende deles; oriente a usar o
         // caminho que NÃO depende de embeddings.

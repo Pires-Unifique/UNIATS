@@ -199,12 +199,69 @@ export class RankingService {
     return this.matching.statusVetorial(vagaId, incluirReprovados);
   }
 
+  // Avaliações da Fase 2 (Claude no top-N) em andamento por vaga + resultado da
+  // última rodada (in-memory; suficiente p/ 1 instância).
+  private readonly avaliandoProximos = new Set<string>();
+  private readonly ultimaAvaliacaoProximos = new Map<
+    string,
+    { avaliadosAgora: number; ultimoErro: string | null; em: string }
+  >();
+
   /**
-   * Fase 2: avalia com Claude os próximos N candidatos por similaridade vetorial
-   * que ainda não foram avaliados (top-N inicial e lotes seguintes).
+   * Fase 2 em BACKGROUND: dispara a avaliação Claude dos próximos N candidatos
+   * por similaridade vetorial e retorna na hora. O frontend acompanha via
+   * `statusAvaliarProximos` (polling). Síncrono não dava: a rodada de N chamadas
+   * paralelas ao Claude dura o tempo da MAIS LENTA (retries/rate limit podem
+   * passar de 60s) e estourava o timeout do proxy — que o browser mostra como
+   * erro de CORS, embora os scores fossem gravados.
    */
-  async avaliarProximosLLM(vagaId: string, n: number, incluirReprovados = false) {
-    return this.matching.avaliarProximosLLM(vagaId, n, incluirReprovados);
+  async iniciarAvaliarProximos(
+    vagaId: string,
+    n: number,
+    incluirReprovados = false,
+  ): Promise<{ iniciado: boolean; jaEmAndamento: boolean }> {
+    const vaga = await this.prisma.vaga.findUnique({
+      where: { id: vagaId },
+      select: { id: true },
+    });
+    if (!vaga) throw new NotFoundException(`Vaga ${vagaId} não existe.`);
+
+    if (this.avaliandoProximos.has(vagaId)) {
+      return { iniciado: false, jaEmAndamento: true };
+    }
+    this.avaliandoProximos.add(vagaId);
+    void this.matching
+      .avaliarProximosLLM(vagaId, n, incluirReprovados)
+      .then((r) =>
+        this.ultimaAvaliacaoProximos.set(vagaId, {
+          avaliadosAgora: r.avaliadosAgora,
+          ultimoErro: null,
+          em: new Date().toISOString(),
+        }),
+      )
+      .catch((err) => {
+        const msg = (err as Error).message;
+        this.ultimaAvaliacaoProximos.set(vagaId, {
+          avaliadosAgora: 0,
+          ultimoErro: msg,
+          em: new Date().toISOString(),
+        });
+        this.logger.error(`avaliar-proximos da vaga ${vagaId} falhou: ${msg}`);
+      })
+      .finally(() => this.avaliandoProximos.delete(vagaId));
+    return { iniciado: true, jaEmAndamento: false };
+  }
+
+  /** Progresso da Fase 2 (para polling do frontend). */
+  async statusAvaliarProximos(vagaId: string, incluirReprovados = false) {
+    const st = await this.matching.statusVetorial(vagaId, incluirReprovados);
+    const ultima = this.ultimaAvaliacaoProximos.get(vagaId);
+    return {
+      ...st,
+      emAndamento: this.avaliandoProximos.has(vagaId),
+      avaliadosAgora: ultima?.avaliadosAgora ?? 0,
+      ultimoErro: ultima?.ultimoErro ?? null,
+    };
   }
 
   /**

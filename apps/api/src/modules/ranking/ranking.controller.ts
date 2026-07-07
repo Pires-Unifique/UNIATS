@@ -130,8 +130,11 @@ export class RankingController {
   }
 
   /**
-   * Fluxo vetorial — Fase 2: avalia com Claude os próximos N candidatos por
-   * similaridade vetorial ainda não avaliados (top-N inicial e lotes seguintes).
+   * Fluxo vetorial — Fase 2: dispara em BACKGROUND a avaliação Claude dos
+   * próximos N candidatos por similaridade vetorial ainda não avaliados.
+   * Retorna na hora; o progresso vem de .../avaliar-proximos/status (polling).
+   * Síncrono não dava: a rodada paralela dura o tempo da chamada Claude MAIS
+   * LENTA (retries podem passar de 60s) e estourava o timeout do proxy.
    */
   @Post('vagas/:vagaId/vetorial/avaliar-proximos')
   async avaliarProximos(
@@ -147,7 +150,28 @@ export class RankingController {
     if (!Number.isInteger(n) || n < 1 || n > 100) {
       throw new BadRequestException('n deve ser inteiro entre 1 e 100.');
     }
-    return this.service.avaliarProximosLLM(vagaId, n, body?.incluirReprovados === true);
+    return this.service.iniciarAvaliarProximos(
+      vagaId,
+      n,
+      body?.incluirReprovados === true,
+    );
+  }
+
+  /** Progresso da Fase 2 (para polling do frontend). */
+  @Get('vagas/:vagaId/vetorial/avaliar-proximos/status')
+  async avaliarProximosStatus(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('vagaId') vagaId: string,
+    @Query('incluirReprovados') incluirReprovados?: string,
+  ) {
+    if (!UUID_REGEX.test(vagaId)) {
+      throw new BadRequestException('vagaId inválido.');
+    }
+    await this.auth.assertVagaPermitida(usuario, vagaId);
+    return this.service.statusAvaliarProximos(
+      vagaId,
+      incluirReprovados === 'true',
+    );
   }
 
   /**
