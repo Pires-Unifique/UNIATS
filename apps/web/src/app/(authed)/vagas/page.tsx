@@ -235,7 +235,7 @@ export default function VagasPage() {
                       href={`/vagas/${v.id}/ranking`}
                       className="btn-soft text-xs"
                     >
-                      Ver ranking →
+                      Ver detalhes →
                     </Link>
                   </Td>
                 </tr>
