@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { Areas } from '../auth/areas.decorator.js';
 import { AreasGuard } from '../auth/areas.guard.js';
 import { AuthGuard } from '../auth/auth.guard.js';
+import { AuthService } from '../auth/auth.service.js';
 import type { UsuarioAutenticado } from '../auth/auth.types.js';
 import { UsuarioAtual } from '../auth/usuario-atual.decorator.js';
 import { GupyService } from './gupy.service.js';
@@ -24,6 +25,10 @@ import { GupyClient } from './gupy.client.js';
  * Endpoints REST INTERNOS para o frontend (recrutador) acionar sincronização
  * sob demanda. Integração com a Gupy é tarefa de recrutamento (área
  * 'recrutamento'; admin incluso) — o gestor não sincroniza.
+ *
+ * EXCEÇÃO: listar etapas e mover candidatura são liberados também para o LÍDER
+ * vinculado à vaga (posse via gestor_id) — esses handlers sobrescrevem o gate
+ * de área com `@Areas()` e validam por `assertVagaPermitidaPorGupyId`.
  */
 @Controller('api/gupy')
 @UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
@@ -33,6 +38,7 @@ export class GupyController {
     private readonly service: GupyService,
     private readonly client: GupyClient,
     private readonly prisma: PrismaService,
+    private readonly auth: AuthService,
   ) {}
 
   // ---- Leitura direta (passthrough autenticado) ----
@@ -64,11 +70,18 @@ export class GupyController {
     });
   }
 
+  // @Areas() vazio: sobrescreve o gate 'recrutamento' da classe — o acesso aqui
+  // é por POSSE DE VAGA (líder vinculado) além de admin/recrutamento.
+  @Areas()
   @Get('vagas/:gupyId/etapas')
-  async listarEtapas(@Param('gupyId') gupyIdStr: string) {
+  async listarEtapas(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('gupyId') gupyIdStr: string,
+  ) {
     if (!/^\d+$/.test(gupyIdStr)) {
       throw new BadRequestException('gupyId deve ser numérico');
     }
+    await this.auth.assertVagaPermitidaPorGupyId(usuario, BigInt(gupyIdStr));
     const etapas = await this.client.listarEtapasDaVaga({
       jobId: BigInt(gupyIdStr),
     });
@@ -100,6 +113,9 @@ export class GupyController {
    * Move uma candidatura entre etapas e/ou altera seu status na Gupy.
    * Body: { currentStepId?, status?, disapprovalReason?, disapprovalReasonNotes? }
    */
+  // @Areas() vazio: idem etapas — o LÍDER vinculado à vaga também pode mover
+  // o candidato entre as etapas (validado por posse de vaga logo abaixo).
+  @Areas()
   @Patch('vagas/:gupyId/candidaturas/:applicationId')
   async moverCandidatura(
     @UsuarioAtual() usuario: UsuarioAutenticado,
@@ -121,6 +137,7 @@ export class GupyController {
     if (!/^\d+$/.test(applicationIdStr)) {
       throw new BadRequestException('applicationId deve ser numérico');
     }
+    await this.auth.assertVagaPermitidaPorGupyId(usuario, BigInt(gupyIdStr));
 
     const {
       currentStepId,

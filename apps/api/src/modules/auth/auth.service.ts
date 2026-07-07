@@ -189,6 +189,23 @@ export class AuthService {
     if (!vaga) throw new NotFoundException(`Vaga ${vagaId} não existe.`);
   }
 
+  /**
+   * Idem, mas resolvendo a vaga pelo id da GUPY. Usado nos endpoints Gupy
+   * escopados por vaga (listar etapas / mover candidatura) para permitir também
+   * o LÍDER vinculado à vaga — não só a área de recrutamento.
+   */
+  async assertVagaPermitidaPorGupyId(
+    usuario: UsuarioAutenticado,
+    gupyId: bigint,
+  ): Promise<void> {
+    if (this.podeVerTodasVagas(usuario)) return;
+    const vaga = await this.prisma.vaga.findFirst({
+      where: { gupy_id: gupyId, gestor_id: usuario.id },
+      select: { id: true },
+    });
+    if (!vaga) throw new NotFoundException(`Vaga ${gupyId} não existe.`);
+  }
+
   /** Idem, partindo de uma candidatura (resolve a vaga dela). */
   async assertCandidaturaPermitida(
     usuario: UsuarioAutenticado,
