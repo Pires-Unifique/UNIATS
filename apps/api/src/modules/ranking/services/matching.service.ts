@@ -179,9 +179,12 @@ export class MatchingService {
   }
 
   /**
-   * Classifica UMA candidatura usando SOMENTE o Claude (sem Voyage).
-   * Útil enquanto a similaridade vetorial (Camada 3 vetorial) não está ligada.
-   * Persiste RANKING_CV e CONSOLIDADO (consolidado = score do LLM).
+   * Classifica UMA candidatura via Claude, usando a MESMA fórmula do fluxo
+   * vetorial sempre que os vetores existirem (40% similaridade + 60% LLM).
+   * Só cai para "consolidado = score do LLM" quando não há embedding — assim as
+   * notas são comparáveis independentemente do botão que disparou a avaliação
+   * (antes, o caminho "sem nota" ignorava a similaridade e inflava a nota de
+   * candidatos pouco aderentes em relação aos avaliados pelo fluxo vetorial).
    */
   async classificarCandidaturaLLM(candidaturaId: string): Promise<ItemRanking> {
     const candidatura = await this.prisma.candidatura.findUnique({
@@ -216,47 +219,80 @@ export class MatchingService {
       );
     }
 
+    // Similaridade vetorial ANTES do Claude: se os vetores existem, a nota
+    // final usa a fórmula composta; sem vetores, segue só-Claude (fallback).
+    let similaridade: {
+      distancia: number;
+      similaridadeVetorial: number;
+    } | null = null;
+    try {
+      similaridade = await this.calcularSimilaridade(
+        candidatura.vaga_id,
+        candidatura.curriculo.id,
+      );
+    } catch {
+      // Sem embeddings da vaga/CV — avalia só com o Claude.
+    }
+
     const vagaContexto = await this.carregarContextoVaga(candidatura.vaga_id);
     const avaliacao = await this.chamarLLMParaRanking(
       vagaContexto,
       candidatura.curriculo,
     );
 
+    const consolidado = similaridade
+      ? similaridade.similaridadeVetorial * MatchingService.PESO_VETORIAL +
+        avaliacao.score * MatchingService.PESO_LLM
+      : avaliacao.score;
+
     const evidenciasJson: Prisma.InputJsonValue = {
       pontos_fortes: avaliacao.pontos_fortes,
       lacunas: avaliacao.lacunas,
       evidencias: avaliacao.evidencias,
     };
+    const linhas: Prisma.ScoreCreateManyInput[] = [];
+    if (similaridade) {
+      linhas.push({
+        candidatura_id: candidaturaId,
+        tipo: 'SIMILARIDADE_VETORIAL',
+        valor: Number(similaridade.similaridadeVetorial.toFixed(2)),
+        justificativa: `Similaridade vetorial (1 - cosine_distance) entre embedding da vaga e do currículo. Distância: ${similaridade.distancia.toFixed(4)}`,
+        modelo: this.config.getOrThrow<string>('VOYAGE_MODEL'),
+      });
+    }
+    linhas.push(
+      {
+        candidatura_id: candidaturaId,
+        tipo: 'RANKING_CV',
+        valor: Number(avaliacao.score.toFixed(2)),
+        justificativa: avaliacao.justificativa,
+        evidencias: evidenciasJson,
+        modelo: this.modeloLLM,
+        prompt_versao: RANKING_PROMPT_VERSION,
+      },
+      {
+        candidatura_id: candidaturaId,
+        tipo: 'CONSOLIDADO',
+        valor: Number(consolidado.toFixed(2)),
+        justificativa: similaridade
+          ? `Média ponderada: ${MatchingService.PESO_VETORIAL.toFixed(2)} × similaridade + ${MatchingService.PESO_LLM.toFixed(2)} × ranking_llm`
+          : 'Classificação por LLM (Claude), sem similaridade vetorial (embedding indisponível para esta candidatura).',
+        modelo: similaridade ? `voyage+${this.modeloLLM}` : this.modeloLLM,
+        prompt_versao: RANKING_PROMPT_VERSION,
+      },
+    );
     await this.prisma.$transaction([
       this.prisma.score.deleteMany({
         where: {
           candidatura_id: candidaturaId,
-          tipo: { in: ['RANKING_CV', 'CONSOLIDADO'] },
+          tipo: {
+            in: similaridade
+              ? ['SIMILARIDADE_VETORIAL', 'RANKING_CV', 'CONSOLIDADO']
+              : ['RANKING_CV', 'CONSOLIDADO'],
+          },
         },
       }),
-      this.prisma.score.createMany({
-        data: [
-          {
-            candidatura_id: candidaturaId,
-            tipo: 'RANKING_CV',
-            valor: Number(avaliacao.score.toFixed(2)),
-            justificativa: avaliacao.justificativa,
-            evidencias: evidenciasJson,
-            modelo: this.modeloLLM,
-            prompt_versao: RANKING_PROMPT_VERSION,
-          },
-          {
-            candidatura_id: candidaturaId,
-            tipo: 'CONSOLIDADO',
-            valor: Number(avaliacao.score.toFixed(2)),
-            justificativa:
-              'Classificação por LLM (Claude), sem similaridade vetorial. ' +
-              'O peso vetorial (Voyage) será incorporado quando ativado.',
-            modelo: this.modeloLLM,
-            prompt_versao: RANKING_PROMPT_VERSION,
-          },
-        ],
-      }),
+      this.prisma.score.createMany({ data: linhas }),
     ]);
 
     return {
@@ -264,10 +300,10 @@ export class MatchingService {
       candidatoId: candidatura.candidato_id,
       candidatoNome: candidatura.candidato?.nome_completo ?? '(sem nome)',
       curriculoId: candidatura.curriculo.id,
-      distancia: 1,
-      similaridadeVetorial: 0,
+      distancia: similaridade?.distancia ?? 1,
+      similaridadeVetorial: similaridade?.similaridadeVetorial ?? 0,
       scoreRankingCv: avaliacao.score,
-      scoreConsolidado: avaliacao.score,
+      scoreConsolidado: consolidado,
       justificativa: avaliacao.justificativa,
     };
   }
