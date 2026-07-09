@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { Prisma } from '@uniats/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AuthGuard } from '../auth/auth.guard.js';
@@ -200,6 +201,7 @@ export class VagasController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id') id: string,
     @Query('limite') limiteStr?: string,
+    @Query('offset') offsetStr?: string,
     @Query('q') q?: string,
     @Query('incluirReprovados') incluirReprovados?: string,
   ) {
@@ -213,6 +215,14 @@ export class VagasController {
         throw new BadRequestException('limite deve estar entre 1 e 500.');
       }
       limite = n;
+    }
+    let offset = 0;
+    if (offsetStr) {
+      const n = Number(offsetStr);
+      if (!Number.isInteger(n) || n < 0 || n > 1_000_000) {
+        throw new BadRequestException('offset inválido.');
+      }
+      offset = n;
     }
 
     // Mesmo escopo da leitura da vaga: gestor não acessa candidatos de vaga alheia.
@@ -240,10 +250,50 @@ export class VagasController {
       };
     }
 
+    // Página de IDs ordenada NO BANCO: quem tem nota vem primeiro (maior nota
+    // no topo), depois os sem nota por inscrição mais recente. Sem isso, vaga
+    // com mais candidatos que o `limite` escondia justamente os avaliados — a
+    // janela antiga cortava pelos mais recentes ANTES de ordenar por nota, e o
+    // top-N escolhido por similaridade raramente está entre os mais recentes.
+    // `total` é a contagem real (a UI pagina com offset/"Carregar mais").
+    const condReprovados =
+      incluirReprovados !== 'true'
+        ? Prisma.sql`AND c.status NOT IN ('REPROVADO', 'DESISTENTE')`
+        : Prisma.empty;
+    const condBusca = busca
+      ? Prisma.sql`AND (ca.nome_completo ILIKE ${'%' + busca + '%'} OR ca.email ILIKE ${'%' + busca + '%'} OR ca.cidade ILIKE ${'%' + busca + '%'})`
+      : Prisma.empty;
+    const [total, pagina] = await Promise.all([
+      this.prisma.candidatura.count({
+        where: where as Prisma.CandidaturaWhereInput,
+      }),
+      this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT c.id
+        FROM candidaturas c
+        JOIN candidatos ca ON ca.id = c.candidato_id
+        LEFT JOIN LATERAL (
+          SELECT s.valor FROM scores s
+          WHERE s.candidatura_id = c.id AND s.tipo = 'CONSOLIDADO'
+          ORDER BY s.criado_em DESC LIMIT 1
+        ) sc ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT s.valor FROM scores s
+          WHERE s.candidatura_id = c.id AND s.tipo = 'RANKING_CV'
+          ORDER BY s.criado_em DESC LIMIT 1
+        ) sr ON TRUE
+        WHERE c.vaga_id = ${id}::uuid
+          ${condReprovados}
+          ${condBusca}
+        ORDER BY COALESCE(sc.valor, sr.valor) DESC NULLS LAST,
+                 c.inscrito_em DESC NULLS LAST,
+                 c.criado_em DESC
+        LIMIT ${limite} OFFSET ${offset}
+      `),
+    ]);
+    const ids = pagina.map((r) => r.id);
+
     const cands = await this.prisma.candidatura.findMany({
-      where,
-      orderBy: [{ inscrito_em: 'desc' }, { criado_em: 'desc' }],
-      take: limite,
+      where: { id: { in: ids } },
       select: {
         id: true,
         status: true,
@@ -266,8 +316,13 @@ export class VagasController {
         },
       },
     });
+    // findMany não preserva a ordem do IN — reordena pela página do SQL.
+    const porId = new Map(cands.map((c) => [c.id, c]));
+    const ordenados = ids
+      .map((i) => porId.get(i))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
-    const itens = cands.map((c) => {
+    const itens = ordenados.map((c) => {
       const consolidado = c.scores.find((s) => s.tipo === 'CONSOLIDADO');
       const rankingCv = c.scores.find((s) => s.tipo === 'RANKING_CV');
       // Nota IA exibida = melhor disponível: CONSOLIDADO (preferido) e, na sua
@@ -293,17 +348,10 @@ export class VagasController {
       };
     });
 
-    // Classificados (com score) primeiro, do maior para o menor; demais depois.
-    itens.sort((a, b) => {
-      if (a.score == null && b.score == null) return 0;
-      if (a.score == null) return 1;
-      if (b.score == null) return -1;
-      return b.score - a.score;
-    });
-
+    // Ordenação (nota desc, depois inscrição) já veio do SQL da página.
     return {
       vaga: { id: vaga.id, titulo: vaga.titulo, gupyId: vaga.gupy_id.toString() },
-      total: itens.length,
+      total,
       itens,
     };
   }
