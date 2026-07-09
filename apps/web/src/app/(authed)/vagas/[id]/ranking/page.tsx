@@ -122,7 +122,12 @@ export default function CandidatosVagaPage({
     }
   }, [vagaId, incluirReprovados]);
 
-  // Candidaturas: busca no servidor por nome (varre todos, não só os 200 exibidos).
+  // Tamanho de cada página da lista (o servidor ordena: com nota primeiro).
+  const PAGINA = 200;
+  const [carregandoMais, setCarregandoMais] = useState(false);
+
+  // Candidaturas: busca no servidor por nome (varre todos, não só os exibidos).
+  // Carrega a PRIMEIRA página; "Carregar mais" anexa as seguintes (offset).
   const carregarCandidaturas = useCallback(
     async (q: string) => {
       setCarregando(true);
@@ -132,7 +137,8 @@ export default function CandidatosVagaPage({
           `/api/vagas/${vagaId}/candidaturas`,
           {
             query: {
-              limite: 200,
+              limite: PAGINA,
+              offset: 0,
               q: q.trim() || undefined,
               // Carrega todos (inclui descartados) — a separação por aba
               // (Candidatos / Reprovados / Desistentes) é feita no cliente.
@@ -151,6 +157,34 @@ export default function CandidatosVagaPage({
     },
     [vagaId],
   );
+
+  // Próxima página (vagas com mais candidatos que uma página — ex.: 1000+).
+  async function carregarMais() {
+    if (!data || carregandoMais) return;
+    setCarregandoMais(true);
+    try {
+      const resp = await api<CandidaturasResponse>(
+        `/api/vagas/${vagaId}/candidaturas`,
+        {
+          query: {
+            limite: PAGINA,
+            offset: data.itens.length,
+            q: busca.trim() || undefined,
+            incluirReprovados: 'true',
+          },
+        },
+      );
+      setData({
+        ...resp,
+        itens: [...data.itens, ...resp.itens],
+      });
+    } catch (err) {
+      if (err instanceof ApiError) setErro(err.message);
+      else setErro('Não conseguimos carregar mais candidatos. Tente de novo.');
+    } finally {
+      setCarregandoMais(false);
+    }
+  }
 
   useEffect(() => {
     void carregarVaga();
@@ -623,6 +657,23 @@ export default function CandidatosVagaPage({
               ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Paginação: vagas com mais candidatos que uma página (ex.: 1000+) */}
+          {data.itens.length < data.total && (
+            <div className="mt-3 flex items-center justify-center gap-3">
+              <span className="text-xs text-grafite-400">
+                Mostrando {data.itens.length} de {data.total} candidato(s)
+              </span>
+              <button
+                type="button"
+                className="btn-soft text-xs"
+                disabled={carregandoMais}
+                onClick={() => void carregarMais()}
+              >
+                {carregandoMais ? 'Carregando…' : 'Carregar mais'}
+              </button>
             </div>
           )}
         </>
