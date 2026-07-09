@@ -13,7 +13,12 @@ import {
   InteractionRequiredAuthError,
 } from '@azure/msal-browser';
 
-import { api, ApiError, configurarTokenProvider } from './api';
+import {
+  api,
+  ApiError,
+  configurarSessaoExpiradaHandler,
+  configurarTokenProvider,
+} from './api';
 import { apiTokenRequest, authEnabled, getMsal, loginRequest } from './msal';
 
 /** Áreas de acesso (módulos). 'admin' libera tudo. Espelha o backend. */
@@ -76,6 +81,18 @@ function lerSessaoLocal(): UsuarioInfo | null {
   }
 }
 
+/** 401 com sessão local: descarta a sessão e volta ao login (sem loop). */
+function configurarExpiracaoSessaoLocal(): void {
+  configurarSessaoExpiradaHandler(() => {
+    try {
+      sessionStorage.removeItem(LOCAL_SESSION_KEY);
+    } catch {
+      /* ignore */
+    }
+    window.location.replace('/login?expired=1');
+  });
+}
+
 const Ctx = createContext<AuthCtx | null>(null);
 
 export function useAuth(): AuthCtx {
@@ -136,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const local = lerSessaoLocal();
     if (local) {
       configurarTokenProvider(async () => null);
+      configurarExpiracaoSessaoLocal();
       setUsuario(local);
       setPronto(true);
       return;
@@ -162,6 +180,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const msal = getMsal();
+    // Garante UMA renovação interativa por vez: com várias chamadas à API em
+    // paralelo, cada uma tentava seu próprio acquireTokenRedirect — as demais
+    // estouravam interaction_in_progress e viravam 401 → redirect, e a tela
+    // ficava oscilando entre "sessão expirada" e o login.
+    let renovacaoInterativa = false;
     msal
       .initialize()
       .then(() => msal.handleRedirectPromise())
@@ -183,14 +206,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // "Expose an API"). O accessToken aqui seria de OIDC/Graph, não da API.
             return r.idToken;
           } catch (err) {
-            if (err instanceof InteractionRequiredAuthError) {
-              await msal.acquireTokenRedirect({
-                ...apiTokenRequest,
-                account: ativo,
-              });
+            if (
+              err instanceof InteractionRequiredAuthError &&
+              !renovacaoInterativa
+            ) {
+              renovacaoInterativa = true;
+              try {
+                // Navega ao Microsoft e volta com token novo (SSO do Entra
+                // ainda vivo → renovação transparente, sem redigitar senha).
+                await msal.acquireTokenRedirect({
+                  ...apiTokenRequest,
+                  account: ativo,
+                });
+              } catch {
+                renovacaoInterativa = false;
+              }
             }
             return null;
           }
+        });
+        configurarSessaoExpiradaHandler(async () => {
+          // Renovação interativa já a caminho do Microsoft — não navegar por
+          // cima, senão cancelamos a renovação transparente.
+          if (renovacaoInterativa) return;
+          // Limpa a conta em cache ANTES de ir ao /login: com a conta velha no
+          // sessionStorage, o /login devolvia ao app, a API dava 401 de novo e
+          // a tela oscilava em loop.
+          try {
+            await msal.clearCache();
+          } catch {
+            /* segue para o login mesmo assim */
+          }
+          window.location.replace('/login?expired=1');
         });
         setPronto(true);
       })
@@ -251,6 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           /* sessionStorage indisponível — segue só em memória */
         }
         configurarTokenProvider(async () => null);
+        configurarExpiracaoSessaoLocal();
         setUsuario(USUARIO_LOCAL);
         return true;
       },
