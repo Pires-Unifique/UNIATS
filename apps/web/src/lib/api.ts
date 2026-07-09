@@ -19,6 +19,38 @@ export function configurarTokenProvider(provider: TokenProvider): void {
   tokenProvider = provider;
 }
 
+type SessaoExpiradaHandler = () => void | Promise<void>;
+
+let sessaoExpiradaHandler: SessaoExpiradaHandler = () => {
+  if (typeof window !== 'undefined') {
+    window.location.replace('/login?expired=1');
+  }
+};
+let tratandoSessaoExpirada = false;
+
+/**
+ * Chamado pelo AuthProvider no boot. O handler deve LIMPAR a sessão em cache
+ * (conta MSAL / sessão local) antes de navegar ao /login — sem isso o /login
+ * enxerga a conta antiga, devolve ao app, a API dá 401 de novo e a tela fica
+ * oscilando em loop entre "sessão expirada" e o login.
+ */
+export function configurarSessaoExpiradaHandler(
+  handler: SessaoExpiradaHandler,
+): void {
+  sessaoExpiradaHandler = handler;
+}
+
+function tratarSessaoExpirada(): void {
+  if (tratandoSessaoExpirada || typeof window === 'undefined') return;
+  tratandoSessaoExpirada = true;
+  // Destrava após alguns segundos caso o handler decida NÃO navegar (ex.:
+  // renovação interativa já em andamento que acabe falhando sem sair da página).
+  window.setTimeout(() => {
+    tratandoSessaoExpirada = false;
+  }, 5000);
+  void sessaoExpiradaHandler();
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -78,9 +110,9 @@ export async function api<T = unknown>(
   });
 
   if (resp.status === 401) {
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login?expired=1';
-    }
+    // Trata UMA vez, mesmo com vários 401 de chamadas em paralelo — cada um
+    // disparando o próprio redirect era parte da oscilação de tela.
+    tratarSessaoExpirada();
     throw new ApiError('Sessão expirada.', 401, null);
   }
   if (resp.status === 404 && opts.toleraNotFound) {

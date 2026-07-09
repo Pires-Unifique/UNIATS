@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 
 import { loginLocalAtivo, useAuth } from '@/lib/auth';
 import { authEnabled } from '@/lib/msal';
@@ -16,12 +16,17 @@ function LoginInner() {
   const [erroLocal, setErroLocal] = useState<string | null>(null);
   const [entrando, setEntrando] = useState(false);
 
-  if (pronto && usuario) {
-    if (typeof window !== 'undefined') {
-      window.location.href = '/vagas';
+  // Só devolve ao app quem chegou aqui LOGADO por conta própria. Quem veio por
+  // sessão expirada (?expired=1) fica na tela e entra de novo pelo botão —
+  // devolver ao app com a sessão inválida era o que fazia a tela oscilar em
+  // loop entre "sessão expirada" e o login.
+  const deveVoltarAoApp = pronto && usuario != null && !expired;
+  useEffect(() => {
+    if (deveVoltarAoApp) {
+      window.location.replace('/vagas');
     }
-    return null;
-  }
+  }, [deveVoltarAoApp]);
+  if (deveVoltarAoApp) return null;
 
   async function entrarLocal() {
     setErroLocal(null);
