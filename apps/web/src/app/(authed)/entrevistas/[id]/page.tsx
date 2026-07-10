@@ -287,9 +287,11 @@ export default function EntrevistaPage({
         <div className="badge-blue mb-4 px-3 py-2 w-full justify-start">{acao}</div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Roteiro 40% × Respostas 60%, pé alinhado (scroll interno nas listas);
+          empilha em telas menores que xl. */}
+      <div className="grid grid-cols-1 xl:grid-cols-[2fr_3fr] gap-4 items-stretch">
         {/* Roteiro de perguntas (geradas por IA + cadastradas pelo time) */}
-        <section className="card p-5">
+        <section className="card p-5 flex flex-col xl:max-h-[640px]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-medium text-grafite-900">
               Roteiro de perguntas
@@ -356,6 +358,7 @@ export default function EntrevistaPage({
               pós-reunião.
             </p>
           ) : (
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1.5">
             <ol className="space-y-3">
               {perguntas.map((p) => (
                 <li
@@ -424,87 +427,88 @@ export default function EntrevistaPage({
                 </li>
               ))}
             </ol>
+            </div>
           )}
         </section>
 
-        {/* Anotações do recrutador (bloco de notas da entrevista) */}
-        <section className="card p-5">
+        {/* Respostas do candidato (análise IA do transcript × roteiro) */}
+        <section className="card p-5 flex flex-col xl:max-h-[640px]">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-medium text-grafite-900">
-              Anotações da entrevista
-            </h2>
-            {notaStatus && (
-              <span className="text-xs text-grafite-400">{notaStatus}</span>
-            )}
-          </div>
-          <textarea
-            className="w-full min-h-[200px] resize-y rounded-md border border-grafite-200 p-3 text-sm text-grafite-800 focus:border-unifique-500 focus:outline-none focus:ring-1 focus:ring-unifique-500"
-            placeholder="Anote aqui os pontos da entrevista: respostas que se destacaram, dúvidas, pontos de atenção, próximos passos…"
-            value={anotacoes}
-            onChange={(ev) => {
-              setAnotacoes(ev.target.value);
-              setNotaStatus(null);
-            }}
-            onBlur={() => void salvarAnotacoes()}
-          />
-          <div className="mt-2 flex items-center justify-between">
-            <p className="text-xs text-grafite-400">
-              Salva automaticamente ao clicar fora do campo.
-            </p>
+            <div className="flex items-center gap-2">
+              <h2 className="font-medium text-grafite-900">
+                Respostas do candidato
+              </h2>
+              <span
+                className="badge-blue"
+                title="Sugestão gerada por IA a partir da transcrição — confira sempre pelo trecho citado."
+              >
+                ✨ IA
+              </span>
+            </div>
             <button
               type="button"
               className="btn-soft text-xs"
-              disabled={salvandoNota}
-              onClick={() => void salvarAnotacoes()}
+              disabled={analisando || !e.transcricao}
+              title={
+                !e.transcricao
+                  ? 'Disponível quando a transcrição da reunião estiver pronta.'
+                  : 'Confronta o roteiro de perguntas com as falas da reunião. Útil também após cadastrar novas perguntas.'
+              }
+              onClick={() => void analisarRespostas()}
             >
-              {salvandoNota ? 'Salvando…' : 'Salvar'}
+              {analisando
+                ? 'Analisando…'
+                : respostas.length === 0
+                  ? 'Analisar respostas'
+                  : 'Reanalisar'}
             </button>
           </div>
+
+          {respostas.length === 0 ? (
+            <p className="text-sm text-grafite-400">
+              {e.transcricao
+                ? 'Nenhuma análise ainda. Clique em "Analisar respostas" para a IA verificar, pergunta a pergunta do roteiro (incluindo as perguntas padrão da empresa), o que o candidato respondeu na conversa.'
+                : 'Após a reunião, quando a transcrição estiver disponível, a IA verifica o que o candidato respondeu para cada pergunta do roteiro.'}
+            </p>
+          ) : (
+            <RespostasLista respostas={respostas} />
+          )}
         </section>
       </div>
 
-      {/* Respostas do candidato (análise IA do transcript × roteiro) */}
+      {/* Anotações do recrutador (bloco de notas da entrevista) */}
       <section className="card p-5 mt-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <h2 className="font-medium text-grafite-900">
-              Respostas do candidato
-            </h2>
-            <span
-              className="badge-blue"
-              title="Sugestão gerada por IA a partir da transcrição — confira sempre pelo trecho citado."
-            >
-              ✨ IA
-            </span>
-          </div>
+          <h2 className="font-medium text-grafite-900">
+            Anotações da entrevista
+          </h2>
+          {notaStatus && (
+            <span className="text-xs text-grafite-400">{notaStatus}</span>
+          )}
+        </div>
+        <textarea
+          className="w-full min-h-[140px] resize-y rounded-md border border-grafite-200 p-3 text-sm text-grafite-800 focus:border-unifique-500 focus:outline-none focus:ring-1 focus:ring-unifique-500"
+          placeholder="Anote aqui os pontos da entrevista: respostas que se destacaram, dúvidas, pontos de atenção, próximos passos…"
+          value={anotacoes}
+          onChange={(ev) => {
+            setAnotacoes(ev.target.value);
+            setNotaStatus(null);
+          }}
+          onBlur={() => void salvarAnotacoes()}
+        />
+        <div className="mt-2 flex items-center justify-between">
+          <p className="text-xs text-grafite-400">
+            Salva automaticamente ao clicar fora do campo.
+          </p>
           <button
             type="button"
             className="btn-soft text-xs"
-            disabled={analisando || !e.transcricao}
-            title={
-              !e.transcricao
-                ? 'Disponível quando a transcrição da reunião estiver pronta.'
-                : 'Confronta o roteiro de perguntas com as falas da reunião. Útil também após cadastrar novas perguntas.'
-            }
-            onClick={() => void analisarRespostas()}
+            disabled={salvandoNota}
+            onClick={() => void salvarAnotacoes()}
           >
-            {analisando
-              ? 'Analisando…'
-              : respostas.length === 0
-                ? 'Analisar respostas'
-                : 'Reanalisar'}
+            {salvandoNota ? 'Salvando…' : 'Salvar'}
           </button>
         </div>
-
-        {respostas.length === 0 ? (
-          <p className="text-sm text-grafite-400">
-            {e.transcricao
-              ? 'Nenhuma análise ainda. Clique em "Analisar respostas" para a IA verificar, pergunta a pergunta do roteiro (incluindo as perguntas padrão da empresa), o que o candidato respondeu na conversa.'
-              : 'Após a reunião, quando a transcrição estiver disponível, a IA verifica o que o candidato respondeu para cada pergunta do roteiro.'}
-          </p>
-        ) : (
-          <RespostasLista respostas={respostas} />
-        )}
       </section>
 
       {/* Transcrição */}
@@ -596,7 +600,7 @@ function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
   const soTema = comConteudo.length - respondidas;
 
   return (
-    <div>
+    <div className="flex flex-col flex-1 min-h-0">
       <p className="text-xs text-grafite-400 mb-3">
         {respondidas} de {respostas.length} pergunta(s) respondida(s) pelo
         candidato
@@ -606,6 +610,7 @@ function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
         por IA — confira pelo trecho citado
       </p>
 
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1.5">
       {comConteudo.length === 0 ? (
         <p className="text-sm text-grafite-400">
           Nenhuma das perguntas do roteiro foi respondida ou citada na
@@ -699,6 +704,7 @@ function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
           </ul>
         </details>
       )}
+      </div>
     </div>
   );
 }
