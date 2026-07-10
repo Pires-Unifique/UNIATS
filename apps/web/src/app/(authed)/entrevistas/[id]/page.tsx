@@ -612,65 +612,75 @@ function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
           conversa.
         </p>
       ) : (
-        <ol className="space-y-4">
-          {comConteudo.map((r) => (
-            <li key={r.id} className="border-l-2 border-grafite-200 pl-3">
-              <div className="flex items-baseline gap-2 mb-1 flex-wrap">
-                <span className="text-xs text-grafite-400 tabular-nums">
-                  #{r.ordem}
-                </span>
-                <span
-                  className={
-                    r.status === 'ABORDADA'
-                      ? 'badge-green'
+        <ol className="space-y-3">
+          {comConteudo.map((r) => {
+            // Cartão tingido por status: verde = candidato respondeu; âmbar =
+            // parcial; azul discreto = tema apareceu, mas não pelo candidato.
+            const somenteTema = r.status === 'NAO_ABORDADA';
+            const estilo =
+              r.status === 'ABORDADA'
+                ? 'border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-500/10'
+                : r.status === 'PARCIAL'
+                  ? 'border-l-amber-500 bg-amber-50/60 dark:bg-amber-500/10'
+                  : 'border-l-sky-400 bg-sky-50/50 dark:bg-sky-500/10';
+            return (
+              <li
+                key={r.id}
+                className={`rounded-md border border-grafite-100 border-l-4 p-3 ${estilo}`}
+              >
+                <div className="flex items-baseline gap-2 mb-1.5 flex-wrap">
+                  <span className="text-xs text-grafite-400 tabular-nums">
+                    #{r.ordem}
+                  </span>
+                  <span
+                    className={
+                      r.status === 'ABORDADA'
+                        ? 'badge-green'
+                        : r.status === 'PARCIAL'
+                          ? 'badge-yellow'
+                          : 'badge-blue'
+                    }
+                  >
+                    {r.status === 'ABORDADA'
+                      ? '✓ respondida'
                       : r.status === 'PARCIAL'
-                        ? 'badge-yellow'
-                        : 'badge-gray'
-                  }
+                        ? '◐ parcial'
+                        : 'tema abordado — sem resposta do candidato'}
+                  </span>
+                  {r.falante && (
+                    <span
+                      className="text-xs text-grafite-400"
+                      title="Quem tratou do tema na conversa (segundo o transcript)"
+                    >
+                      por {r.falante}
+                    </span>
+                  )}
+                </div>
+                <p
+                  className={`text-sm font-medium ${somenteTema ? 'text-grafite-700' : 'text-grafite-900'}`}
                 >
-                  {r.status === 'ABORDADA'
-                    ? 'respondida'
-                    : r.status === 'PARCIAL'
-                      ? 'parcial'
-                      : 'não respondida pelo candidato'}
-                </span>
-                {r.status === 'NAO_ABORDADA' && r.tema_abordado && (
-                  <span
-                    className="badge-blue"
-                    title="O assunto apareceu na conversa, mas não foi o candidato quem respondeu."
-                  >
-                    tema abordado na conversa
-                  </span>
-                )}
-                {r.falante && (
-                  <span
-                    className="badge-gray"
-                    title="Quem tratou do tema na conversa (segundo o transcript)"
-                  >
-                    por {r.falante}
-                  </span>
-                )}
-              </div>
-              <p className="text-sm font-medium text-grafite-900">
-                {r.pergunta_texto}
-              </p>
-              {r.sintese && (
-                <p className="text-sm text-grafite-700 mt-1 whitespace-pre-line">
-                  {r.sintese}
+                  {r.pergunta_texto}
                 </p>
-              )}
-              {r.citacao && (
-                <details className="text-xs text-grafite-400 mt-1">
-                  <summary className="cursor-pointer hover:text-grafite-600">
-                    Ver trecho da conversa
-                  </summary>
-                  <blockquote className="mt-1 border-l-2 border-grafite-200 pl-2 italic whitespace-pre-line">
-                    &ldquo;{r.citacao}&rdquo;
-                  </blockquote>
-                </details>
-              )}
-            </li>
-          ))}
+                {r.sintese && (
+                  <p
+                    className={`mt-1 whitespace-pre-line ${somenteTema ? 'text-xs text-grafite-600' : 'text-sm text-grafite-700'}`}
+                  >
+                    {r.sintese}
+                  </p>
+                )}
+                {r.citacao && (
+                  <details className="text-xs text-grafite-400 mt-1.5">
+                    <summary className="cursor-pointer hover:text-grafite-600">
+                      Ver trecho da conversa
+                    </summary>
+                    <blockquote className="mt-1 border-l-2 border-grafite-200 pl-2 italic whitespace-pre-line">
+                      &ldquo;{r.citacao}&rdquo;
+                    </blockquote>
+                  </details>
+                )}
+              </li>
+            );
+          })}
         </ol>
       )}
 
