@@ -48,32 +48,44 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
     ],
   },
   {
-    // Operação do Collab — só admin (a área 'admin' passa no filtro de qualquer
-    // item; listamos explicitamente para a seção sumir para os demais).
+    // Operação do Collab. Usuários também abre para 'gestao_acessos' (o papel
+    // dedicado a liberar acessos); WhatsApp/Chaves de API seguem só admin
+    // ('admin' passa no filtro de qualquer item).
     titulo: 'Sistema',
     itens: [
-      { href: '/configuracoes/usuarios' as Route, label: 'Usuários', icon: '👥', areas: ['admin'] },
+      { href: '/configuracoes/usuarios' as Route, label: 'Usuários', icon: '👥', areas: ['gestao_acessos'] },
       { href: '/configuracoes/whatsapp' as Route, label: 'WhatsApp', icon: '💬', areas: ['admin'] },
       { href: '/configuracoes/chaves-api' as Route, label: 'Chaves de API', icon: '🔑', areas: ['admin'] },
     ],
   },
 ];
 
-/** Item visível se não exige área, ou se o usuário tem 'admin' ou a área exigida. */
-function podeVer(itemAreas: Area[] | undefined, areas: Area[]): boolean {
-  if (!itemAreas || itemAreas.length === 0) return true;
+/**
+ * Item visível se não exige área, ou se o usuário tem 'admin' ou a área exigida.
+ * Exceção: para quem SÓ tem 'gestao_acessos', os itens sem área (Vagas, Agenda,
+ * Alteração contratual…) somem — essa pessoa administra acessos e não participa
+ * dos processos (a API já não entregaria dados; aqui é para o menu não poluir).
+ */
+function podeVer(
+  itemAreas: Area[] | undefined,
+  areas: Area[],
+  apenasGestaoAcessos: boolean,
+): boolean {
+  if (!itemAreas || itemAreas.length === 0) return !apenasGestaoAcessos;
   if (areas.includes('admin')) return true;
   return itemAreas.some((a) => areas.includes(a));
 }
 
 export function Sidebar() {
   const path = usePathname();
-  const { areas } = useAuth();
+  const { areas, apenasGestaoAcessos } = useAuth();
 
   const secoesVisiveis = secoes
     .map((secao) => ({
       ...secao,
-      itens: secao.itens.filter((it) => podeVer(it.areas, areas)),
+      itens: secao.itens.filter((it) =>
+        podeVer(it.areas, areas, apenasGestaoAcessos),
+      ),
     }))
     .filter((secao) => secao.itens.length > 0);
 

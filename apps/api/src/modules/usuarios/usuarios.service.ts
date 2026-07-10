@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AuthService } from '../auth/auth.service.js';
-import { AREAS_ATRIBUIVEIS } from '../auth/auth.types.js';
+import { AREAS_ATRIBUIVEIS, AREAS_SO_ADMIN } from '../auth/auth.types.js';
 import type { Area, UsuarioAutenticado } from '../auth/auth.types.js';
 
 /** Prefixo do azure_oid de quem foi PRÉ-CADASTRADO e ainda não logou. No 1º
@@ -73,6 +73,7 @@ export class UsuariosService {
     }
     this.assertDominioPermitido(email);
     const areas = this.validarAreas(input.areas ?? []);
+    this.assertConcessaoPermitida(autor, [], areas);
 
     const jaExiste = await this.prisma.usuario.findUnique({ where: { email } });
     if (jaExiste) {
@@ -118,8 +119,12 @@ export class UsuariosService {
 
     const atual = await this.prisma.usuario.findUnique({ where: { id } });
     if (!atual) throw new NotFoundException(`Usuário ${id} não encontrado.`);
+    this.assertAlvoPermitido(autor, atual.areas);
 
     const areas = input.areas !== undefined ? this.validarAreas(input.areas) : undefined;
+    if (areas !== undefined) {
+      this.assertConcessaoPermitida(autor, atual.areas, areas);
+    }
 
     const usuario = await this.prisma.usuario.update({
       where: { id },
@@ -146,6 +151,7 @@ export class UsuariosService {
   ): Promise<{ ok: true }> {
     const usuario = await this.prisma.usuario.findUnique({ where: { id } });
     if (!usuario) throw new NotFoundException(`Usuário ${id} não encontrado.`);
+    this.assertAlvoPermitido(autor, usuario.areas);
     if (!usuario.azure_oid.startsWith(OID_PRE_CADASTRO) || usuario.ultimo_login_em) {
       throw new BadRequestException(
         'Só é possível remover pré-cadastros que nunca logaram — para os demais, use Desativar.',
@@ -159,6 +165,40 @@ export class UsuariosService {
   }
 
   // -----------------------------------------------------------------------
+
+  /**
+   * TRAVA DE ESCALAÇÃO (autor sem 'admin', i.e. gestão de acessos): conceder ou
+   * revogar 'admin'/'gestao_acessos' é exclusivo de administradores. Sem isso,
+   * o gestor de acessos promoveria um colega a admin e pediria o favor de volta.
+   */
+  private assertConcessaoPermitida(
+    autor: UsuarioAutenticado,
+    areasAtuais: string[],
+    areasNovas: Area[],
+  ): void {
+    if (autor.areas.includes('admin')) return;
+    const mexidas = AREAS_SO_ADMIN.filter(
+      (a) => areasAtuais.includes(a) !== areasNovas.includes(a),
+    );
+    if (mexidas.length > 0) {
+      throw new ForbiddenException(
+        'Conceder ou revogar Admin e Gestão de Acessos é exclusivo de administradores.',
+      );
+    }
+  }
+
+  /** Idem: quem não é admin não edita/desativa/remove portadores dessas áreas. */
+  private assertAlvoPermitido(
+    autor: UsuarioAutenticado,
+    areasDoAlvo: string[],
+  ): void {
+    if (autor.areas.includes('admin')) return;
+    if (AREAS_SO_ADMIN.some((a) => areasDoAlvo.includes(a))) {
+      throw new ForbiddenException(
+        'Só administradores podem alterar usuários com Admin ou Gestão de Acessos.',
+      );
+    }
+  }
 
   private validarAreas(entrada: string[]): Area[] {
     const unicas = [...new Set(entrada.map((a) => a.trim()))].filter(Boolean);

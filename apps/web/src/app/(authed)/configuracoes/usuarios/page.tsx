@@ -5,7 +5,7 @@ import type { UsuarioAdminDTO } from '@uniats/shared';
 
 import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';
-import { AREAS_ATRIBUIVEIS, labelArea } from '@/lib/areas';
+import { AREAS_ATRIBUIVEIS, AREAS_SO_ADMIN, labelArea } from '@/lib/areas';
 import { useAuth } from '@/lib/auth';
 import { formatarDataHora } from '@/lib/format';
 
@@ -18,7 +18,10 @@ interface PreCadastroForm {
 const PRE_CADASTRO_VAZIO: PreCadastroForm = { email: '', nome: '', areas: [] };
 
 export default function UsuariosPage() {
-  const { usuario } = useAuth();
+  const { usuario, areas: minhasAreas } = useAuth();
+  // Gestão de Acessos usa esta tela, mas só admin concede/revoga Admin e
+  // Gestão de Acessos (e edita quem as possui) — a API recusa; aqui escondemos.
+  const ehAdmin = minhasAreas.includes('admin');
   const [usuarios, setUsuarios] = useState<UsuarioAdminDTO[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -152,7 +155,7 @@ export default function UsuariosPage() {
     <div>
       <PageHeader
         titulo="Usuários"
-        subtitulo="Controle quem acessa os módulos amplos do Collab. Gestores e líderes já enxergam o que é deles automaticamente — aqui você libera Administração de Pessoas, Recrutamento, Admissão e Admin."
+        subtitulo={`Controle quem acessa os módulos amplos do Collab. Gestores e líderes já enxergam o que é deles automaticamente — aqui você libera Administração de Pessoas, Recrutamento e Admissão${ehAdmin ? ', além de Admin e Gestão de Acessos' : ' (Admin e Gestão de Acessos são concedidos por um admin)'}.`}
       />
 
       <div className="card p-3 mb-5 text-sm text-unifique-700 bg-unifique-50 border-unifique-200 dark:bg-unifique-500/10 dark:text-unifique-300 dark:border-unifique-500/30">
@@ -188,7 +191,11 @@ export default function UsuariosPage() {
         </div>
         <div>
           <span className="block text-sm font-medium text-grafite-700 mb-2">Áreas</span>
-          <SeletorAreas selecionadas={form.areas} onToggle={alternarAreaForm} />
+          <SeletorAreas
+            selecionadas={form.areas}
+            onToggle={alternarAreaForm}
+            apenasBasicas={!ehAdmin}
+          />
         </div>
         <div className="flex justify-end">
           <button
@@ -234,6 +241,11 @@ export default function UsuariosPage() {
         <ul className="space-y-3">
           {filtrados.map((u) => {
             const ehVoce = usuario?.email?.toLowerCase() === u.email.toLowerCase();
+            const soAdminAltera =
+              !ehAdmin &&
+              u.areas.some((a) =>
+                (AREAS_SO_ADMIN as readonly string[]).includes(a),
+              );
             return (
               <li key={u.id} className={`card ${u.ativo ? '' : 'opacity-60'}`}>
                 <div className="flex items-start justify-between gap-4 p-4">
@@ -280,6 +292,10 @@ export default function UsuariosPage() {
                       <span className="text-xs text-grafite-400 italic">
                         você — peça a outro admin
                       </span>
+                    ) : soAdminAltera ? (
+                      <span className="text-xs text-grafite-400 italic">
+                        só admins alteram este usuário
+                      </span>
                     ) : (
                       <>
                         <button
@@ -322,6 +338,7 @@ export default function UsuariosPage() {
                       selecionadas={areasEdicao}
                       onToggle={alternarAreaEdicao}
                       comDescricao
+                      apenasBasicas={!ehAdmin}
                     />
                     {u.admin_via_ambiente && !areasEdicao.includes('admin') && (
                       <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -361,14 +378,20 @@ function SeletorAreas({
   selecionadas,
   onToggle,
   comDescricao = false,
+  apenasBasicas = false,
 }: {
   selecionadas: string[];
   onToggle: (area: string) => void;
   comDescricao?: boolean;
+  /** true (autor não-admin): esconde Admin e Gestão de Acessos — só admin concede. */
+  apenasBasicas?: boolean;
 }) {
+  const opcoes = apenasBasicas
+    ? AREAS_ATRIBUIVEIS.filter((a) => !AREAS_SO_ADMIN.includes(a.valor))
+    : AREAS_ATRIBUIVEIS;
   return (
     <div className={comDescricao ? 'grid grid-cols-1 md:grid-cols-2 gap-2' : 'flex flex-wrap gap-2'}>
-      {AREAS_ATRIBUIVEIS.map((a) => {
+      {opcoes.map((a) => {
         const marcada = selecionadas.includes(a.valor);
         return (
           <label
