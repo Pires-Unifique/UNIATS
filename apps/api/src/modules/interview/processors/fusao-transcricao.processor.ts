@@ -4,6 +4,7 @@ import type { Job } from 'bullmq';
 import { z } from 'zod';
 
 import { ClaudeService } from '../../claude/claude.service.js';
+import { RespostasEntrevistaService } from '../../questions/respostas-entrevista.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
 
@@ -36,6 +37,7 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly claude: ClaudeService,
+    private readonly respostas: RespostasEntrevistaService,
   ) {
     super();
   }
@@ -92,6 +94,16 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
       `Fusão ok: entrevista=${entrevistaId} turnos=${fusao.turnos.length} ` +
         `chars=${fusao.texto.length} (teams=${teams.length} whisper=${whisper.length})`,
     );
+
+    // Análise das respostas do roteiro sobre o texto fundido. Best-effort: sem
+    // perguntas cadastradas/geradas (BadRequest) ou LLM fora, só loga — a tela
+    // tem o botão "Analisar respostas" para reprocessar depois.
+    await this.respostas.analisar(entrevistaId).catch((err) => {
+      this.logger.warn(
+        `Análise de respostas pós-fusão falhou (não crítico): ${(err as Error).message}`,
+      );
+    });
+
     return { entrevistaId, ok: true };
   }
 

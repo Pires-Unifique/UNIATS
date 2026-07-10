@@ -33,9 +33,11 @@ model Usuario {
   papel           PapelUsuario @default(RECRUTADOR)
   // Áreas de acesso (módulos). Fonte de verdade da autorização. Conjunto, pois
   // uma pessoa pode estar em +1 equipe. Valores: 'admin' | 'recrutamento' |
-  // 'admissao' | 'offboarding'. 'admin' = acesso a tudo. Gestor NÃO é uma área:
-  // o acesso dele vem da posse da vaga (gestor_id). Atribuição manual por ora;
-  // futuramente mapeada de grupos de AD (App Roles → claim `roles`).
+  // 'admissao' | 'offboarding' | 'dho' | 'gestao_acessos'. 'admin' = acesso a
+  // tudo; 'gestao_acessos' = só a tela Usuários (libera acessos sem ver os
+  // processos). Gestor NÃO é uma área: o acesso dele vem da posse da vaga
+  // (gestor_id). Atribuição manual por ora; futuramente mapeada de grupos de
+  // AD (App Roles → claim `roles`).
   areas           String[]   @default([])
   ativo           Boolean    @default(true)
   ultimo_login_em DateTime?
@@ -455,6 +457,7 @@ model Entrevista {
   analise_voz         AnaliseVoz?
   perguntas           PerguntaEntrevista[]
   avaliacoes          AvaliacaoEntrevista[]
+  respostas           RespostaEntrevista[]
   enquete_horario     EnqueteHorario?               // enquete que originou esta entrevista (se houver)
 
   @@index([status])
@@ -482,8 +485,11 @@ enum StatusEntrevista {
 }
 
 // ---------------------------------------------------------------------
-// PERGUNTAS DE ENTREVISTA — geradas pelo Cérebro de IA antes da call
+// PERGUNTAS DE ENTREVISTA — geradas pela IA OU cadastradas pelo time
 // ---------------------------------------------------------------------
+// `origem` distingue: IA (gerador vaga×CV), HUMANO (cadastrada na tela pela
+// pessoa do DHO/recrutamento/gestor). Regerar com `substituir` só apaga as de
+// origem IA — as manuais são preservadas.
 model PerguntaEntrevista {
   id              String   @id @default(uuid()) @db.Uuid
   entrevista_id   String?  @db.Uuid
@@ -495,16 +501,90 @@ model PerguntaEntrevista {
   competencia     String?                            // skill relacionada
   dificuldade     String?                            // baixa/media/alta
   resposta_esperada String? @db.Text
-  modelo          String                             // "claude-sonnet-4-6"
+  origem          OrigemPergunta @default(IA)
+  criado_por      String?                            // nome de quem cadastrou (snapshot, origem HUMANO)
+  modelo          String?                            // "claude-sonnet-4-6" (null quando manual)
   prompt_versao   String?
   criado_em       DateTime @default(now())
 
   entrevista      Entrevista? @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
   vaga            Vaga        @relation(fields: [vaga_id], references: [id], onDelete: Cascade)
   avaliacoes      AvaliacaoEntrevista[]
+  respostas       RespostaEntrevista[]
 
   @@index([entrevista_id])
   @@map("perguntas_entrevista")
+}
+
+enum OrigemPergunta {
+  IA
+  HUMANO
+
+  @@map("origem_pergunta")
+}
+
+// ---------------------------------------------------------------------
+// BANCO DE PERGUNTAS PADRÃO — cadastradas pelo DHO, valem p/ TODA entrevista
+// ---------------------------------------------------------------------
+// Perguntas institucionais (cultura, valores, disponibilidade…) que a análise
+// pós-reunião SEMPRE verifica, além das perguntas da vaga/entrevista. São
+// templates: a resposta guarda um snapshot do texto (`pergunta_texto`), então
+// editar/apagar aqui não reescreve o histórico de entrevistas passadas.
+model PerguntaPadrao {
+  id              String   @id @default(uuid()) @db.Uuid
+  pergunta        String   @db.Text
+  objetivo        String?  @db.Text                  // o que o DHO quer descobrir
+  competencia     String?                            // eixo avaliado (ex.: "Fit cultural")
+  categoria       String?                            // agrupamento livre (ex.: "cultura")
+  ativo           Boolean  @default(true)            // inativa sai das próximas análises
+  ordem           Int      @default(0)
+  criado_por      String?                            // nome de quem cadastrou (snapshot)
+  criado_em       DateTime @default(now())
+  atualizado_em   DateTime @updatedAt
+
+  respostas       RespostaEntrevista[]
+
+  @@map("perguntas_padrao")
+}
+
+// ---------------------------------------------------------------------
+// RESPOSTAS DA ENTREVISTA — análise IA do transcript pergunta a pergunta
+// ---------------------------------------------------------------------
+// Pós-reunião, o Claude confronta o roteiro (perguntas da vaga/entrevista +
+// padrão ativas) com o texto final de falas (fundido, quando houver) e diz o
+// que o candidato respondeu. `citacao` é o trecho literal do transcript que
+// ancora a síntese — sem citação não existe status ABORDADA (anti-alucinação).
+// É SUGESTÃO de IA para o humano conferir; nunca decide nada sozinha (LGPD
+// Art. 20). Reanalisar apaga e recria o conjunto da entrevista.
+model RespostaEntrevista {
+  id                 String   @id @default(uuid()) @db.Uuid
+  entrevista_id      String   @db.Uuid
+  pergunta_id        String?  @db.Uuid               // pergunta da vaga/entrevista (se veio de lá)
+  pergunta_padrao_id String?  @db.Uuid               // pergunta do banco padrão (se veio de lá)
+  pergunta_texto     String   @db.Text               // snapshot da pergunta analisada
+  ordem              Int      @default(0)            // posição no roteiro analisado
+  status             StatusResposta
+  sintese            String?  @db.Text               // o que o candidato respondeu (síntese IA)
+  citacao            String?  @db.Text               // trecho literal do transcript (evidência)
+  modelo             String                          // modelo que analisou
+  prompt_versao      String?
+  criado_em          DateTime @default(now())
+  atualizado_em      DateTime @updatedAt
+
+  entrevista         Entrevista          @relation(fields: [entrevista_id], references: [id], onDelete: Cascade)
+  pergunta           PerguntaEntrevista? @relation(fields: [pergunta_id], references: [id], onDelete: SetNull)
+  pergunta_padrao    PerguntaPadrao?     @relation(fields: [pergunta_padrao_id], references: [id], onDelete: SetNull)
+
+  @@index([entrevista_id])
+  @@map("respostas_entrevista")
+}
+
+enum StatusResposta {
+  ABORDADA
+  PARCIAL
+  NAO_ABORDADA
+
+  @@map("status_resposta")
 }
 
 // ---------------------------------------------------------------------

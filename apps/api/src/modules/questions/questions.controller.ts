@@ -36,6 +36,18 @@ interface AtualizarBody {
   ordem?: number;
 }
 
+interface CriarBody {
+  vagaId?: string;
+  entrevistaId?: string;
+  pergunta: string;
+  objetivo?: string;
+  competencia?: string;
+  dificuldade?: 'baixa' | 'media' | 'alta';
+  resposta_esperada?: string;
+}
+
+const DIFICULDADES = ['baixa', 'media', 'alta'] as const;
+
 @Controller('api/perguntas')
 @UseGuards(ThrottlerGuard, AuthGuard)
 export class QuestionsController {
@@ -60,6 +72,44 @@ export class QuestionsController {
       candidaturaId: body.candidaturaId,
       entrevistaId: body.entrevistaId,
       substituir: body.substituir ?? false,
+    });
+  }
+
+  /** Cadastro manual de pergunta (origem HUMANO) na vaga ou entrevista. */
+  @Post()
+  async criar(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Body() body: CriarBody,
+  ) {
+    if (!body || typeof body.pergunta !== 'string') {
+      throw new BadRequestException('pergunta é obrigatória.');
+    }
+    if (!body.vagaId && !body.entrevistaId) {
+      throw new BadRequestException('Informe vagaId OU entrevistaId.');
+    }
+    if (body.vagaId && !UUID_REGEX.test(body.vagaId)) {
+      throw new BadRequestException('vagaId inválido.');
+    }
+    if (body.entrevistaId && !UUID_REGEX.test(body.entrevistaId)) {
+      throw new BadRequestException('entrevistaId inválido.');
+    }
+    if (body.dificuldade && !DIFICULDADES.includes(body.dificuldade)) {
+      throw new BadRequestException('dificuldade inválida.');
+    }
+    if (body.entrevistaId) {
+      await this.auth.assertEntrevistaPermitida(usuario, body.entrevistaId);
+    } else if (body.vagaId) {
+      await this.auth.assertVagaPermitida(usuario, body.vagaId);
+    }
+    return this.service.criar({
+      vagaId: body.vagaId,
+      entrevistaId: body.entrevistaId,
+      pergunta: body.pergunta,
+      objetivo: body.objetivo,
+      competencia: body.competencia,
+      dificuldade: body.dificuldade,
+      resposta_esperada: body.resposta_esperada,
+      criadoPor: usuario.nome,
     });
   }
 

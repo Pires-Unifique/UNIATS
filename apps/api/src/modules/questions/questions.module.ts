@@ -1,21 +1,30 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
+import { PerguntasPadraoController } from './perguntas-padrao.controller.js';
+import { PerguntasPadraoService } from './perguntas-padrao.service.js';
 import { QuestionsController } from './questions.controller.js';
 import { QuestionsService } from './questions.service.js';
+import { RespostasController } from './respostas.controller.js';
+import { RespostasEntrevistaService } from './respostas-entrevista.service.js';
 
 /**
- * Camada 5 — Gerador de perguntas pré-entrevista.
+ * Camada 5 — Perguntas de entrevista + análise de respostas.
  *
- * Service usa Claude tool-use para produzir 6-10 perguntas customizadas
- * com base em vaga + currículo estruturado. Recrutador pode editar inline
- * antes da entrevista. Tudo é versionado por `prompt_versao` em
- * `perguntas_entrevista` para auditoria.
+ * Perguntas: geradas por Claude (vaga × currículo) OU cadastradas pelo time
+ * (origem HUMANO), mais o banco de perguntas PADRÃO do DHO (cultura etc.).
+ * Pós-reunião, RespostasEntrevistaService confronta o roteiro com o texto
+ * final de falas e grava o que o candidato respondeu (sugestão IA, com
+ * citação literal como evidência). Tudo versionado por `prompt_versao`.
  */
 @Module({
   imports: [AuthModule],
-  controllers: [QuestionsController],
-  providers: [QuestionsService],
-  exports: [QuestionsService],
+  controllers: [
+    QuestionsController,
+    PerguntasPadraoController,
+    RespostasController,
+  ],
+  providers: [QuestionsService, PerguntasPadraoService, RespostasEntrevistaService],
+  exports: [QuestionsService, RespostasEntrevistaService],
 })
 export class QuestionsModule {}

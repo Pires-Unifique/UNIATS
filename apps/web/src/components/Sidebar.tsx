@@ -25,6 +25,8 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
       { href: '/vagas/publicar' as Route, label: 'Publicar vaga', icon: '➕', areas: ['recrutamento'] },
       { href: '/analise' as Route, label: 'Análise', icon: '📊', areas: ['recrutamento'] },
       { href: '/configuracoes/templates' as Route, label: 'Templates', icon: '✉️', areas: ['recrutamento'] },
+      // Banco de perguntas padrão: gestão compartilhada entre recrutamento e DHO.
+      { href: '/configuracoes/perguntas' as Route, label: 'Perguntas padrão', icon: '❓', areas: ['recrutamento', 'dho'] },
     ],
   },
   {

@@ -275,6 +275,8 @@ export interface EntrevistaDTO {
 
 // ---------- Perguntas ----------
 
+export type OrigemPergunta = 'IA' | 'HUMANO';
+
 export interface PerguntaDTO {
   id: string;
   ordem: number;
@@ -285,9 +287,44 @@ export interface PerguntaDTO {
   competencia?: string | null;
   dificuldade?: DificuldadePergunta | null;
   resposta_esperada?: string | null;
-  modelo?: string;
+  origem?: OrigemPergunta;
+  criado_por?: string | null;
+  modelo?: string | null;
   prompt_versao?: string | null;
   criado_em?: string;
+}
+
+/** Banco de perguntas padrão do DHO (cultura etc.) — valem p/ toda entrevista. */
+export interface PerguntaPadraoDTO {
+  id: string;
+  pergunta: string;
+  objetivo?: string | null;
+  competencia?: string | null;
+  categoria?: string | null;
+  ativo: boolean;
+  ordem: number;
+  criado_por?: string | null;
+  criado_em: string;
+  atualizado_em: string;
+}
+
+// ---------- Respostas (análise IA do transcript × roteiro) ----------
+
+export type StatusResposta = 'ABORDADA' | 'PARCIAL' | 'NAO_ABORDADA';
+
+export interface RespostaEntrevistaDTO {
+  id: string;
+  entrevista_id: string;
+  pergunta_id?: string | null;
+  pergunta_padrao_id?: string | null;
+  pergunta_texto: string;
+  ordem: number;
+  status: StatusResposta;
+  sintese?: string | null;
+  citacao?: string | null;
+  modelo: string;
+  prompt_versao?: string | null;
+  criado_em: string;
 }
 
 // ---------- Admissão ----------

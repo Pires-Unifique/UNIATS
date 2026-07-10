@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
+import { QuestionsModule } from '../questions/questions.module.js';
 import { InterviewController } from './interview.controller.js';
 import { InterviewService } from './services/interview.service.js';
 import { PlaywrightAutostartService } from './services/playwright-autostart.service.js';
@@ -27,7 +28,7 @@ import { TranscricaoGraphSchedulerService } from './services/transcricao-graph-s
  * captura legendas) — só age se PLAYWRIGHT_BOT_ENABLED.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, QuestionsModule],
   controllers: [InterviewController, PlaywrightCallbackController],
   providers: [
     InterviewService,

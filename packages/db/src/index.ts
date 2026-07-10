@@ -34,6 +34,8 @@ export type {
   Mensagem,
   Entrevista,
   PerguntaEntrevista,
+  PerguntaPadrao,
+  RespostaEntrevista,
   AvaliacaoEntrevista,
   Transcricao,
   AnaliseVoz,
@@ -51,6 +53,8 @@ export type {
   StatusMensagem,
   StatusEntrevista,
   OrigemAvaliacao,
+  OrigemPergunta,
+  StatusResposta,
   RecomendacaoPainel,
   PapelUsuario,
   // Alteração contratual — tipos das tabelas novas
