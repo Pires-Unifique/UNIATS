@@ -32,6 +32,16 @@ const ADMIN = {
   ativo: true,
 } as any;
 
+const GESTOR_ACESSOS = {
+  id: 'ga-1',
+  azure_oid: 'oid-ga',
+  email: 'acessos@unifique.com.br',
+  nome: 'Gestora de Acessos',
+  papel: 'VISUALIZADOR',
+  areas: ['gestao_acessos'],
+  ativo: true,
+} as any;
+
 const usuarioDb = {
   id: 'u-1',
   azure_oid: 'oid-1',
@@ -114,6 +124,100 @@ describe('UsuariosService.atualizar — travas', () => {
     });
     expect(audit.data.diff.antes).toEqual({ areas: [], ativo: true });
     expect(audit.data.diff.depois).toEqual({ areas: ['dho'], ativo: true });
+  });
+});
+
+describe('UsuariosService — travas de escalação (autor com gestao_acessos, sem admin)', () => {
+  let ctx: ReturnType<typeof montar>;
+  beforeEach(() => {
+    ctx = montar();
+    ctx.prisma.usuario.update.mockResolvedValue(usuarioDb);
+  });
+
+  it('libera áreas básicas normalmente (recrutamento/admissão/dho)', async () => {
+    ctx.prisma.usuario.findUnique.mockResolvedValue(usuarioDb);
+    await expect(
+      ctx.service.atualizar('u-1', { areas: ['recrutamento'] }, GESTOR_ACESSOS),
+    ).resolves.toBeDefined();
+    expect(ctx.prisma.usuario.update).toHaveBeenCalled();
+  });
+
+  it('recusa CONCEDER admin ou gestao_acessos', async () => {
+    ctx.prisma.usuario.findUnique.mockResolvedValue(usuarioDb);
+    await expect(
+      ctx.service.atualizar('u-1', { areas: ['admin'] }, GESTOR_ACESSOS),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(
+      ctx.service.atualizar('u-1', { areas: ['gestao_acessos'] }, GESTOR_ACESSOS),
+    ).rejects.toThrow(ForbiddenException);
+    expect(ctx.prisma.usuario.update).not.toHaveBeenCalled();
+  });
+
+  it('recusa EDITAR/DESATIVAR quem já tem admin (mesmo sem mexer nas áreas)', async () => {
+    ctx.prisma.usuario.findUnique.mockResolvedValue({
+      ...usuarioDb,
+      areas: ['admin'],
+    });
+    await expect(
+      ctx.service.atualizar('u-1', { ativo: false }, GESTOR_ACESSOS),
+    ).rejects.toThrow(ForbiddenException);
+    expect(ctx.prisma.usuario.update).not.toHaveBeenCalled();
+  });
+
+  it('recusa REVOGAR gestao_acessos de outro usuário (custódia é do admin)', async () => {
+    ctx.prisma.usuario.findUnique.mockResolvedValue({
+      ...usuarioDb,
+      areas: ['gestao_acessos'],
+    });
+    await expect(
+      ctx.service.atualizar('u-1', { areas: [] }, GESTOR_ACESSOS),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('recusa PRÉ-CADASTRAR com admin/gestao_acessos, mas aceita com áreas básicas', async () => {
+    ctx.prisma.usuario.findUnique.mockResolvedValue(null);
+    await expect(
+      ctx.service.preCadastrar(
+        { email: 'novo@unifique.com.br', areas: ['admin'] },
+        GESTOR_ACESSOS,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+    expect(ctx.prisma.usuario.create).not.toHaveBeenCalled();
+
+    ctx.prisma.usuario.create.mockResolvedValue({
+      ...usuarioDb,
+      azure_oid: 'pre-cadastro:xyz',
+      areas: ['admissao'],
+    });
+    await expect(
+      ctx.service.preCadastrar(
+        { email: 'novo@unifique.com.br', areas: ['admissao'] },
+        GESTOR_ACESSOS,
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('recusa REMOVER pré-cadastro que possui admin/gestao_acessos', async () => {
+    ctx.prisma.usuario.findUnique.mockResolvedValue({
+      ...usuarioDb,
+      azure_oid: 'pre-cadastro:xyz',
+      ultimo_login_em: null,
+      areas: ['gestao_acessos'],
+    });
+    await expect(
+      ctx.service.removerPreCadastro('u-1', GESTOR_ACESSOS),
+    ).rejects.toThrow(ForbiddenException);
+    expect(ctx.prisma.usuario.delete).not.toHaveBeenCalled();
+  });
+
+  it('ADMIN segue podendo tudo (concede gestao_acessos e edita admins)', async () => {
+    ctx.prisma.usuario.findUnique.mockResolvedValue({
+      ...usuarioDb,
+      areas: ['admin'],
+    });
+    await expect(
+      ctx.service.atualizar('u-1', { areas: ['gestao_acessos'] }, ADMIN),
+    ).resolves.toBeDefined();
   });
 });
 

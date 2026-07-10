@@ -12,7 +12,11 @@ export type Area =
   // DHO — aprova/assina alterações contratuais. Exibida no produto como
   // "Administração de Pessoas" (o valor interno continua 'dho'). (O acesso do
   // LÍDER ao módulo não é uma área: virá da detecção de liderança — Senior/MS.)
-  | 'dho';
+  | 'dho'
+  // Gestão de Acessos — administra a tela de Usuários (libera recrutamento,
+  // admissão, dho…) SEM enxergar os processos em si. Não dá acesso ao resto da
+  // seção Sistema (WhatsApp/Chaves de API seguem só 'admin').
+  | 'gestao_acessos';
 
 /**
  * Áreas que a tela de Usuários pode ATRIBUIR. 'offboarding' fica de fora:
@@ -20,10 +24,19 @@ export type Area =
  */
 export const AREAS_ATRIBUIVEIS: readonly Area[] = [
   'admin',
+  'gestao_acessos',
   'recrutamento',
   'admissao',
   'dho',
 ];
+
+/**
+ * Áreas cuja CONCESSÃO/REVOGAÇÃO é exclusiva de 'admin' — e cujos portadores
+ * só podem ser editados por 'admin'. Sem isso, quem tem 'gestao_acessos'
+ * escalaria privilégio: promoveria um colega a admin (ou nomearia outro gestor
+ * de acessos) e pediria de volta o favor.
+ */
+export const AREAS_SO_ADMIN: readonly Area[] = ['admin', 'gestao_acessos'];
 
 /**
  * Escopos válidos para CHAVES DE API — as mesmas áreas dos usuários, exceto

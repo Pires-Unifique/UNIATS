@@ -27,7 +27,10 @@ export type Area =
   | 'recrutamento'
   | 'admissao'
   | 'offboarding'
-  | 'dho';
+  | 'dho'
+  // Gestão de Acessos — administra usuários (tela Usuários) sem ver os
+  // processos (vagas, admissões…). WhatsApp/Chaves de API seguem só admin.
+  | 'gestao_acessos';
 
 interface UsuarioInfo {
   nome: string;
@@ -42,6 +45,12 @@ interface AuthCtx {
   areas: Area[];
   /** true = pode ver todas as vagas (admin/recrutamento); false = só as próprias (gestor). */
   podeVerTudo: boolean;
+  /**
+   * true = a ÚNICA área do usuário é 'gestao_acessos': ele administra acessos
+   * mas não participa dos processos — o menu esconde Vagas/Admissões etc. e o
+   * app o leva direto à tela de Usuários.
+   */
+  apenasGestaoAcessos: boolean;
   /** true = o acesso foi DESATIVADO na tela de Usuários (API recusa com 403). */
   bloqueado: boolean;
   login: () => Promise<void>;
@@ -267,6 +276,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       usuario,
       areas,
       podeVerTudo: areas.includes('admin') || areas.includes('recrutamento'),
+      apenasGestaoAcessos:
+        areas.length > 0 && areas.every((a) => a === 'gestao_acessos'),
       bloqueado,
       async login() {
         if (!authEnabled()) {

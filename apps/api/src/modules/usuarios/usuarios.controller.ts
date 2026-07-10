@@ -28,12 +28,15 @@ function assertUuid(id: string, campo = 'id'): void {
 
 /**
  * Tela de Usuários (seção Sistema) — gestão dos acessos amplos por área.
- * Tudo restrito a 'admin'. Chaves de API nunca chegam aqui (escopo 'admin'
- * é proibido para chaves).
+ * Acessível a 'gestao_acessos' (o papel dedicado a liberar acessos) e a
+ * 'admin' (que passa em qualquer gate). O SERVIÇO aplica as travas de
+ * escalação: quem não é admin não concede/revoga 'admin'/'gestao_acessos'
+ * nem edita portadores dessas áreas. Chaves de API nunca chegam aqui
+ * (esses escopos são proibidos para chaves).
  */
 @Controller('api/usuarios')
 @UseGuards(ThrottlerGuard, AuthGuard, AreasGuard)
-@Areas('admin')
+@Areas('gestao_acessos')
 export class UsuariosController {
   constructor(private readonly service: UsuariosService) {}
 

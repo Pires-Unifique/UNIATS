@@ -29,7 +29,15 @@ interface VagaResumo {
 export default function VagasPage() {
   // O sync org-wide da Gupy exige área recrutamento/admin (guard na API);
   // gestor sem essas áreas nem vê o botão — clicar só renderia um 403.
-  const { podeVerTudo } = useAuth();
+  const { podeVerTudo, apenasGestaoAcessos } = useAuth();
+
+  // Vagas é o pouso padrão pós-login, mas quem SÓ gere acessos não participa
+  // dos processos — vai direto para a tela de Usuários.
+  useEffect(() => {
+    if (apenasGestaoAcessos) {
+      window.location.replace('/configuracoes/usuarios');
+    }
+  }, [apenasGestaoAcessos]);
   const [vagas, setVagas] = useState<VagaResumo[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
