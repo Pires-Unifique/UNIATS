@@ -689,12 +689,16 @@ function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
         </ol>
       )}
 
+      </div>
+
+      {/* Rodapé FIXO do card (fora da área de scroll): sempre visível, sem
+          precisar rolar a lista até o fim. Expandido, rola por dentro. */}
       {naoAbordadas.length > 0 && (
-        <details className="mt-4 text-xs text-grafite-400">
+        <details className="shrink-0 mt-3 pt-2 border-t border-grafite-100 text-xs text-grafite-400">
           <summary className="cursor-pointer hover:text-grafite-600">
             {naoAbordadas.length} pergunta(s) não abordada(s) na conversa
           </summary>
-          <ul className="mt-2 space-y-1 list-disc pl-5">
+          <ul className="mt-2 space-y-1 list-disc pl-5 max-h-32 overflow-y-auto">
             {naoAbordadas.map((r) => (
               <li key={r.id}>
                 <span className="tabular-nums">#{r.ordem}</span>{' '}
@@ -704,7 +708,6 @@ function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
           </ul>
         </details>
       )}
-      </div>
     </div>
   );
 }
