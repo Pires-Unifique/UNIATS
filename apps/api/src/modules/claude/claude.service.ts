@@ -457,6 +457,10 @@ export class ClaudeService {
         {
           model: this.model,
           max_tokens: this.maxTokens,
+          // Extração factual, não geração criativa: temperatura 0 para a MESMA
+          // entrevista dar (praticamente) o MESMO resultado a cada reanálise —
+          // com a default (1.0), casos limítrofes flipavam entre abordada/não.
+          temperature: 0,
           system: SYSTEM_PROMPT_RESPOSTAS,
           tools: [
             {
