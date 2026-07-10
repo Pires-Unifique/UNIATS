@@ -563,8 +563,10 @@ model RespostaEntrevista {
   pergunta_padrao_id String?  @db.Uuid               // pergunta do banco padrão (se veio de lá)
   pergunta_texto     String   @db.Text               // snapshot da pergunta analisada
   ordem              Int      @default(0)            // posição no roteiro analisado
-  status             StatusResposta
-  sintese            String?  @db.Text               // o que o candidato respondeu (síntese IA)
+  status             StatusResposta                  // o CANDIDATO respondeu?
+  tema_abordado      Boolean  @default(false)        // o tema apareceu na conversa (por qualquer participante)?
+  falante            String?                         // quem tratou do tema (nome no transcript)
+  sintese            String?  @db.Text               // o que foi dito (síntese IA)
   citacao            String?  @db.Text               // trecho literal do transcript (evidência)
   modelo             String                          // modelo que analisou
   prompt_versao      String?

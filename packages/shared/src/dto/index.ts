@@ -319,7 +319,11 @@ export interface RespostaEntrevistaDTO {
   pergunta_padrao_id?: string | null;
   pergunta_texto: string;
   ordem: number;
+  /** O candidato respondeu? */
   status: StatusResposta;
+  /** O tema apareceu na conversa (por qualquer participante)? */
+  tema_abordado?: boolean;
+  falante?: string | null;
   sintese?: string | null;
   citacao?: string | null;
   modelo: string;

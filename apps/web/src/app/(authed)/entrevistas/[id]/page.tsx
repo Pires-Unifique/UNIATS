@@ -30,7 +30,11 @@ interface RespostaDTO {
   id: string;
   pergunta_texto: string;
   ordem: number;
+  /** O candidato respondeu? */
   status: 'ABORDADA' | 'PARCIAL' | 'NAO_ABORDADA';
+  /** O tema apareceu na conversa (por qualquer participante)? */
+  tema_abordado: boolean;
+  falante: string | null;
   sintese: string | null;
   citacao: string | null;
   criado_em: string;
@@ -231,9 +235,9 @@ export default function EntrevistaPage({
         body: { entrevistaId: id },
       });
       setRespostas(lista);
-      const abordadas = lista.filter((r) => r.status !== 'NAO_ABORDADA').length;
+      const respondidas = lista.filter((r) => r.status !== 'NAO_ABORDADA').length;
       setAcao(
-        `Análise concluída: ${abordadas} de ${lista.length} pergunta(s) abordada(s) na conversa.`,
+        `Análise concluída: ${respondidas} de ${lista.length} pergunta(s) respondida(s) pelo candidato.`,
       );
     } catch (err) {
       setAcao(
@@ -499,58 +503,7 @@ export default function EntrevistaPage({
               : 'Após a reunião, quando a transcrição estiver disponível, a IA verifica o que o candidato respondeu para cada pergunta do roteiro.'}
           </p>
         ) : (
-          <div>
-            <p className="text-xs text-grafite-400 mb-3">
-              {respostas.filter((r) => r.status !== 'NAO_ABORDADA').length} de{' '}
-              {respostas.length} pergunta(s) abordada(s) na conversa · análise
-              de {formatarDataHora(respostas[0].criado_em)} · gerado por IA —
-              confira pelo trecho citado
-            </p>
-            <ol className="space-y-4">
-              {respostas.map((r) => (
-                <li key={r.id} className="border-l-2 border-grafite-200 pl-3">
-                  <div className="flex items-baseline gap-2 mb-1">
-                    <span className="text-xs text-grafite-400 tabular-nums">
-                      #{r.ordem}
-                    </span>
-                    <span
-                      className={
-                        r.status === 'ABORDADA'
-                          ? 'badge-green'
-                          : r.status === 'PARCIAL'
-                            ? 'badge-yellow'
-                            : 'badge-gray'
-                      }
-                    >
-                      {r.status === 'ABORDADA'
-                        ? 'respondida'
-                        : r.status === 'PARCIAL'
-                          ? 'parcial'
-                          : 'não abordada'}
-                    </span>
-                  </div>
-                  <p className="text-sm font-medium text-grafite-900">
-                    {r.pergunta_texto}
-                  </p>
-                  {r.sintese && (
-                    <p className="text-sm text-grafite-700 mt-1 whitespace-pre-line">
-                      {r.sintese}
-                    </p>
-                  )}
-                  {r.citacao && (
-                    <details className="text-xs text-grafite-400 mt-1">
-                      <summary className="cursor-pointer hover:text-grafite-600">
-                        Ver trecho da conversa
-                      </summary>
-                      <blockquote className="mt-1 border-l-2 border-grafite-200 pl-2 italic whitespace-pre-line">
-                        &ldquo;{r.citacao}&rdquo;
-                      </blockquote>
-                    </details>
-                  )}
-                </li>
-              ))}
-            </ol>
-          </div>
+          <RespostasLista respostas={respostas} />
         )}
       </section>
 
@@ -618,6 +571,124 @@ export default function EntrevistaPage({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+// ---------------- Respostas do candidato (análise IA) ----------------
+
+/**
+ * Duas dimensões por pergunta: o CANDIDATO respondeu (status) e o TEMA apareceu
+ * na conversa (tema_abordado — pode ter sido outro participante). Só perguntas
+ * com conteúdo aparecem na lista; as não abordadas viram um bloco recolhido no
+ * fim (menos poluição na tela).
+ */
+function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
+  const comConteudo = respostas.filter(
+    (r) => r.tema_abordado || r.status !== 'NAO_ABORDADA',
+  );
+  const naoAbordadas = respostas.filter(
+    (r) => !r.tema_abordado && r.status === 'NAO_ABORDADA',
+  );
+  const respondidas = respostas.filter(
+    (r) => r.status !== 'NAO_ABORDADA',
+  ).length;
+  const soTema = comConteudo.length - respondidas;
+
+  return (
+    <div>
+      <p className="text-xs text-grafite-400 mb-3">
+        {respondidas} de {respostas.length} pergunta(s) respondida(s) pelo
+        candidato
+        {soTema > 0 &&
+          ` · ${soTema} tema(s) abordado(s) na conversa sem resposta do candidato`}
+        {' · '}análise de {formatarDataHora(respostas[0].criado_em)} · gerado
+        por IA — confira pelo trecho citado
+      </p>
+
+      {comConteudo.length === 0 ? (
+        <p className="text-sm text-grafite-400">
+          Nenhuma das perguntas do roteiro foi respondida ou citada na
+          conversa.
+        </p>
+      ) : (
+        <ol className="space-y-4">
+          {comConteudo.map((r) => (
+            <li key={r.id} className="border-l-2 border-grafite-200 pl-3">
+              <div className="flex items-baseline gap-2 mb-1 flex-wrap">
+                <span className="text-xs text-grafite-400 tabular-nums">
+                  #{r.ordem}
+                </span>
+                <span
+                  className={
+                    r.status === 'ABORDADA'
+                      ? 'badge-green'
+                      : r.status === 'PARCIAL'
+                        ? 'badge-yellow'
+                        : 'badge-gray'
+                  }
+                >
+                  {r.status === 'ABORDADA'
+                    ? 'respondida'
+                    : r.status === 'PARCIAL'
+                      ? 'parcial'
+                      : 'não respondida pelo candidato'}
+                </span>
+                {r.status === 'NAO_ABORDADA' && r.tema_abordado && (
+                  <span
+                    className="badge-blue"
+                    title="O assunto apareceu na conversa, mas não foi o candidato quem respondeu."
+                  >
+                    tema abordado na conversa
+                  </span>
+                )}
+                {r.falante && (
+                  <span
+                    className="badge-gray"
+                    title="Quem tratou do tema na conversa (segundo o transcript)"
+                  >
+                    por {r.falante}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm font-medium text-grafite-900">
+                {r.pergunta_texto}
+              </p>
+              {r.sintese && (
+                <p className="text-sm text-grafite-700 mt-1 whitespace-pre-line">
+                  {r.sintese}
+                </p>
+              )}
+              {r.citacao && (
+                <details className="text-xs text-grafite-400 mt-1">
+                  <summary className="cursor-pointer hover:text-grafite-600">
+                    Ver trecho da conversa
+                  </summary>
+                  <blockquote className="mt-1 border-l-2 border-grafite-200 pl-2 italic whitespace-pre-line">
+                    &ldquo;{r.citacao}&rdquo;
+                  </blockquote>
+                </details>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {naoAbordadas.length > 0 && (
+        <details className="mt-4 text-xs text-grafite-400">
+          <summary className="cursor-pointer hover:text-grafite-600">
+            {naoAbordadas.length} pergunta(s) não abordada(s) na conversa
+          </summary>
+          <ul className="mt-2 space-y-1 list-disc pl-5">
+            {naoAbordadas.map((r) => (
+              <li key={r.id}>
+                <span className="tabular-nums">#{r.ordem}</span>{' '}
+                {r.pergunta_texto}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

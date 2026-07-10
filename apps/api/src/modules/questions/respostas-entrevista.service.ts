@@ -27,6 +27,8 @@ const SELECT_RESPOSTA = {
   pergunta_texto: true,
   ordem: true,
   status: true,
+  tema_abordado: true,
+  falante: true,
   sintese: true,
   citacao: true,
   modelo: true,
@@ -66,6 +68,7 @@ export class RespostasEntrevistaService {
       select: {
         id: true,
         candidatura: { select: { vaga_id: true } },
+        candidato: { select: { nome_completo: true } },
         transcricao: {
           select: { texto_fundido: true, texto_completo: true },
         },
@@ -128,21 +131,28 @@ export class RespostasEntrevistaService {
         pergunta: p.pergunta,
         objetivo: p.objetivo,
       })),
+      entrevista.candidato?.nome_completo,
     );
 
     const porRef = new Map(analise.respostas.map((r) => [r.ref, r]));
 
     // Uma linha por pergunta do roteiro, SEMPRE: ref que o LLM não devolveu
-    // vira NAO_ABORDADA (cobertura completa e determinística). Citação sem
-    // status abordada/parcial não existe por prompt; o inverso (status sem
-    // citação) é rebaixado aqui — é a âncora anti-alucinação.
+    // vira "não abordada" (cobertura completa e determinística). Coerência
+    // entre as duas dimensões forçada aqui — a âncora anti-alucinação é a
+    // citação: qualquer alegação (resposta do candidato OU tema na conversa)
+    // sem trecho literal é rebaixada.
     const linhas = comRef.map((p, idx) => {
       const r = porRef.get(p.ref);
       let status: StatusResposta = r
         ? STATUS_LLM_PARA_ENUM[r.status]
         : 'NAO_ABORDADA';
       const citacao = r?.citacao?.trim() || null;
-      if (status !== 'NAO_ABORDADA' && !citacao) status = 'NAO_ABORDADA';
+      // Candidato respondeu ⇒ tema apareceu, por definição.
+      let temaAbordado = r?.tema_abordado === true || status !== 'NAO_ABORDADA';
+      if (!citacao) {
+        status = 'NAO_ABORDADA';
+        temaAbordado = false;
+      }
       return {
         entrevista_id: entrevistaId,
         pergunta_id: p.tipo === 'entrevista' ? p.id : null,
@@ -150,8 +160,12 @@ export class RespostasEntrevistaService {
         pergunta_texto: p.pergunta,
         ordem: idx + 1,
         status,
-        sintese: status === 'NAO_ABORDADA' ? null : (r?.sintese?.trim() || null),
-        citacao: status === 'NAO_ABORDADA' ? null : citacao,
+        tema_abordado: temaAbordado,
+        falante: temaAbordado
+          ? (r?.falante?.trim().slice(0, 120) || null)
+          : null,
+        sintese: temaAbordado ? (r?.sintese?.trim() || null) : null,
+        citacao: temaAbordado ? citacao : null,
         modelo: analise.modelo,
         prompt_versao: analise.promptVersao,
       };
