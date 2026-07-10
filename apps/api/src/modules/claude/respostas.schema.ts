@@ -10,7 +10,7 @@ import { z } from 'zod';
  * mapeia de volta para o id real da pergunta. Versionar ao mudar prompt/shape
  * (igual ao parser/ata) permite reanalisar entrevistas antigas.
  */
-export const RESPOSTAS_PROMPT_VERSION = 'claude-respostas-v2';
+export const RESPOSTAS_PROMPT_VERSION = 'claude-respostas-v3';
 
 export const RespostaExtraidaSchema = z.object({
   ref: z.string().min(1).max(10),
@@ -62,10 +62,11 @@ export const RESPOSTAS_TOOL_INPUT_SCHEMA = {
           tema_abordado: {
             type: 'boolean',
             description:
-              'true se o CONTEÚDO da pergunta apareceu na conversa dito por QUALQUER ' +
-              'participante (inclusive o entrevistador). Sempre true quando status = ' +
-              '"abordada"/"parcial". Pode ser true com status "nao_abordada": o tema foi ' +
-              'tratado, mas não pelo candidato.',
+              'true SOMENTE se alguém efetivamente DEU a informação que a pergunta busca ' +
+              '(respondeu, explicou, contou). Mencionar o assunto, FAZER a pergunta ou ' +
+              'lê-la em voz alta NÃO conta — pergunta sem resposta é tema_abordado=false. ' +
+              'Sempre true quando status = "abordada"/"parcial". Pode ser true com status ' +
+              '"nao_abordada": alguém que NÃO é o candidato deu a informação.',
           },
           falante: {
             type: 'string',
@@ -86,9 +87,10 @@ export const RESPOSTAS_TOOL_INPUT_SCHEMA = {
             type: 'string',
             maxLength: 2000,
             description:
-              'Trecho LITERAL do transcript (fala do "falante") que sustenta a síntese — ' +
-              'copie do texto, sem parafrasear. OBRIGATÓRIA quando tema_abordado = true; ' +
-              'omitir quando false.',
+              'Trecho LITERAL do transcript (fala do "falante") que CONTÉM a informação — ' +
+              'copie do texto, sem parafrasear. NUNCA cite a pergunta sendo feita/lida como ' +
+              'evidência: a citação deve ser a RESPOSTA. OBRIGATÓRIA quando tema_abordado = ' +
+              'true; omitir quando false.',
           },
         },
         required: ['ref', 'status', 'tema_abordado'],

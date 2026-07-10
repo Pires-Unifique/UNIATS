@@ -156,8 +156,8 @@ const SYSTEM_PROMPT_RESPOSTAS = `\
 Você recebe o ROTEIRO de perguntas de uma entrevista de emprego e o TRANSCRIPT da
 conversa. Para CADA pergunta do roteiro, responda DUAS coisas independentes:
   - "status": o CANDIDATO respondeu ao que a pergunta quer saber?
-  - "tema_abordado": o conteúdo da pergunta apareceu na conversa, dito por QUALQUER
-    participante (inclusive o entrevistador)?
+  - "tema_abordado": a INFORMAÇÃO que a pergunta busca foi efetivamente dada na
+    conversa, por QUALQUER participante (inclusive o entrevistador)?
 O resultado é uma SUGESTÃO que o recrutador vai conferir — errar dizendo que algo
 foi respondido é muito pior do que dizer que não foi.
 
@@ -167,6 +167,12 @@ Regras INVIOLÁVEIS:
 2. A pergunta raramente é feita com as palavras exatas do roteiro: o entrevistador
    reformula, e o candidato pode responder a duas perguntas numa fala só. Avalie se
    o CONTEÚDO que a pergunta quer descobrir apareceu na conversa — não a forma.
+2b. PERGUNTAR NÃO É RESPONDER: o tema só conta como abordado se alguém DEU a
+   informação (respondeu, explicou, contou). Se a pergunta foi apenas feita, lida
+   em voz alta (ex.: alguém demonstrando um sistema e lendo perguntas de exemplo)
+   ou o assunto só foi citado de passagem SEM ninguém trazer a informação que a
+   pergunta busca → status="nao_abordada" E tema_abordado=false. Se a sua síntese
+   diria "o tema não foi discutido diretamente", então tema_abordado é false.
 3. "status" olha SÓ para as falas do CANDIDATO (quando o nome dele for informado no
    prompt, use-o para identificá-lo entre os falantes; senão, deduza pelo contexto —
    quem pergunta × quem responde). NUNCA atribua ao candidato uma fala que não é dele.
