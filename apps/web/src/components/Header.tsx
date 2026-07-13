@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
+import { SinoNotificacoes } from '@/components/SinoNotificacoes';
 
 // Chamada do header por módulo — cada área do sistema mostra seu próprio texto.
 // O primeiro prefixo que casar com a rota atual vence; edite/estenda aqui ao
@@ -48,6 +49,7 @@ export function Header() {
         </button>
         {usuario ? (
           <>
+            <SinoNotificacoes />
             <div className="text-sm text-grafite-600">
               {usuario.nome}{' '}
               <span className="text-grafite-400">({usuario.email})</span>

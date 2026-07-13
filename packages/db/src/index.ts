@@ -21,6 +21,8 @@ export {
   CategoriaItemEncerramento,
   StatusItemEncerramento,
   TipoRespostaItem,
+  // Notificações internas (usado como valor em runtime)
+  TipoNotificacao,
 } from '@prisma/client';
 
 export type {
@@ -46,6 +48,7 @@ export type {
   ExameAdmissional,
   EventoAdmissao,
   SolicitacaoAcesso,
+  Notificacao,
   StatusVaga,
   StatusCandidatura,
   TipoScore,

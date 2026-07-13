@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Queue } from 'bullmq';
 
 import { GraphClient } from '../../graph/graph.client.js';
+import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
 import { WahaClient } from '../../waha/waha.client.js';
@@ -67,6 +68,7 @@ export class InterviewService {
     private readonly graph: GraphClient,
     private readonly waha: WahaClient,
     private readonly config: ConfigService,
+    private readonly notificacoes: NotificacoesService,
     @InjectQueue(QUEUE_NAMES.TRANSCRICAO_GRAPH)
     private readonly filaGraph: Queue,
     @InjectQueue(QUEUE_NAMES.PLAYWRIGHT_JOIN)
@@ -651,6 +653,12 @@ export class InterviewService {
       `Entrevista confirmada via enquete ${enquete.id}: entrevista=${entrevista.id} ` +
         `organizador=${organizadorEmail} link agendado em +${Math.round(delayLink / 60_000)}min`,
     );
+
+    // Notifica recrutador + gestor que o candidato escolheu o horário (in-app,
+    // best-effort — o service não lança). O candidato foi quem votou, então não
+    // há "autor humano interno" a excluir da lista.
+    await this.notificacoes.notificarHorarioConfirmado(entrevista.id);
+
     return {
       entrevistaId: entrevista.id,
       joinUrl,
