@@ -4,6 +4,7 @@ import type { Job } from 'bullmq';
 import { z } from 'zod';
 
 import { ClaudeService } from '../../claude/claude.service.js';
+import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { RespostasEntrevistaService } from '../../questions/respostas-entrevista.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
@@ -38,6 +39,7 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly claude: ClaudeService,
     private readonly respostas: RespostasEntrevistaService,
+    private readonly notificacoes: NotificacoesService,
   ) {
     super();
   }
@@ -98,11 +100,22 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
     // Análise das respostas do roteiro sobre o texto fundido. Best-effort: sem
     // perguntas cadastradas/geradas (BadRequest) ou LLM fora, só loga — a tela
     // tem o botão "Analisar respostas" para reprocessar depois.
-    await this.respostas.analisar(entrevistaId).catch((err) => {
-      this.logger.warn(
-        `Análise de respostas pós-fusão falhou (não crítico): ${(err as Error).message}`,
-      );
-    });
+    const analiseOk = await this.respostas
+      .analisar(entrevistaId)
+      .then(() => true)
+      .catch((err) => {
+        this.logger.warn(
+          `Análise de respostas pós-fusão falhou (não crítico): ${(err as Error).message}`,
+        );
+        return false;
+      });
+
+    // Notifica recrutador + gestor SÓ quando a análise automática concluiu. O
+    // botão "Analisar respostas" (reprocesso manual na tela) não passa por aqui,
+    // então não gera aviso para quem já está olhando a entrevista.
+    if (analiseOk) {
+      await this.notificacoes.notificarAnalisePronta(entrevistaId);
+    }
 
     return { entrevistaId, ok: true };
   }

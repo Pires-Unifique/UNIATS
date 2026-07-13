@@ -51,6 +51,7 @@ model Usuario {
   auditorias      RegistroAuditoria[]
   templates_criados      TemplateMensagem[] @relation("TemplateCriador")
   templates_atualizados  TemplateMensagem[] @relation("TemplateAtualizador")
+  notificacoes    Notificacao[]
 
   @@map("usuarios")
 }
@@ -981,6 +982,44 @@ model EventoAdmissao {
 
   @@index([admissao_id])
   @@map("eventos_admissao")
+}
+
+// ---------------------------------------------------------------------
+// NOTIFICAÇÕES INTERNAS — avisos in-app (sino no header) para recrutador/gestor
+// ---------------------------------------------------------------------
+// Aviso simples por usuário, consumido por polling do sino no front. NÃO é canal
+// externo (e-mail/WhatsApp/Teams): só in-app. `referencia_id` guarda a entidade
+// que originou o aviso (ex.: entrevista) e, junto de `tipo` + `usuario_id`, dá
+// idempotência via @@unique — reprocesso de job (BullMQ com retry) não duplica o
+// aviso. `link` é uma rota INTERNA do app (ex.: /entrevistas/<id>).
+model Notificacao {
+  id            String   @id @default(uuid()) @db.Uuid
+  usuario_id    String   @db.Uuid
+  tipo          TipoNotificacao
+  titulo        String
+  mensagem      String   @db.Text
+  link          String?
+  referencia_id String?  @db.Uuid
+  lida_em       DateTime?
+  criado_em     DateTime @default(now())
+
+  usuario       Usuario  @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  // Idempotência do evento: um aviso por (usuário, tipo, referência).
+  @@unique([usuario_id, tipo, referencia_id])
+  // Sino: lista as do usuário por data; contagem de não lidas filtra por lida_em.
+  @@index([usuario_id, lida_em])
+  @@index([usuario_id, criado_em])
+  @@map("notificacoes")
+}
+
+enum TipoNotificacao {
+  // Candidato escolheu um horário na enquete e a entrevista foi confirmada.
+  HORARIO_CONFIRMADO
+  // Pipeline pós-reunião concluiu a análise das respostas do candidato.
+  ANALISE_PRONTA
+
+  @@map("tipo_notificacao")
 }
 
 // ---------------------------------------------------------------------
