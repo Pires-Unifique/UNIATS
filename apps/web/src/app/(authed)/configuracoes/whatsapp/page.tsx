@@ -170,10 +170,16 @@ export default function WhatsappPage() {
     }
   }
 
-  const estado = ESTADOS[status?.status ?? ''] ?? {
-    rotulo: status?.status ?? 'Carregando…',
-    classe: 'badge-gray',
-  };
+  // "WORKING zumbi": a engine diz WORKING mas parou de responder. O badge NÃO
+  // pode ficar verde ("Conectado") nesse caso — seria a mesma ilusão que esconde
+  // o problema. O watchdog (a cada ~10 min) é quem detecta e marca `saude`.
+  const instavel = status?.saude === 'INSTAVEL';
+  const estado = instavel
+    ? { rotulo: 'Conectado, mas travado', classe: 'badge-red' }
+    : (ESTADOS[status?.status ?? ''] ?? {
+        rotulo: status?.status ?? 'Carregando…',
+        classe: 'badge-gray',
+      });
 
   return (
     <div>
@@ -184,6 +190,14 @@ export default function WhatsappPage() {
 
       {erro && (
         <div className="badge-red mb-4 w-full justify-start px-3 py-2">{erro}</div>
+      )}
+
+      {instavel && (
+        <div className="badge-red mb-4 w-full justify-start px-3 py-2">
+          WhatsApp conectado, mas <strong className="mx-1">parou de responder</strong>{' '}
+          (sessão travada). Reinicie o <strong className="mx-1">container</strong> do WAHA no
+          servidor — reiniciar a sessão aqui não resolve.
+        </div>
       )}
 
       <div className="card p-4 space-y-4">

@@ -258,6 +258,43 @@ export class WahaClient {
   }
 
   /**
+   * Probe de liveness da ENGINE (não do HTTP). Bate um endpoint que obriga um
+   * round-trip pelo Chromium (WEBJS) com timeout curto e SEM retry. É a única
+   * forma de flagrar o "WORKING zumbi": a sessão reporta WORKING mas a engine
+   * congelou e para de responder/emitir eventos.
+   *
+   * FAIL-SAFE por design: só devolve `true` (travada) quando a chamada ESTOURA O
+   * TIMEOUT — a assinatura do congelamento. Qualquer resposta HTTP (inclusive
+   * 4xx/5xx) ou conexão recusada (WAHA fora do ar) = NÃO é o zumbi → `false`.
+   * Assim, se o path deste endpoint mudar numa versão do WAHA, o pior caso é
+   * NUNCA DETECTAR (falso-negativo) — jamais um falso-positivo que dispararia
+   * alerta à toa. Validar o endpoint com repro do zumbi antes de confiar 100%.
+   */
+  async engineTravada(timeoutMs = 10_000): Promise<boolean> {
+    if (!this.http) return false;
+    // Config como variável (não literal) para o campo extra `axios-retry` — que
+    // a lib adiciona à AxiosRequestConfig por augmentation — não tropeçar no
+    // excess-property-check. Retry 0: retentar só multiplicaria a espera do hang.
+    const config = {
+      params: { limit: 1 },
+      timeout: timeoutMs,
+      'axios-retry': { retries: 0 },
+    };
+    try {
+      await this.http.get(
+        `/api/${encodeURIComponent(this.session)}/chats`,
+        config,
+      );
+      return false; // respondeu → engine viva
+    } catch (err) {
+      // ECONNABORTED é o código do axios para timeout de request; ETIMEDOUT idem
+      // em algumas versões. Só isso conta como "pendurada".
+      const code = isAxiosError(err) ? err.code : undefined;
+      return code === 'ECONNABORTED' || code === 'ETIMEDOUT';
+    }
+  }
+
+  /**
    * QR de pareamento como PNG base64 (`GET /api/{session}/auth/qr`). Só faz
    * sentido com a sessão em SCAN_QR_CODE — fora disso o WAHA responde erro,
    * que normalizamos como 400. O QR expira: o front deve re-buscar (~20 s).
