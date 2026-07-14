@@ -113,6 +113,12 @@ services:
     # evita o "Execution context was destroyed" (mismatch do whatsapp-web.js).
     image: devlikeapro/waha:latest
     restart: unless-stopped
+    # Chromium (engine WEBJS) usa /dev/shm para os processos de renderer. O default
+    # do Docker é 64 MB, que estoura e derruba/pendura o renderer — um dos gatilhos
+    # da sessão travar em "WORKING zumbi" (para de emitir eventos sem mudar o status).
+    # 1 GB dá folga e reduz a FREQUÊNCIA desse travamento (não é cura do stall — isso
+    # depende de detecção+restart de container; ver watchdog).
+    shm_size: 1gb
     environment:
       # Protege a API do WAHA: a app manda este valor no header X-Api-Key.
       WAHA_API_KEY: ${WAHA_API_KEY:?defina WAHA_API_KEY no .env.production}

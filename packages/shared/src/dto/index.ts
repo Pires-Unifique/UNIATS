@@ -570,6 +570,12 @@ export interface WahaStatusDTO {
   engine: string | null;
   ultimo_webhook_em: string | null;
   ultimo_webhook_evento: string | null;
+  /**
+   * Saúde da engine além do `status`. 'INSTAVEL' = conectada mas parou de
+   * responder ("WORKING zumbi") — WORKING NÃO garante saúde. 'DESCONHECIDA' até
+   * o watchdog rodar; null quando WAHA não está configurado.
+   */
+  saude: 'SAUDAVEL' | 'INSTAVEL' | 'DESCONHECIDA' | null;
   /** Pacing anti-banimento da fila de mensagens. Null quando desativado. */
   pacing: {
     enviadas_hoje: number;

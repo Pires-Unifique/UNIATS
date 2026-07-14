@@ -1018,6 +1018,9 @@ enum TipoNotificacao {
   HORARIO_CONFIRMADO
   // Pipeline pós-reunião concluiu a análise das respostas do candidato.
   ANALISE_PRONTA
+  // Sessão WhatsApp conectada (WORKING) mas parou de responder ("WORKING zumbi").
+  // Só admins recebem — é aviso de operação, não de processo de recrutamento.
+  WHATSAPP_INSTAVEL
 
   @@map("tipo_notificacao")
 }

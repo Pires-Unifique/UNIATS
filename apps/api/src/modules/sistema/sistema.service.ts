@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import type { UsuarioAutenticado } from '../auth/auth.types.js';
 import { WhatsappPacerService } from '../messaging/whatsapp-pacer.service.js';
 import { WahaClient } from '../waha/waha.client.js';
+import { WahaWatchdogService } from './waha-watchdog.service.js';
 
 /** Saúde/operação do sistema (por ora, a sessão WhatsApp do WAHA). */
 @Injectable()
@@ -15,6 +16,7 @@ export class SistemaService {
     private readonly waha: WahaClient,
     private readonly prisma: PrismaService,
     private readonly pacer: WhatsappPacerService,
+    private readonly watchdog: WahaWatchdogService,
   ) {}
 
   async statusWaha(): Promise<WahaStatusDTO> {
@@ -28,6 +30,9 @@ export class SistemaService {
       engine: null,
       ultimo_webhook_em: null,
       ultimo_webhook_evento: null,
+      // Saúde além do `status`: o watchdog marca INSTAVEL quando a engine trava
+      // em "WORKING zumbi". null quando WAHA não está configurado.
+      saude: this.waha.configurado ? this.watchdog.saudeAtual : null,
       pacing: pacing.pacing_ativo
         ? {
             enviadas_hoje: pacing.enviadas_hoje,
