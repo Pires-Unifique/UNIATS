@@ -1,0 +1,66 @@
+# Varredura de segurança — SCA + SAST + secret-scanning, GRÁTIS (sem GitHub
+# Advanced Security). Roda no runner HOSPEDADO do GitHub (isolado — NÃO toca o
+# runner self-hosted nem o disco de produção) e é SEPARADO do CI/CD de deploy.
+#
+# Tudo NÃO-BLOQUEANTE por ora (`|| true` + continue-on-error): os achados
+# aparecem no LOG do job, mas não reprovam nada. Quando quiser que passe a
+# barrar, é só remover os `|| true`.
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sca:
+    name: SCA — pnpm audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: pnpm audit (high/critical, não-bloqueante)
+        run: pnpm audit --audit-level=high || true
+
+  sast:
+    name: SAST — Semgrep
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar Semgrep
+        run: python3 -m pip install --quiet semgrep
+      - name: Semgrep (regras públicas, não-bloqueante)
+        run: |
+          semgrep scan \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/secrets \
+            --metrics off || true
+
+  secrets:
+    name: Secret scanning — gitleaks
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks (histórico, redigido, não-bloqueante)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --redact --verbose || true
