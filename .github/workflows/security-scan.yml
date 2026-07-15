@@ -19,22 +19,17 @@ permissions:
 
 jobs:
   sca:
-    name: SCA — pnpm audit
+    name: SCA — OSV-Scanner
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - name: Instalar dependências
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: pnpm audit (high/critical, não-bloqueante)
-        run: pnpm audit --audit-level=high || true
+      # OSV-Scanner lê o pnpm-lock.yaml direto (base OSV do Google). NÃO usa o
+      # endpoint de audit aposentado do npm. Não-bloqueante por ora.
+      - name: OSV-Scanner (SCA)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/google/osv-scanner:latest \
+            scan --lockfile=/repo/pnpm-lock.yaml || true
 
   sast:
     name: SAST — Semgrep
