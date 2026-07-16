@@ -111,13 +111,14 @@ const EnvSchema = z.object({
   VOYAGE_RATE_LIMIT_RPM: z.coerce.number().int().positive().default(3),
   VOYAGE_MAX_CONCURRENT: z.coerce.number().int().positive().default(1),
 
-  // Provedor de embeddings: 'voyage' (API hospedada) ou 'local' (transformers.js).
-  EMBEDDING_PROVIDER: z.enum(['voyage', 'local']).default('voyage'),
-  // Modelo local (só quando EMBEDDING_PROVIDER=local).
-  EMBEDDING_LOCAL_MODEL: z.string().default('Xenova/multilingual-e5-base'),
-  // Sobrescreve a dimensão esperada (senão usa o default do modelo). Deve bater
-  // com a dimensão da coluna pgvector `embeddings.vetor`.
-  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().optional(),
+  // Provedor de embeddings: só 'voyage'. O provedor 'local' (transformers.js)
+  // foi removido — se este env estiver como 'local', o boot falha com erro claro.
+  EMBEDDING_PROVIDER: z.enum(['voyage'], {
+    errorMap: () => ({
+      message:
+        "EMBEDDING_PROVIDER: o provedor 'local' foi removido — use 'voyage'.",
+    }),
+  }).default('voyage'),
 
   // Workers de embedding/ranking (Camada 3)
   EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(2),
