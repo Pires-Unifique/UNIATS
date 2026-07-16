@@ -1,12 +1,13 @@
 import { Global, Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 
 import { EMBEDDING_PROVIDER } from './embedding.provider.js';
-import { LocalProvider } from './local.provider.js';
 import { VoyageProvider } from './voyage.provider.js';
 
 /**
- * Seleciona o provedor de embeddings via `EMBEDDING_PROVIDER` (voyage | local).
+ * Provedor de embeddings: Voyage AI (único suportado).
+ * O provedor local (@xenova/transformers) foi removido — nunca foi usado em
+ * produção e trazia uma subárvore de dependências vulneráveis (protobufjs/onnx).
  * Global: qualquer módulo pode injetar o token EMBEDDING_PROVIDER.
  */
 @Global()
@@ -14,19 +15,7 @@ import { VoyageProvider } from './voyage.provider.js';
   imports: [ConfigModule],
   providers: [
     VoyageProvider,
-    LocalProvider,
-    {
-      provide: EMBEDDING_PROVIDER,
-      inject: [ConfigService, VoyageProvider, LocalProvider],
-      useFactory: (
-        config: ConfigService,
-        voyage: VoyageProvider,
-        local: LocalProvider,
-      ) => {
-        const escolha = config.get<string>('EMBEDDING_PROVIDER') ?? 'voyage';
-        return escolha === 'local' ? local : voyage;
-      },
-    },
+    { provide: EMBEDDING_PROVIDER, useExisting: VoyageProvider },
   ],
   exports: [EMBEDDING_PROVIDER],
 })
