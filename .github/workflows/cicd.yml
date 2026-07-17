@@ -32,6 +32,20 @@ jobs:
   test:
     runs-on: [self-hosted, uniats-prod]
     steps:
+      - name: Libera espaço no runner (cache BuildKit + imagens de teste antigas)
+        # O disco é compartilhado com a produção e vive enchendo (ENOSPC):
+        #  1) o cache do BuildKit cresce sem limite a cada build;
+        #  2) as imagens uniats-*-test:<sha> são taggeadas por commit e o
+        #     `docker image prune -f` do deploy NÃO remove imagem taggeada.
+        # --keep-storage mantém os ~12 GB mais recentes (builds seguem rápidos);
+        # se a flag não existir na versão do Docker, cai no prune completo.
+        # Nada aqui toca containers em execução nem as imagens de runtime.
+        run: |
+          docker builder prune -af --keep-storage=12g || docker builder prune -af || true
+          docker image prune -f || true
+          docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep -E '^uniats-(api|web)-test:' | grep -v ':${{ github.sha }}' \
+            | xargs -r docker rmi -f || true
       - uses: actions/checkout@v5
       - name: Test API (lint + typecheck + unit)
         run: docker build -f Dockerfile.api --target test -t uniats-api-test:${{ github.sha }} .
