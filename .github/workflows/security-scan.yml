@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # OSV-Scanner lê o pnpm-lock.yaml direto (base OSV do Google). NÃO usa o
       # endpoint de audit aposentado do npm. Não-bloqueante por ora.
       - name: OSV-Scanner (SCA)
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Instalar Semgrep
         run: python3 -m pip install --quiet semgrep
       - name: Semgrep (regras públicas, não-bloqueante)
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: gitleaks (histórico, redigido, não-bloqueante)
