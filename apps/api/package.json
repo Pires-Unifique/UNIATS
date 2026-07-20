@@ -32,7 +32,7 @@
     "@sendgrid/mail": "^8.1.4",
     "@uniats/db": "workspace:*",
     "@uniats/shared": "workspace:*",
-    "axios": "^1.7.7",
+    "axios": "^1.18.0",
     "axios-retry": "^4.5.0",
     "bottleneck": "^2.19.5",
     "bullmq": "^5.13.2",
