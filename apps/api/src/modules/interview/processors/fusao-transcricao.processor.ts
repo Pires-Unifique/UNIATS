@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { ClaudeService } from '../../claude/claude.service.js';
 import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { RespostasEntrevistaService } from '../../questions/respostas-entrevista.service.js';
+import { RedacaoService } from '../../redacao/redacao.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
 
@@ -40,6 +41,7 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
     private readonly claude: ClaudeService,
     private readonly respostas: RespostasEntrevistaService,
     private readonly notificacoes: NotificacoesService,
+    private readonly redacao: RedacaoService,
   ) {
     super();
   }
@@ -75,9 +77,21 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
 
     const fusao = await this.claude.fundirTranscricoes({ teams, whisper });
 
+    // Piso extra de censura LGPD (Camada 1/regex) sobre a SAÍDA da fusão: as duas
+    // fontes já vinham censuradas, mas isto pega qualquer identificador estruturado
+    // que o modelo tenha eventualmente reconstruído ao reconciliar. Sem custo de LLM.
+    const turnosSeguros = fusao.turnos.map((t) => ({
+      ...t,
+      texto: this.redacao.redigirRegexTexto(t.texto),
+    }));
+    const textoSeguro = turnosSeguros
+      .map((t) => `${t.falante}: ${t.texto}`)
+      .join('\n')
+      .slice(0, 1_000_000);
+
     // ATA do TEXTO FUNDIDO (resumo melhor que o de qualquer fonte isolada).
     // Best-effort: se falhar, mantém o resumo anterior.
-    const ata = await this.claude.gerarAtaReuniao(fusao.texto).catch((err) => {
+    const ata = await this.claude.gerarAtaReuniao(textoSeguro).catch((err) => {
       this.logger.warn(`ATA do texto fundido falhou (não crítico): ${(err as Error).message}`);
       return null;
     });
@@ -85,8 +99,8 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
     await this.prisma.transcricao.update({
       where: { entrevista_id: entrevistaId },
       data: {
-        texto_fundido: fusao.texto.slice(0, 1_000_000),
-        segmentos_fundidos: fusao.turnos as unknown as object,
+        texto_fundido: textoSeguro,
+        segmentos_fundidos: turnosSeguros as unknown as object,
         fusao_em: new Date(),
         ...(ata ? { resumo: ata.ata.resumo, topicos: ata.ata.topicos } : {}),
       },

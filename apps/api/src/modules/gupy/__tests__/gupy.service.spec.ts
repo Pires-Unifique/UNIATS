@@ -25,6 +25,7 @@ type MockPrisma = {
   vaga: { upsert: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock };
   candidato: { upsert: jest.Mock };
   candidatura: { upsert: jest.Mock };
+  curriculoProcessado: { findUnique: jest.Mock; upsert: jest.Mock };
 };
 
 function montarMocks() {
@@ -44,6 +45,10 @@ function montarMocks() {
     },
     candidato: { upsert: jest.fn() },
     candidatura: { upsert: jest.fn() },
+    curriculoProcessado: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn(),
+    },
   };
   const auth = {
     vincularGestorAoSincronizar: jest.fn().mockResolvedValue(undefined),
@@ -242,6 +247,40 @@ describe('GupyService.sincronizarCandidaturasDaVaga', () => {
 
     await service.sincronizarCandidaturasDaVaga(BigInt(987654));
     expect(filaCV.add).not.toHaveBeenCalled();
+  });
+
+  it('NÃO re-enfileira download quando o CV já foi baixado E parseado pela versão atual', async () => {
+    const { service, client, prisma, filaCV } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen([cand]));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    prisma.candidatura.upsert.mockResolvedValue({ id: 'app-1' });
+    prisma.curriculoProcessado.findUnique.mockResolvedValue({
+      arquivo_url: 'curriculo/aa/bb/sha.pdf',
+      parser_versao: 'claude-curriculo-v1',
+    });
+
+    const r = await service.sincronizarCandidaturasDaVaga(BigInt(987654));
+
+    expect(r.total).toBe(1); // a candidatura em si continua sincronizada
+    expect(filaCV.add).not.toHaveBeenCalled();
+  });
+
+  it('RE-enfileira download quando o parse está pendente (mesmo com arquivo baixado)', async () => {
+    const { service, client, prisma, filaCV } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen([cand]));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    prisma.candidatura.upsert.mockResolvedValue({ id: 'app-1' });
+    prisma.curriculoProcessado.findUnique.mockResolvedValue({
+      arquivo_url: 'curriculo/aa/bb/sha.pdf',
+      parser_versao: 'pending',
+    });
+
+    await service.sincronizarCandidaturasDaVaga(BigInt(987654));
+    expect(filaCV.add).toHaveBeenCalled();
   });
 });
 

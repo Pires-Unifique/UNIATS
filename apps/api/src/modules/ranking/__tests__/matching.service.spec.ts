@@ -106,7 +106,11 @@ describe('MatchingService.scorearCandidatura', () => {
       id: candidaturaId,
       vaga_id: vagaId,
       candidato_id: 'cand-1',
-      candidato: { nome_completo: 'Ana Pereira' },
+      candidato: {
+        nome_completo: 'Ana Pereira',
+        cidade: 'Blumenau',
+        estado: 'SC',
+      },
       curriculo: {
         id: curriculoId,
         texto_normalizado: 'CV bruto',
@@ -125,6 +129,10 @@ describe('MatchingService.scorearCandidatura', () => {
       descricao: 'descrição',
       requisitos_texto: 'req',
       requisitos_json: { mandatory: 'Node.js' },
+      remoto: false,
+      unidade: 'Matriz',
+      cidade: 'Timbó',
+      estado: 'SC',
     });
 
     // Distância cosseno = 0.2 → similaridade = (1 - 0.1) * 100 = 90
@@ -187,6 +195,69 @@ describe('MatchingService.scorearCandidatura', () => {
       type: 'tool',
       name: 'avaliar_aderencia',
     });
+
+    // Vaga presencial: o prompt carrega o bloco de localização com o local de
+    // trabalho e a cidade do candidato, para o Claude ponderar a distância.
+    const promptTexto = llmArgs.messages[0].content[0].text as string;
+    expect(promptTexto).toContain('Modalidade: presencial');
+    expect(promptTexto).toContain('LOCALIZAÇÃO (vaga presencial)');
+    expect(promptTexto).toContain('Local de trabalho: Matriz / Timbó / SC');
+    expect(promptTexto).toContain(
+      'Cidade/UF do candidato (cadastro): Blumenau / SC',
+    );
+  });
+
+  it('vaga remota: não envia bloco de localização nem a cidade do candidato', async () => {
+    prepararParaParse();
+    prisma.candidatura.findUnique.mockResolvedValue({
+      id: candidaturaId,
+      vaga_id: 'v',
+      candidato_id: 'c',
+      candidato: { nome_completo: 'X', cidade: 'Blumenau', estado: 'SC' },
+      curriculo: {
+        id: 'cv',
+        texto_normalizado: 'x',
+        competencias: [],
+        experiencias: [],
+        formacoes: [],
+        idiomas: [],
+        certificacoes: [],
+        anos_experiencia: null,
+        parser_versao: 'v1',
+      },
+    });
+    prisma.vaga.findUnique.mockResolvedValue({
+      titulo: 'T',
+      descricao: '',
+      requisitos_texto: null,
+      requisitos_json: null,
+      remoto: true,
+      unidade: 'Matriz',
+      cidade: 'Timbó',
+      estado: 'SC',
+    });
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'avaliar_aderencia',
+          input: {
+            score: 60,
+            justificativa: 'Aderência parcial aos requisitos informados.',
+          },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+
+    await service.scorearCandidatura(candidaturaId);
+
+    const promptTexto = createMock.mock.calls[0][0].messages[0].content[0]
+      .text as string;
+    expect(promptTexto).toContain('Modalidade: remota');
+    expect(promptTexto).not.toContain('LOCALIZAÇÃO (vaga presencial)');
+    expect(promptTexto).not.toContain('Blumenau');
   });
 
   it('rejeita quando embedding da vaga ou do CV não existe', async () => {

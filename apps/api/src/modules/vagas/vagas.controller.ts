@@ -7,6 +7,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { Prisma } from '@uniats/db';
 
@@ -65,6 +66,30 @@ function strDoPayload(valor: unknown): string | null {
 }
 
 /**
+ * URL pública da vaga no portal de carreiras (a página que o CANDIDATO vê).
+ * A Gupy não devolve essa URL na API — montamos {base}/jobs/{gupy_id}. Cada
+ * career page tem subdomínio próprio (vaga de uma NÃO abre na outra), por isso
+ * o mapa careerPageId=url para os tenants com mais de uma página.
+ */
+function urlPublicaGupy(
+  gupyId: bigint,
+  payload: Record<string, unknown>,
+  base: string,
+  mapa: string,
+): string {
+  const careerPageId = payload.careerPageId;
+  if (careerPageId != null && mapa) {
+    for (const par of mapa.split(',')) {
+      const [id, url] = par.split('=');
+      if (id?.trim() === String(careerPageId) && url?.trim()) {
+        return `${url.trim().replace(/\/+$/, '')}/jobs/${gupyId}`;
+      }
+    }
+  }
+  return `${base.replace(/\/+$/, '')}/jobs/${gupyId}`;
+}
+
+/**
  * Read API local — frontend usa para listar vagas JÁ SINCRONIZADAS, com
  * contagens de candidaturas. Diferente de `/api/gupy/vagas` (passthrough
  * direto da Gupy), aqui retornamos só o que está no nosso banco.
@@ -72,7 +97,10 @@ function strDoPayload(valor: unknown): string | null {
 @Controller('api/vagas')
 @UseGuards(ThrottlerGuard, AuthGuard)
 export class VagasController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get()
   async listar(
@@ -133,6 +161,11 @@ export class VagasController {
           status: true,
           data_publicacao: true,
           atualizado_em: true,
+          gestor_email: true,
+          recrutador_email: true,
+          // Nome de gestor/recrutador só existe no payload (managerName/
+          // recruiterName) — não há coluna própria nem FK preenchida no sync.
+          gupy_payload: true,
           _count: { select: { candidaturas: true } },
         },
       }),
@@ -143,11 +176,30 @@ export class VagasController {
     ]);
 
     // BigInt → string para serialização JSON
-    const itens = vagas.map((v) => ({
-      ...v,
-      gupy_id: v.gupy_id.toString(),
-      qtdCandidaturas: v._count.candidaturas,
-    }));
+    const itens = vagas.map((v) => {
+      const payload = (v.gupy_payload ?? {}) as Record<string, unknown>;
+      const { gupy_payload: _payload, _count, ...resto } = v;
+      return {
+        ...resto,
+        gupy_id: v.gupy_id.toString(),
+        qtdCandidaturas: _count.candidaturas,
+        // Mesma regra do detalhe: payload primeiro; e-mail espelhado como fallback
+        // (vagas antigas sincronizadas antes do managerName/recruiterName).
+        recrutador:
+          pessoaDoPayload(payload.recruiterName, payload.recruiterEmail) ??
+          pessoaDoPayload(null, v.recrutador_email),
+        gestor:
+          pessoaDoPayload(payload.managerName, payload.managerEmail) ??
+          pessoaDoPayload(null, v.gestor_email),
+        // Fallback do local no payload — igual ao obter() (vagas antigas foram
+        // sincronizadas antes de mapearmos addressCity/addressState).
+        cidade: v.cidade ?? strDoPayload(payload.addressCity),
+        estado:
+          v.estado ??
+          strDoPayload(payload.addressStateShortName) ??
+          strDoPayload(payload.addressState),
+      };
+    });
 
     void totais; // unused — agregação já está em `_count`
     return { total: itens.length, itens };
@@ -188,6 +240,16 @@ export class VagasController {
         strDoPayload(payload.addressState),
       gupy_id: v.gupy_id.toString(),
       qtdCandidaturas: v._count.candidaturas,
+      // Link público da vaga no portal de carreiras — o que o candidato vê.
+      url_gupy: urlPublicaGupy(
+        v.gupy_id,
+        payload,
+        this.config.get<string>(
+          'GUPY_CAREERS_BASE_URL',
+          'https://vemserunifique.gupy.io',
+        ),
+        this.config.get<string>('GUPY_CAREERS_URL_MAP', ''),
+      ),
     };
   }
 
@@ -298,6 +360,7 @@ export class VagasController {
         id: true,
         status: true,
         etapa_gupy: true,
+        motivo_desclassif: true,
         inscrito_em: true,
         candidato: {
           select: {
@@ -340,6 +403,7 @@ export class VagasController {
         estado: c.candidato.estado,
         status: c.status,
         etapaGupy: c.etapa_gupy,
+        motivoDesclassif: c.motivo_desclassif,
         inscritoEm: c.inscrito_em,
         anosExperiencia: c.curriculo?.anos_experiencia ?? null,
         temCurriculo: c.curriculo != null,

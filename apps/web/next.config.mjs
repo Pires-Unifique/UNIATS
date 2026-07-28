@@ -3,9 +3,12 @@ const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
 // CSP em ENFORCE: já calibrada em report-only (login + navegação sem violação).
 // Se algum fluxo novo precisar de origem externa, adicione em connect-src/frame-src.
 // Reverter é trivial: trocar a KEY do header p/ "Content-Security-Policy-Report-Only".
+// O react-refresh do `next dev` usa eval — 'unsafe-eval' entra SÓ em dev
+// (em produção a política continua sem eval).
+const dev = process.env.NODE_ENV !== 'production';
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",

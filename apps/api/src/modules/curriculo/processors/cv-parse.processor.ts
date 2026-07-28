@@ -4,7 +4,7 @@ import { Prisma } from '@uniats/db';
 import type { Job, Queue } from 'bullmq';
 import { z } from 'zod';
 
-import { ClaudeService } from '../../claude/claude.service.js';
+import { ClaudeService, PARSER_PROMPT_VERSION } from '../../claude/claude.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { ParserService } from '../parsers/parser.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
@@ -62,6 +62,27 @@ export class CvParseProcessor extends WorkerHost {
       );
     }
 
+    // Já estruturado pela versão ATUAL do prompt → nada a re-parsear (evita
+    // uma chamada Claude idêntica por candidatura a cada re-sync). Só garante
+    // que o vetor existe — cura os casos históricos de embedding perdido.
+    if (registro.parser_versao === PARSER_PROMPT_VERSION) {
+      const temVetor =
+        (await this.prisma.embedding.count({
+          where: { curriculo_id: registro.id },
+        })) > 0;
+      if (!temVetor) {
+        await this.filaEmbedding.add(
+          'embedding-curriculo',
+          { candidaturaId, alvo: 'curriculo' },
+          { jobId: `emb-cv-${candidaturaId}` },
+        );
+      }
+      this.logger.debug(
+        `CV já parseado (candidatura ${candidaturaId}, ${registro.parser_versao}) — pulando Claude.`,
+      );
+      return { candidaturaId, parserVersao: registro.parser_versao };
+    }
+
     // 1. Baixa do storage
     const obj = await this.storage.getObject(storageKey);
 
@@ -91,9 +112,8 @@ export class CvParseProcessor extends WorkerHost {
       },
     });
 
-    // 5. Enfileira geração de embeddings (Camada 3 — placeholder de payload).
-    // O worker de embedding ainda não existe; quando existir, ele lê
-    // texto_normalizado direto do banco usando candidaturaId.
+    // 5. Enfileira geração de embeddings — o worker lê o texto estruturado
+    // direto do banco usando candidaturaId.
     await this.filaEmbedding.add(
       'embedding-curriculo',
       { candidaturaId, alvo: 'curriculo' },

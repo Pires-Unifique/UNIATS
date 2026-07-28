@@ -86,6 +86,16 @@ const EnvSchema = z.object({
   GUPY_RATE_LIMIT_RPS: z.coerce.number().int().positive().default(5),
   GUPY_RETRY_MAX: z.coerce.number().int().nonnegative().default(4),
   GUPY_RETRY_BASE_MS: z.coerce.number().int().positive().default(500),
+  // Portal público de carreiras (link "Ver na Gupy" da vaga). A URL pública é
+  // {base}/jobs/{gupy_id}, mas cada career page tem seu próprio subdomínio —
+  // o MAP cobre as demais no formato "careerPageId=url,careerPageId=url".
+  GUPY_CAREERS_BASE_URL: z
+    .string()
+    .url()
+    .default('https://vemserunifique.gupy.io'),
+  GUPY_CAREERS_URL_MAP: z
+    .string()
+    .default('165265=https://unifique-investimentos.gupy.io'),
 
   // Storage (S3/MinIO)
   STORAGE_PROVIDER: z
@@ -250,6 +260,9 @@ const EnvSchema = z.object({
   RETENCAO_AUDIO_DIAS: z.coerce.number().int().positive().default(90),
   RETENCAO_TRANSCRICAO_DIAS: z.coerce.number().int().positive().default(365),
   RETENCAO_CV_DIAS: z.coerce.number().int().positive().default(730),
+  // Censura LGPD — Camada 2 (semântica via Claude). 'false' deixa só o piso da
+  // regex (Camada 1). Não recomendado desligar em produção.
+  REDACAO_SEMANTICA_ENABLED: z.enum(['true', 'false']).default('true'),
 
   // Base URL pública da API (para construir webhook URLs)
   PUBLIC_BASE_URL: z.string().url().optional(),

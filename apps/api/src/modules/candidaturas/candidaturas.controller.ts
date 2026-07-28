@@ -63,7 +63,9 @@ export class CandidaturasController {
             id: true,
             candidato_id: true,
             candidatura_id: true,
+            arquivo_url: true,
             arquivo_sha256: true,
+            texto_bruto: true,
             resumo: true,
             experiencias: true,
             formacoes: true,
@@ -135,10 +137,15 @@ export class CandidaturasController {
       .catch(() => undefined);
 
     // BigInt → string para serialização JSON (gupy_id não é serializável nativamente).
+    // arquivo_url é key interna do storage — vira só o flag tem_arquivo.
+    const { arquivo_url, ...curriculoResto } = c.curriculo ?? {};
     return {
       ...c,
       gupy_id: c.gupy_id.toString(),
       vaga: { ...c.vaga, gupy_id: c.vaga.gupy_id.toString() },
+      curriculo: c.curriculo
+        ? { ...curriculoResto, tem_arquivo: Boolean(arquivo_url) }
+        : null,
     };
   }
 

@@ -28,6 +28,8 @@ interface VagaDetalhe {
   recrutador: { nome: string; email: string } | null;
   gestor: { nome: string; email: string } | null;
   qtdCandidaturas: number;
+  /** Página pública da vaga no portal de carreiras da Gupy. */
+  url_gupy: string | null;
 }
 
 interface CandidaturaItem {
@@ -39,6 +41,7 @@ interface CandidaturaItem {
   estado: string | null;
   status: string;
   etapaGupy: string | null;
+  motivoDesclassif: string | null;
   inscritoEm: string | null;
   anosExperiencia: number | null;
   temCurriculo: boolean;
@@ -403,6 +406,17 @@ export default function CandidatosVagaPage({
             <Link href="/vagas" className="btn-soft">
               ← Vagas
             </Link>
+            {vaga?.url_gupy && (
+              <a
+                href={vaga.url_gupy}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-soft"
+                title="Abre a página pública desta vaga no portal de carreiras — o que o candidato vê."
+              >
+                Ver na Gupy ↗
+              </a>
+            )}
             <button
               type="button"
               className="btn-soft"
@@ -577,7 +591,7 @@ export default function CandidatosVagaPage({
                 <Th>Local</Th>
                 <Th>Etapa (Gupy)</Th>
                 <Th>Exp.</Th>
-                <Th>Justificativa</Th>
+                <Th>{aba === 'reprovados' ? 'Motivo da reprovação' : 'Justificativa'}</Th>
                 <Th></Th>
               </tr>
             </thead>
@@ -639,11 +653,18 @@ export default function CandidatosVagaPage({
                       : '—'}
                   </Td>
                   <Td className="max-w-md text-grafite-600 text-xs">
-                    {it.justificativa
-                      ? it.justificativa.length > 180
-                        ? `${it.justificativa.slice(0, 180)}…`
-                        : it.justificativa
-                      : '—'}
+                    {(() => {
+                      // Na aba Reprovados o que interessa é a DECISÃO humana,
+                      // não a justificativa da IA.
+                      const texto =
+                        aba === 'reprovados'
+                          ? it.motivoDesclassif
+                          : it.justificativa;
+                      if (!texto) return '—';
+                      return texto.length > 180
+                        ? `${texto.slice(0, 180)}…`
+                        : texto;
+                    })()}
                   </Td>
                   <Td className="text-right">
                     <Link

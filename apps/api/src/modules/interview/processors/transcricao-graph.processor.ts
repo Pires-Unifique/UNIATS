@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { ClaudeService } from '../../claude/claude.service.js';
 import { GraphClient } from '../../graph/graph.client.js';
 import { parseVtt } from '../../graph/vtt.parser.js';
+import { RedacaoService } from '../../redacao/redacao.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
 
@@ -38,6 +39,7 @@ export class TranscricaoGraphProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly graph: GraphClient,
     private readonly claude: ClaudeService,
+    private readonly redacao: RedacaoService,
     private readonly config: ConfigService,
     @InjectQueue(QUEUE_NAMES.FUSAO_TRANSCRICAO)
     private readonly filaFusao: Queue,
@@ -171,6 +173,12 @@ export class TranscricaoGraphProcessor extends WorkerHost {
       );
     }
 
+    // 4b. CENSURA LGPD (antes de QUALQUER escrita): dados sensíveis nunca são
+    // persistidos nem enviados à ATA. Fail-closed — se a Camada 2 falhar com erro
+    // retryável, propaga e o BullMQ re-tenta o job.
+    const red = await this.redacao.redigirTurnos(segmentos);
+    const textoSeguro = red.texto.slice(0, 1_000_000);
+
     // 5. persiste Transcricao (provider=graph) — sobrepõe qualquer placeholder
     const expira = new Date(Date.now() + this.retencaoDias * 24 * 3600_000);
     await this.prisma.transcricao.upsert({
@@ -180,21 +188,21 @@ export class TranscricaoGraphProcessor extends WorkerHost {
         provider: 'graph',
         provider_id: escolhido.id,
         idioma: 'pt-BR',
-        texto_completo: texto.slice(0, 1_000_000),
-        segmentos: segmentos as unknown as object,
+        texto_completo: textoSeguro,
+        segmentos: red.turnos as unknown as object,
         expira_em: expira,
       },
       update: {
         provider: 'graph',
         provider_id: escolhido.id,
-        texto_completo: texto.slice(0, 1_000_000),
-        segmentos: segmentos as unknown as object,
+        texto_completo: textoSeguro,
+        segmentos: red.turnos as unknown as object,
         expira_em: expira,
       },
     });
 
-    // 6. Claude → ATA (resumo + tópicos)
-    const ata = await this.claude.gerarAtaReuniao(texto);
+    // 6. Claude → ATA (resumo + tópicos) sobre o texto JÁ censurado
+    const ata = await this.claude.gerarAtaReuniao(textoSeguro);
     await this.prisma.transcricao.update({
       where: { entrevista_id: entrevistaId },
       data: { resumo: ata.ata.resumo, topicos: ata.ata.topicos },

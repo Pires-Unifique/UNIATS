@@ -29,6 +29,7 @@ import { NotificacoesModule } from './modules/notificacoes/notificacoes.module.j
 import { OffboardingModule } from './modules/offboarding/offboarding.module.js';
 import { QuestionsModule } from './modules/questions/questions.module.js';
 import { RankingModule } from './modules/ranking/ranking.module.js';
+import { RedacaoModule } from './modules/redacao/redacao.module.js';
 import { VagasModule } from './modules/vagas/vagas.module.js';
 import { VagaTemplateModule } from './modules/vaga-template/vaga-template.module.js';
 import { SendGridModule } from './modules/sendgrid/sendgrid.module.js';
@@ -95,6 +96,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
     StorageModule,
     CryptoModule,
     ClaudeModule,
+    RedacaoModule,
     VoyageModule,
     EmbeddingsModule,
     WahaModule,

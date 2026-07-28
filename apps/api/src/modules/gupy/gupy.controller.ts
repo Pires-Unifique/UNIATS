@@ -164,6 +164,17 @@ export class GupyController {
         "status deve ser 'in_process' ou 'reproved'",
       );
     }
+    // Reprovação EXIGE motivo — é a justificativa da decisão humana que fica
+    // registrada na candidatura (e vai também para a Gupy, truncada em 255).
+    const motivoReprovacao =
+      typeof disapprovalReasonNotes === 'string'
+        ? disapprovalReasonNotes.trim()
+        : '';
+    if (status === 'reproved' && !motivoReprovacao) {
+      throw new BadRequestException(
+        'Informe o motivo da reprovação (disapprovalReasonNotes).',
+      );
+    }
 
     await this.client.moverCandidatura({
       jobId: BigInt(gupyIdStr),
@@ -172,15 +183,23 @@ export class GupyController {
         currentStepId !== undefined ? BigInt(currentStepId) : undefined,
       status: status as 'in_process' | 'reproved' | undefined,
       disapprovalReason,
-      disapprovalReasonNotes,
+      disapprovalReasonNotes: motivoReprovacao || undefined,
     });
 
     // Reflete localmente o resultado do move (a UI/ranking não dependem de
     // re-sincronizar a vaga inteira). Best-effort: não falha a request se a
     // candidatura ainda não existir no banco local.
-    const dadosLocais: { etapa_gupy?: string; status?: 'REPROVADO' } = {};
+    const dadosLocais: {
+      etapa_gupy?: string;
+      status?: 'REPROVADO';
+      motivo_desclassif?: string;
+    } = {};
     if (etapaNome) dadosLocais.etapa_gupy = etapaNome;
-    if (status === 'reproved') dadosLocais.status = 'REPROVADO';
+    if (status === 'reproved') {
+      dadosLocais.status = 'REPROVADO';
+      // Local guarda o texto INTEIRO (a cópia enviada à Gupy é truncada).
+      dadosLocais.motivo_desclassif = motivoReprovacao;
+    }
     if (Object.keys(dadosLocais).length > 0) {
       await this.prisma.candidatura.updateMany({
         where: { gupy_id: BigInt(applicationIdStr) },

@@ -7,6 +7,43 @@ import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';
 import { formatarDataHora } from '@/lib/format';
 
+/** Marcador inserido pela censura LGPD (back-end): `[OCULTADO: CATEGORIA]`. */
+const OCULTACAO_REGEX = /\[OCULTADO:[^\]]+\]/;
+
+/** Há algum dado ocultado no texto? (para exibir a legenda LGPD) */
+function temOcultacao(...textos: (string | null | undefined)[]): boolean {
+  return textos.some((t) => !!t && OCULTACAO_REGEX.test(t));
+}
+
+/**
+ * Renderiza um texto realçando os marcadores `[OCULTADO: CATEGORIA]` como uma
+ * "pílula" com cadeado. Sinaliza ao leitor que ali havia um dado sensível que
+ * NÃO é armazenado (LGPD). O texto ao redor é preservado.
+ */
+function TextoSeguro({ texto }: { texto: string | null | undefined }) {
+  if (!texto) return null;
+  // split com grupo de captura → marcadores caem nos índices ÍMPARES.
+  const partes = texto.split(/(\[OCULTADO:[^\]]+\])/g);
+  return (
+    <>
+      {partes.map((p, i) => {
+        if (i % 2 === 0) return p;
+        const categoria = p.replace(/^\[OCULTADO:\s*/, '').replace(/\]$/, '');
+        return (
+          <span
+            key={i}
+            className="mx-0.5 inline-flex items-center gap-1 rounded bg-grafite-100 px-1.5 py-0.5 text-xs font-medium text-grafite-500 align-baseline dark:bg-grafite-700/50 dark:text-grafite-300"
+            title="Dado sensível ocultado conforme a LGPD — não é armazenado na plataforma"
+          >
+            <span aria-hidden>🔒</span>
+            {categoria}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 interface TranscricaoSegmento {
   inicio_ms?: number | null;
   fim_ms?: number | null;
@@ -533,6 +570,14 @@ export default function EntrevistaPage({
               )}
             </p>
 
+            {temOcultacao(e.transcricao.texto_completo, e.transcricao.resumo) && (
+              <p className="mb-3 flex items-center gap-1.5 text-xs text-grafite-500">
+                <span aria-hidden>🔒</span>
+                Dados sensíveis foram ocultados automaticamente (LGPD) e não são
+                armazenados na plataforma.
+              </p>
+            )}
+
             {/* Resumo — destaque */}
             {e.transcricao.resumo && (
               <div className="mb-4 flex gap-3 rounded-lg bg-unifique-50 dark:bg-unifique-500/10 p-4">
@@ -545,7 +590,7 @@ export default function EntrevistaPage({
                     </h3>
                   </div>
                   <p className="text-base text-grafite-800 leading-relaxed whitespace-pre-line">
-                    {e.transcricao.resumo}
+                    <TextoSeguro texto={e.transcricao.resumo} />
                   </p>
                   {e.transcricao.topicos?.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
@@ -569,7 +614,7 @@ export default function EntrevistaPage({
                 Ver transcrição completa (texto cru)
               </summary>
               <pre className="mt-2 text-sm text-grafite-700 whitespace-pre-wrap font-sans max-h-96 overflow-y-auto">
-                {e.transcricao.texto_completo}
+                <TextoSeguro texto={e.transcricao.texto_completo} />
               </pre>
             </details>
           </div>
@@ -679,7 +724,7 @@ function RespostasLista({ respostas }: { respostas: RespostaDTO[] }) {
                       Ver trecho da conversa
                     </summary>
                     <blockquote className="mt-1 border-l-2 border-grafite-200 pl-2 italic whitespace-pre-line">
-                      &ldquo;{r.citacao}&rdquo;
+                      &ldquo;<TextoSeguro texto={r.citacao} />&rdquo;
                     </blockquote>
                   </details>
                 )}
@@ -843,7 +888,7 @@ function TranscricaoFalas({
                 )}
               </div>
               <p className="text-sm text-grafite-700 leading-relaxed whitespace-pre-line">
-                {t.texto}
+                <TextoSeguro texto={t.texto} />
               </p>
             </div>
           );

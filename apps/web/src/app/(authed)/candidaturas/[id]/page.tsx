@@ -10,7 +10,7 @@ import { EsteiraGupy } from '@/components/EsteiraGupy';
 import { PageHeader } from '@/components/PageHeader';
 import { ScoreBadge } from '@/components/ScoreBadge';
 import { StatusBadge } from '@/components/StatusBadge';
-import { api, ApiError } from '@/lib/api';
+import { abrirArquivo, api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatarData, formatarDataHora } from '@/lib/format';
 
@@ -58,6 +58,7 @@ interface CandidaturaDetalhe {
   vaga_id: string;
   status: string;
   etapa_gupy: string | null;
+  motivo_desclassif: string | null;
   inscrito_em: string | null;
   vaga: {
     id: string;
@@ -81,6 +82,8 @@ interface CandidaturaDetalhe {
   };
   curriculo: {
     resumo: string | null;
+    texto_bruto: string | null;
+    tem_arquivo: boolean;
     competencias: string[];
     experiencias: any;
     formacoes: any;
@@ -120,6 +123,9 @@ export default function CandidaturaPage({
     { inicio: string; fim: string } | undefined
   >(undefined);
   const [confirmandoTeams, setConfirmandoTeams] = useState(false);
+  // Currículo completo (texto extraído) expandido/recolhido + abertura do PDF.
+  const [cvCompletoAberto, setCvCompletoAberto] = useState(false);
+  const [abrindoArquivo, setAbrindoArquivo] = useState(false);
 
   const carregarMensagens = useCallback(async () => {
     try {
@@ -210,6 +216,22 @@ export default function CandidaturaPage({
     }
   }
 
+  async function abrirArquivoCurriculo() {
+    setAcaoStatus(null);
+    setAbrindoArquivo(true);
+    try {
+      await abrirArquivo(`/api/curriculos/${id}/arquivo`);
+    } catch (err) {
+      setAcaoStatus(
+        err instanceof ApiError
+          ? err.message
+          : 'Falha ao abrir o arquivo do currículo.',
+      );
+    } finally {
+      setAbrindoArquivo(false);
+    }
+  }
+
   async function definirConsentimentoGravacao(consentir: boolean) {
     setAcaoStatus(null);
     try {
@@ -239,6 +261,20 @@ export default function CandidaturaPage({
     return <div className="badge-red p-3">{erro}</div>;
   }
   if (!c) return null;
+
+  // Há conteúdo para o "currículo completo"? (estruturado ou texto extraído)
+  const temCurriculoCompleto = Boolean(
+    c.curriculo &&
+      (c.curriculo.texto_bruto?.trim() ||
+        (Array.isArray(c.curriculo.experiencias) &&
+          c.curriculo.experiencias.length > 0) ||
+        (Array.isArray(c.curriculo.formacoes) &&
+          c.curriculo.formacoes.length > 0) ||
+        (Array.isArray(c.curriculo.idiomas) &&
+          c.curriculo.idiomas.length > 0) ||
+        (Array.isArray(c.curriculo.certificacoes) &&
+          c.curriculo.certificacoes.length > 0)),
+  );
 
   const consolidado = c.scores.find((s) => s.tipo === 'CONSOLIDADO');
   const similaridade = c.scores.find((s) => s.tipo === 'SIMILARIDADE_VETORIAL');
@@ -356,6 +392,19 @@ export default function CandidaturaPage({
         />
       </div>
 
+      {/* Reprovação — decisão humana registrada com motivo obrigatório */}
+      {c.status === 'REPROVADO' && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-500/30 dark:bg-red-500/10">
+          <div className="text-sm font-medium text-red-800 dark:text-red-300">
+            Candidato reprovado
+          </div>
+          <p className="mt-1 text-sm text-red-700 dark:text-red-200 whitespace-pre-line">
+            {c.motivo_desclassif?.trim() ||
+              'Motivo não registrado (reprovação anterior à exigência de motivo, ou feita direto na Gupy).'}
+          </p>
+        </div>
+      )}
+
       <div className="mb-4">
         <EsteiraGupy
           jobId={c.vaga.gupy_id}
@@ -441,7 +490,36 @@ export default function CandidaturaPage({
 
       {/* Currículo estruturado */}
       <section className="card p-5 mb-4">
-        <h2 className="font-medium text-grafite-900 mb-3">Currículo</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-medium text-grafite-900">Currículo</h2>
+          {c.curriculo && (
+            <div className="flex gap-2">
+              {temCurriculoCompleto && (
+                <button
+                  type="button"
+                  className="btn-soft text-xs"
+                  onClick={() => setCvCompletoAberto((v) => !v)}
+                  title="Currículo na íntegra: experiências com descrição, formação, idiomas e certificações."
+                >
+                  {cvCompletoAberto
+                    ? 'Ocultar currículo completo'
+                    : 'Ver currículo completo'}
+                </button>
+              )}
+              {c.curriculo.tem_arquivo && (
+                <button
+                  type="button"
+                  className="btn-soft text-xs"
+                  disabled={abrindoArquivo}
+                  onClick={() => void abrirArquivoCurriculo()}
+                  title="Abre em outra aba o arquivo original enviado pelo candidato (PDF/DOCX)."
+                >
+                  {abrindoArquivo ? 'Abrindo…' : 'Abrir arquivo original ↗'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {!c.curriculo ? (
           <p className="text-sm text-grafite-400">
             Currículo ainda não foi processado.
@@ -449,9 +527,12 @@ export default function CandidaturaPage({
         ) : (
           <>
             {c.curriculo.resumo && (
-              <p className="text-sm text-grafite-700 mb-3">
-                {c.curriculo.resumo}
-              </p>
+              <div className="mb-3">
+                <div className="text-xs uppercase text-grafite-400 mb-1">
+                  Resumo (IA)
+                </div>
+                <p className="text-sm text-grafite-700">{c.curriculo.resumo}</p>
+              </div>
             )}
             {c.curriculo.anos_experiencia != null && (
               <p className="text-xs text-grafite-400 mb-2">
@@ -467,7 +548,10 @@ export default function CandidaturaPage({
                 ))}
               </div>
             )}
-            {Array.isArray(c.curriculo.experiencias) &&
+            {cvCompletoAberto ? (
+              <CurriculoCompleto curriculo={c.curriculo} />
+            ) : (
+              Array.isArray(c.curriculo.experiencias) &&
               c.curriculo.experiencias.length > 0 && (
                 <div className="mt-2">
                   <div className="text-xs uppercase text-grafite-400 mb-1">
@@ -479,13 +563,14 @@ export default function CandidaturaPage({
                         <span className="font-medium">{e.cargo}</span>{' '}
                         <span className="text-grafite-400">@ {e.empresa}</span>{' '}
                         <span className="text-grafite-400 text-xs">
-                          ({e.inicio ?? '?'} – {e.fim ?? '?'})
+                          ({fmtMesAno(e.inicio)} – {fmtMesAno(e.fim)})
                         </span>
                       </li>
                     ))}
                   </ul>
                 </div>
-              )}
+              )
+            )}
           </>
         )}
       </section>
@@ -728,6 +813,214 @@ export default function CandidaturaPage({
           )}
         </ul>
       </section>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Currículo completo — replica o layout de perfil da Gupy: seções de
+// experiência (com descrição), formação, idiomas e certificações. Tolera os
+// dois formatos gravados no banco (perfil estruturado da Gupy e parse do PDF
+// pelo Claude, que têm chaves ligeiramente diferentes).
+// ---------------------------------------------------------------------------
+
+const NIVEL_FORMACAO_LABEL: Record<string, string> = {
+  tecnico: 'Técnico',
+  tecnologo: 'Tecnólogo',
+  graduacao: 'Graduação',
+  'pos-graduacao': 'Pós-graduação',
+  mba: 'MBA',
+  mestrado: 'Mestrado',
+  doutorado: 'Doutorado',
+  'curso-livre': 'Curso livre',
+  outro: 'Outro',
+};
+
+const NIVEL_IDIOMA_LABEL: Record<string, string> = {
+  basico: 'Básico',
+  intermediario: 'Intermediário',
+  avancado: 'Avançado',
+  fluente: 'Fluente',
+  nativo: 'Nativo',
+};
+
+/** '2019-03' → '03/2019'; '2019' → '2019'; 'atual' → 'atual'; vazio → '?'. */
+function fmtMesAno(valor: unknown): string {
+  if (typeof valor !== 'string' || !valor.trim()) return '?';
+  const v = valor.trim();
+  const m = /^(\d{4})-(\d{2})$/.exec(v);
+  return m ? `${m[2]}/${m[1]}` : v;
+}
+
+function SecaoCurriculo({
+  titulo,
+  children,
+}: {
+  titulo: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mt-4 first:mt-0">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-grafite-400">
+        {titulo}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function CurriculoCompleto({
+  curriculo,
+}: {
+  curriculo: NonNullable<CandidaturaDetalhe['curriculo']>;
+}) {
+  const [textoAberto, setTextoAberto] = useState(false);
+  const experiencias = Array.isArray(curriculo.experiencias)
+    ? (curriculo.experiencias as any[])
+    : [];
+  const formacoes = Array.isArray(curriculo.formacoes)
+    ? (curriculo.formacoes as any[])
+    : [];
+  const idiomas = Array.isArray(curriculo.idiomas)
+    ? (curriculo.idiomas as any[])
+    : [];
+  const certificacoes = Array.isArray(curriculo.certificacoes)
+    ? (curriculo.certificacoes as any[])
+    : [];
+  const temEstruturado =
+    experiencias.length > 0 ||
+    formacoes.length > 0 ||
+    idiomas.length > 0 ||
+    certificacoes.length > 0;
+  const textoBruto = curriculo.texto_bruto?.trim() ?? '';
+
+  return (
+    <div className="mt-2 rounded-md border border-grafite-200 bg-grafite-50/50 p-4">
+      {experiencias.length > 0 && (
+        <SecaoCurriculo titulo="Experiência profissional">
+          <ol className="space-y-4 border-l-2 border-grafite-200 pl-4">
+            {experiencias.map((e, i) => (
+              <li key={i} className="relative">
+                <span
+                  aria-hidden
+                  className="absolute -left-[1.45rem] top-1.5 h-2.5 w-2.5 rounded-full bg-unifique-500"
+                />
+                <div className="text-sm font-semibold text-grafite-900">
+                  {e.cargo ?? '—'}
+                </div>
+                <div className="text-sm text-grafite-600">
+                  {e.empresa ?? '—'}
+                  <span className="ml-2 text-xs text-grafite-400">
+                    {fmtMesAno(e.inicio)} – {fmtMesAno(e.fim)}
+                  </span>
+                </div>
+                {e.descricao && (
+                  <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-grafite-700">
+                    {e.descricao}
+                  </p>
+                )}
+                {Array.isArray(e.tecnologias) && e.tecnologias.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {e.tecnologias.map((t: string) => (
+                      <span key={t} className="badge-gray text-xs">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        </SecaoCurriculo>
+      )}
+
+      {formacoes.length > 0 && (
+        <SecaoCurriculo titulo="Formação acadêmica">
+          <ul className="space-y-2">
+            {formacoes.map((f, i) => (
+              <li key={i} className="text-sm">
+                <span className="font-medium text-grafite-900">
+                  {f.curso ?? NIVEL_FORMACAO_LABEL[f.nivel] ?? f.nivel ?? '—'}
+                </span>
+                {f.instituicao && (
+                  <span className="text-grafite-600"> · {f.instituicao}</span>
+                )}
+                {f.curso && f.nivel && (
+                  <span className="text-grafite-400">
+                    {' '}
+                    ({NIVEL_FORMACAO_LABEL[f.nivel] ?? f.nivel})
+                  </span>
+                )}
+                <span className="ml-2 text-xs text-grafite-400">
+                  {f.inicio || f.fim
+                    ? `${fmtMesAno(f.inicio)} – ${fmtMesAno(f.fim)}`
+                    : (f.status ?? '')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </SecaoCurriculo>
+      )}
+
+      {idiomas.length > 0 && (
+        <SecaoCurriculo titulo="Idiomas">
+          <div className="flex flex-wrap gap-1.5">
+            {idiomas.map((l, i) => (
+              <span key={i} className="badge-gray">
+                {l.idioma ?? '—'}
+                {l.nivel && (
+                  <span className="ml-1 text-grafite-400">
+                    · {NIVEL_IDIOMA_LABEL[l.nivel] ?? l.nivel}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+        </SecaoCurriculo>
+      )}
+
+      {certificacoes.length > 0 && (
+        <SecaoCurriculo titulo="Certificações">
+          <ul className="space-y-1 text-sm text-grafite-700">
+            {certificacoes.map((cert, i) => (
+              <li key={i}>
+                <span className="font-medium">{cert.nome ?? '—'}</span>
+                {cert.emissor && (
+                  <span className="text-grafite-600"> · {cert.emissor}</span>
+                )}
+                {cert.ano && (
+                  <span className="text-xs text-grafite-400"> ({cert.ano})</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </SecaoCurriculo>
+      )}
+
+      {!temEstruturado && textoBruto && (
+        <p className="whitespace-pre-line text-sm leading-relaxed text-grafite-700">
+          {textoBruto}
+        </p>
+      )}
+
+      {temEstruturado && textoBruto && (
+        <div className="mt-4 border-t border-grafite-200 pt-3">
+          <button
+            type="button"
+            className="text-xs text-unifique-700 hover:underline"
+            onClick={() => setTextoAberto((v) => !v)}
+          >
+            {textoAberto
+              ? 'Ocultar texto extraído do arquivo'
+              : 'Ver texto extraído do arquivo (conferência)'}
+          </button>
+          {textoAberto && (
+            <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-line text-xs leading-relaxed text-grafite-600">
+              {textoBruto}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

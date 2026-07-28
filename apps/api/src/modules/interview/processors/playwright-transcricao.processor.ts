@@ -5,6 +5,7 @@ import type { Job, Queue } from 'bullmq';
 import { z } from 'zod';
 
 import { ClaudeService } from '../../claude/claude.service.js';
+import { RedacaoService } from '../../redacao/redacao.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
 
@@ -41,6 +42,7 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly claude: ClaudeService,
+    private readonly redacao: RedacaoService,
     config: ConfigService,
     @InjectQueue(QUEUE_NAMES.FUSAO_TRANSCRICAO)
     private readonly filaFusao: Queue,
@@ -75,26 +77,17 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
     if (!parsed.success) throw new Error('Payload inválido para playwright-transcricao.');
     const { entrevistaId, texto, segmentos, whisperSegmentos } = parsed.data;
 
-    // Texto do 2º motor (Whisper) — também serve de fallback do texto principal
-    // quando a legenda não foi capturada.
-    const textoWhisper = whisperSegmentos
-      .map((s) => s.texto)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const textoEfetivo = texto.trim() || textoWhisper;
-    const whisperJson =
-      whisperSegmentos.length > 0
-        ? (whisperSegmentos as unknown as object)
-        : undefined;
-
     const entrevista = await this.prisma.entrevista.findUnique({
       where: { id: entrevistaId },
       select: { id: true, status: true },
     });
     if (!entrevista) throw new Error(`Entrevista ${entrevistaId} não existe.`);
 
-    if (!textoEfetivo) {
+    // Nada capturado (nem legenda nem Whisper) → encerra sem persistir e sem
+    // gastar chamada de censura.
+    const temConteudo =
+      texto.trim().length > 0 || whisperSegmentos.some((s) => s.texto.trim());
+    if (!temConteudo) {
       this.logger.warn(
         `Nada a persistir p/ entrevista ${entrevistaId} (sem legenda e sem Whisper).`,
       );
@@ -102,8 +95,21 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
       return { entrevistaId, ok: false };
     }
 
+    // CENSURA LGPD do 2º motor (Whisper) — é persistido nos DOIS ramos abaixo,
+    // então censura antes de decidir o ramo. Fail-closed (o BullMQ re-tenta).
+    const whisperRed = await this.redacao.redigirTurnos(whisperSegmentos);
+    const whisperJson =
+      whisperRed.turnos.length > 0
+        ? (whisperRed.turnos as unknown as object)
+        : undefined;
+    const textoWhisper = whisperRed.turnos
+      .map((s) => s.texto)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
     // Anti-downgrade: se já há transcript do Graph com texto, ele vence o texto
-    // principal — mas ainda anexamos o Whisper para a checagem anti-alucinação.
+    // principal — mas ainda anexamos o Whisper (censurado) para a checagem anti-alucinação.
     const existente = await this.prisma.transcricao.findUnique({
       where: { entrevista_id: entrevistaId },
       select: { provider: true, texto_completo: true },
@@ -117,13 +123,25 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
       }
       this.logger.log(
         `Playwright: Graph vence o texto p/ entrevista ${entrevistaId}; ` +
-          `Whisper anexado (segmentos=${whisperSegmentos.length}) para comparação.`,
+          `Whisper anexado (segmentos=${whisperRed.turnos.length}) para comparação.`,
       );
       await this.marcarBotEncerrado(entrevistaId);
       // Graph (diarizado) + Whisper agora coexistem → reconcilia na melhor versão.
       if (whisperJson) await this.agendarFusao(entrevistaId);
       return { entrevistaId, ok: true };
     }
+
+    // CENSURA LGPD da legenda (só chega aqui quando vamos de fato persistir a
+    // legenda). Usa os segmentos diarizados; se vierem vazios, cai no texto corrido.
+    const legendaTurnos =
+      segmentos.length > 0
+        ? segmentos
+        : texto.trim()
+          ? [{ inicio_ms: 0, falante: '', texto }]
+          : [];
+    const legendaRed = await this.redacao.redigirTurnos(legendaTurnos);
+    const textoEfetivo = (legendaRed.texto.trim() || textoWhisper).slice(0, 1_000_000);
+    const segmentosSeguros = legendaRed.turnos as unknown as object;
 
     const expira = new Date(Date.now() + this.retencaoDias * 24 * 3600_000);
     await this.prisma.transcricao.upsert({
@@ -132,21 +150,21 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
         entrevista_id: entrevistaId,
         provider: 'playwright',
         idioma: 'pt-BR',
-        texto_completo: textoEfetivo.slice(0, 1_000_000),
-        segmentos: segmentos as unknown as object,
+        texto_completo: textoEfetivo,
+        segmentos: segmentosSeguros,
         whisper_segmentos: whisperJson,
         expira_em: expira,
       },
       update: {
         provider: 'playwright',
-        texto_completo: textoEfetivo.slice(0, 1_000_000),
-        segmentos: segmentos as unknown as object,
+        texto_completo: textoEfetivo,
+        segmentos: segmentosSeguros,
         whisper_segmentos: whisperJson,
         expira_em: expira,
       },
     });
 
-    // Claude → ATA (resumo + tópicos).
+    // Claude → ATA (resumo + tópicos) sobre o texto JÁ censurado.
     const ata = await this.claude.gerarAtaReuniao(textoEfetivo);
     await this.prisma.transcricao.update({
       where: { entrevista_id: entrevistaId },

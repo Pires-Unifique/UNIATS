@@ -17,7 +17,9 @@ function montar() {
     },
     candidatura: { groupBy: jest.fn().mockResolvedValue([]) },
   };
-  const controller = new VagasController(prisma as any);
+  // ConfigService só é lido no obter() (url_gupy) — devolve o default pedido.
+  const config = { get: jest.fn((_k: string, def?: unknown) => def) };
+  const controller = new VagasController(prisma as any, config as any);
   return { controller, prisma };
 }
 

@@ -1,12 +1,19 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import type { Prisma } from '@uniats/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';
 import { AdmissaoService } from '../admissao/admissao.service.js';
 import { AuthService } from '../auth/auth.service.js';
+import { PARSER_PROMPT_VERSION } from '../claude/claude.service.js';
 import { GupyClient } from './gupy.client.js';
+
+type CvExistente = {
+  arquivo_url: string | null;
+  parser_versao: string | null;
+} | null;
 import {
   paraUpsertCandidato,
   paraUpsertCandidatura,
@@ -28,6 +35,46 @@ export class GupyService {
     @InjectQueue(QUEUE_NAMES.GUPY_SYNC)
     private readonly filaSync: Queue,
   ) {}
+
+  /** Estado atual do currículo da candidatura (uma leitura, reusada nas decisões abaixo). */
+  private buscarCvExistente(candidaturaId: string): Promise<CvExistente> {
+    return this.prisma.curriculoProcessado.findUnique({
+      where: { candidatura_id: candidaturaId },
+      select: { arquivo_url: true, parser_versao: true },
+    });
+  }
+
+  /**
+   * CV com arquivo baixado E estruturado pela versão ATUAL do parser Claude:
+   * re-sync não tem trabalho novo (re-baixar/re-parsear/re-embedar sairia caro
+   * e idêntico). Vetor faltante é curado pelo cron de reconciliação; bump de
+   * PARSER_PROMPT_VERSION invalida o skip e reprocessa todo mundo.
+   */
+  private static cvJaProcessado(cv: CvExistente): boolean {
+    return !!cv?.arquivo_url && cv.parser_versao === PARSER_PROMPT_VERSION;
+  }
+
+  /**
+   * Aplica o currículo ESTRUTURADO da Gupy sem rebaixar um currículo que já
+   * veio do PDF: quando o arquivo já foi baixado (arquivo_url) ou parseado
+   * pelo Claude, o update do perfil estruturado zeraria o ponteiro do PDF no
+   * storage e trocaria o texto completo pelo resumo pobre do perfil — o que
+   * quebrava "ver currículo completo"/reprocessar após qualquer re-sync.
+   */
+  private async upsertCurriculoEstruturado(
+    args: Prisma.CurriculoProcessadoUpsertArgs | null,
+    existente: CvExistente,
+  ): Promise<void> {
+    if (!args) return;
+    if (
+      existente &&
+      (existente.arquivo_url ||
+        existente.parser_versao?.startsWith('claude-curriculo-'))
+    ) {
+      return;
+    }
+    await this.prisma.curriculoProcessado.upsert(args);
+  }
 
   /**
    * Sincroniza UMA vaga (busca na Gupy → upsert local).
@@ -157,12 +204,18 @@ export class GupyService {
         paraUpsertCandidatura(cand, vaga.id, candidato.id),
       );
 
-      // Currículo estruturado a partir do perfil da Gupy (fields=all).
-      const curriculo = paraUpsertCurriculoGupy(cand, candidatura.id, candidato.id);
-      if (curriculo) await this.prisma.curriculoProcessado.upsert(curriculo);
+      const cvExistente = await this.buscarCvExistente(candidatura.id);
 
-      // Enfileira download do CV se URL disponível e ainda não baixado.
-      if (cand.resumeUrl) {
+      // Currículo estruturado a partir do perfil da Gupy (fields=all).
+      await this.upsertCurriculoEstruturado(
+        paraUpsertCurriculoGupy(cand, candidatura.id, candidato.id),
+        cvExistente,
+      );
+
+      // Só (re)enfileira o download quando há trabalho real: sem este skip,
+      // cada passada do sync re-baixava → re-parseava (Claude) → re-embedava
+      // (Voyage) TODAS as candidaturas (o dedupe por jobId expira em 24h).
+      if (cand.resumeUrl && !GupyService.cvJaProcessado(cvExistente)) {
         await this.filaCV.add(
           'baixar-cv',
           {
@@ -282,10 +335,14 @@ export class GupyService {
       paraUpsertCandidatura(cand, vaga.id, candidato.id),
     );
 
-    const curriculo = paraUpsertCurriculoGupy(cand, candidatura.id, candidato.id);
-    if (curriculo) await this.prisma.curriculoProcessado.upsert(curriculo);
+    const cvExistente = await this.buscarCvExistente(candidatura.id);
 
-    if (cand.resumeUrl) {
+    await this.upsertCurriculoEstruturado(
+      paraUpsertCurriculoGupy(cand, candidatura.id, candidato.id),
+      cvExistente,
+    );
+
+    if (cand.resumeUrl && !GupyService.cvJaProcessado(cvExistente)) {
       await this.filaCV.add(
         'baixar-cv',
         {

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
@@ -9,6 +9,11 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatarData } from '@/lib/format';
+
+interface Pessoa {
+  nome: string;
+  email: string;
+}
 
 interface VagaResumo {
   id: string;
@@ -24,6 +29,48 @@ interface VagaResumo {
   data_publicacao: string | null;
   atualizado_em: string;
   qtdCandidaturas: number;
+  gestor: Pessoa | null;
+  recrutador: Pessoa | null;
+}
+
+/** Chave estável p/ filtrar por pessoa (e-mail quando houver; senão o nome). */
+function chavePessoa(p: Pessoa | null): string {
+  return p ? p.email || p.nome : '';
+}
+
+/** Opções únicas de gestor/recrutador presentes na lista carregada. */
+function opcoesPessoas(
+  vagas: VagaResumo[] | null,
+  campo: 'gestor' | 'recrutador',
+): Pessoa[] {
+  const porChave = new Map<string, Pessoa>();
+  for (const v of vagas ?? []) {
+    const p = v[campo];
+    if (p && !porChave.has(chavePessoa(p))) porChave.set(chavePessoa(p), p);
+  }
+  return [...porChave.values()].sort((a, b) =>
+    a.nome.localeCompare(b.nome, 'pt-BR'),
+  );
+}
+
+/** Local exibido/filtrado — mesma regra da coluna da tabela. */
+function localDaVaga(v: VagaResumo): string {
+  return v.remoto
+    ? 'Remoto'
+    : [v.cidade, v.estado].filter(Boolean).join(' / ');
+}
+
+/** Valores únicos (não vazios) de um campo derivado, ordenados pt-BR. */
+function opcoesTexto(
+  vagas: VagaResumo[] | null,
+  extrair: (v: VagaResumo) => string | null,
+): string[] {
+  const set = new Set<string>();
+  for (const v of vagas ?? []) {
+    const valor = extrair(v)?.trim();
+    if (valor) set.add(valor);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 
 export default function VagasPage() {
@@ -42,6 +89,14 @@ export default function VagasPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<string>('PUBLICADA');
+  // Filtros por pessoa — client-side sobre a lista carregada (≤200 vagas),
+  // pela chave e-mail/nome. '' = todos. Ficam atrás do botão "Filtros" para
+  // não poluir a barra de busca.
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [gestorFiltro, setGestorFiltro] = useState('');
+  const [recrutadorFiltro, setRecrutadorFiltro] = useState('');
+  const [departamentoFiltro, setDepartamentoFiltro] = useState('');
+  const [localFiltro, setLocalFiltro] = useState('');
   const [sincronizando, setSincronizando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -71,6 +126,34 @@ export default function VagasPage() {
   useEffect(() => {
     void carregar();
   }, [carregar]);
+
+  const gestores = useMemo(() => opcoesPessoas(vagas, 'gestor'), [vagas]);
+  const recrutadores = useMemo(
+    () => opcoesPessoas(vagas, 'recrutador'),
+    [vagas],
+  );
+  const departamentos = useMemo(
+    () => opcoesTexto(vagas, (v) => v.departamento),
+    [vagas],
+  );
+  const locais = useMemo(() => opcoesTexto(vagas, localDaVaga), [vagas]);
+  const qtdFiltrosAtivos =
+    (gestorFiltro ? 1 : 0) +
+    (recrutadorFiltro ? 1 : 0) +
+    (departamentoFiltro ? 1 : 0) +
+    (localFiltro ? 1 : 0);
+  const vagasFiltradas = useMemo(
+    () =>
+      (vagas ?? []).filter(
+        (v) =>
+          (!gestorFiltro || chavePessoa(v.gestor) === gestorFiltro) &&
+          (!recrutadorFiltro ||
+            chavePessoa(v.recrutador) === recrutadorFiltro) &&
+          (!departamentoFiltro || v.departamento === departamentoFiltro) &&
+          (!localFiltro || localDaVaga(v) === localFiltro),
+      ),
+    [vagas, gestorFiltro, recrutadorFiltro, departamentoFiltro, localFiltro],
+  );
 
   // Sincroniza tudo num passo só: primeiro o cadastro das vagas, depois as
   // candidaturas (que rodam em background na API — acompanhamos o progresso).
@@ -182,7 +265,110 @@ export default function VagasPage() {
           <option value="ENCERRADA">Encerradas</option>
           <option value="CANCELADA">Canceladas</option>
         </select>
+        <button
+          type="button"
+          className="btn-soft whitespace-nowrap"
+          onClick={() => setFiltrosAbertos((v) => !v)}
+          aria-expanded={filtrosAbertos}
+        >
+          Filtros
+          {qtdFiltrosAtivos > 0 && (
+            <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-unifique-600 px-1 text-xs font-semibold text-white">
+              {qtdFiltrosAtivos}
+            </span>
+          )}
+          <span aria-hidden className="ml-1">
+            {filtrosAbertos ? '▴' : '▾'}
+          </span>
+        </button>
       </div>
+
+      {filtrosAbertos && (
+        <div className="card p-4 mb-4 -mt-2 flex flex-wrap items-end gap-4">
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-grafite-400">
+              Gestor
+            </span>
+            <select
+              className="w-56 border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white"
+              value={gestorFiltro}
+              onChange={(e) => setGestorFiltro(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {gestores.map((p) => (
+                <option key={chavePessoa(p)} value={chavePessoa(p)}>
+                  {p.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-grafite-400">
+              Recrutador
+            </span>
+            <select
+              className="w-56 border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white"
+              value={recrutadorFiltro}
+              onChange={(e) => setRecrutadorFiltro(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {recrutadores.map((p) => (
+                <option key={chavePessoa(p)} value={chavePessoa(p)}>
+                  {p.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-grafite-400">
+              Departamento
+            </span>
+            <select
+              className="w-56 border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white"
+              value={departamentoFiltro}
+              onChange={(e) => setDepartamentoFiltro(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {departamentos.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-grafite-400">
+              Local
+            </span>
+            <select
+              className="w-56 border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white"
+              value={localFiltro}
+              onChange={(e) => setLocalFiltro(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {locais.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+          {qtdFiltrosAtivos > 0 && (
+            <button
+              type="button"
+              className="btn-soft text-xs"
+              onClick={() => {
+                setGestorFiltro('');
+                setRecrutadorFiltro('');
+                setDepartamentoFiltro('');
+                setLocalFiltro('');
+              }}
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      )}
 
       {erro && (
         <div className="badge-red mb-4 w-full justify-start px-3 py-2">
@@ -201,6 +387,11 @@ export default function VagasPage() {
               : 'Você verá aqui as vagas em que é o gestor.'
           }
         />
+      ) : vagasFiltradas.length === 0 ? (
+        <EmptyState
+          titulo="Nenhuma vaga para os filtros selecionados"
+          descricao="Ajuste os filtros de gestor/recrutador ou limpe a seleção."
+        />
       ) : (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
@@ -209,6 +400,8 @@ export default function VagasPage() {
                 <Th>Título</Th>
                 <Th>Departamento</Th>
                 <Th>Local</Th>
+                <Th>Gestor</Th>
+                <Th>Recrutador</Th>
                 <Th>Status</Th>
                 <Th>Publicada</Th>
                 <Th className="text-right">Candidaturas</Th>
@@ -216,7 +409,7 @@ export default function VagasPage() {
               </tr>
             </thead>
             <tbody>
-              {vagas.map((v) => (
+              {vagasFiltradas.map((v) => (
                 <tr
                   key={v.id}
                   className="border-t border-grafite-100 hover:bg-grafite-50"
@@ -228,10 +421,12 @@ export default function VagasPage() {
                     )}
                   </Td>
                   <Td>{v.departamento ?? '—'}</Td>
+                  <Td>{localDaVaga(v) || '—'}</Td>
                   <Td>
-                    {v.remoto
-                      ? 'Remoto'
-                      : [v.cidade, v.estado].filter(Boolean).join(' / ') || '—'}
+                    <PessoaCell pessoa={v.gestor} />
+                  </Td>
+                  <Td>
+                    <PessoaCell pessoa={v.recrutador} />
                   </Td>
                   <Td>
                     <StatusBadge status={v.status} />
@@ -253,6 +448,19 @@ export default function VagasPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Nome do gestor/recrutador, compacto — e-mail completo no tooltip. */
+function PessoaCell({ pessoa }: { pessoa: Pessoa | null }) {
+  if (!pessoa) return <span className="text-grafite-400">—</span>;
+  return (
+    <span
+      className="block max-w-[11rem] truncate text-xs text-grafite-600"
+      title={pessoa.email ? `${pessoa.nome} · ${pessoa.email}` : pessoa.nome}
+    >
+      {pessoa.nome}
+    </span>
   );
 }
 

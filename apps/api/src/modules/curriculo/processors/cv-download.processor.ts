@@ -5,6 +5,7 @@ import { Logger } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
 import { z } from 'zod';
 
+import { PARSER_PROMPT_VERSION } from '../../claude/claude.service.js';
 import { GupyClient } from '../../gupy/gupy.client.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../../queue/queue.module.js';
@@ -62,15 +63,24 @@ export class CvDownloadProcessor extends WorkerHost {
     const { candidaturaId, candidatoId, url } = parsed.data;
 
     // Idempotência aplicacional: se já existe currículo persistido para esta
-    // candidatura E o arquivo está no storage, pulamos download e re-enfileiramos parse.
+    // candidatura E o arquivo está no storage, pulamos o download. O parse só
+    // é re-enfileirado se estiver pendente/desatualizado — currículo já
+    // estruturado pela versão atual não tem trabalho novo (re-parsear
+    // custaria uma chamada Claude idêntica por candidatura a cada re-sync).
     const existente = await this.prisma.curriculoProcessado.findUnique({
       where: { candidatura_id: candidaturaId },
-      select: { id: true, arquivo_sha256: true, arquivo_url: true },
+      select: { id: true, arquivo_sha256: true, arquivo_url: true, parser_versao: true },
     });
 
     if (existente?.arquivo_url && existente.arquivo_sha256) {
       const jaNoStorage = await this.storage.exists(existente.arquivo_url);
       if (jaNoStorage) {
+        if (existente.parser_versao === PARSER_PROMPT_VERSION) {
+          this.logger.debug(
+            `Currículo já baixado e parseado (candidatura ${candidaturaId}) — nada a fazer.`,
+          );
+          return { key: existente.arquivo_url, sha256: existente.arquivo_sha256 };
+        }
         this.logger.debug(
           `Currículo já baixado (candidatura ${candidaturaId}). Re-enfileirando parse.`,
         );

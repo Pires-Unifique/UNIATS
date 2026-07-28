@@ -186,3 +186,44 @@ export async function baixarArquivo(
   a.remove();
   URL.revokeObjectURL(objectUrl);
 }
+
+/**
+ * Abre um arquivo de endpoint autenticado numa NOVA ABA (visualização inline,
+ * ex.: PDF do currículo). A aba é aberta de forma síncrona ao clique — abrir
+ * depois do fetch cairia no bloqueador de pop-up.
+ */
+export async function abrirArquivo(path: string): Promise<void> {
+  const aba = window.open('', '_blank');
+  try {
+    const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+    const headers: Record<string, string> = {};
+    const token = await tokenProvider();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const resp = await fetch(url, { headers, credentials: 'include' });
+    if (!resp.ok) {
+      let body: unknown = null;
+      try {
+        body = await resp.json();
+      } catch {
+        /* ignore */
+      }
+      const msg =
+        (body as { message?: string })?.message ?? `Erro HTTP ${resp.status}`;
+      throw new ApiError(msg, resp.status, body);
+    }
+
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    if (aba) {
+      aba.location.href = objectUrl;
+    } else {
+      window.location.href = objectUrl;
+    }
+    // Não revoga imediatamente: a outra aba ainda está carregando o blob.
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (err) {
+    aba?.close();
+    throw err;
+  }
+}

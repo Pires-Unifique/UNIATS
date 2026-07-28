@@ -74,11 +74,12 @@ describe('CvDownloadProcessor', () => {
     ).rejects.toThrow(/Payload inválido/);
   });
 
-  it('quando o CV já está no storage, pula download e re-enfileira parse', async () => {
+  it('quando o CV já está no storage com parse pendente, pula download e re-enfileira parse', async () => {
     prisma.curriculoProcessado.findUnique.mockResolvedValue({
       id: 'cv-1',
       arquivo_sha256: 'f'.repeat(64),
       arquivo_url: 'curriculo/ff/ff/sha.pdf',
+      parser_versao: 'pending',
     });
     storage.exists.mockResolvedValue(true);
 
@@ -92,6 +93,24 @@ describe('CvDownloadProcessor', () => {
       { candidaturaId, storageKey: 'curriculo/ff/ff/sha.pdf' },
       { jobId: `cv-parse-${candidaturaId}` },
     );
+    expect(out.key).toBe('curriculo/ff/ff/sha.pdf');
+  });
+
+  it('quando o CV já está no storage E parseado pela versão atual, não re-enfileira parse', async () => {
+    prisma.curriculoProcessado.findUnique.mockResolvedValue({
+      id: 'cv-1',
+      arquivo_sha256: 'f'.repeat(64),
+      arquivo_url: 'curriculo/ff/ff/sha.pdf',
+      parser_versao: 'claude-curriculo-v1',
+    });
+    storage.exists.mockResolvedValue(true);
+
+    const out = await processor.process(
+      fakeJob({ candidaturaId, candidatoId, url }),
+    );
+
+    expect(gupy.baixarCurriculo).not.toHaveBeenCalled();
+    expect(filaParse.add).not.toHaveBeenCalled();
     expect(out.key).toBe('curriculo/ff/ff/sha.pdf');
   });
 

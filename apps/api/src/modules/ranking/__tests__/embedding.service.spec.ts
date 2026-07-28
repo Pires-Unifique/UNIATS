@@ -4,6 +4,10 @@ import {
 } from '@nestjs/common';
 
 import { EmbeddingService } from '../services/embedding.service.js';
+import {
+  TEXTO_CANONICO_VERSAO,
+  montarTextoCanonicoVaga,
+} from '../services/texto-canonico.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import type { EmbeddingProvider } from '../../embeddings/embedding.provider.js';
 
@@ -16,7 +20,11 @@ describe('EmbeddingService', () => {
     prisma = {
       vaga: { findUnique: jest.fn() },
       curriculoProcessado: { findUnique: jest.fn() },
-      embedding: { deleteMany: jest.fn() },
+      embedding: {
+        deleteMany: jest.fn(),
+        // Default: nenhum vetor vigente → segue o fluxo normal de embed.
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
       $transaction: jest.fn(async (cb) => cb(prisma)),
       $executeRaw: jest.fn(),
     };
@@ -62,6 +70,53 @@ describe('EmbeddingService', () => {
         where: { vaga_id: 'v-1', modelo: 'voyage-3' },
       });
       expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it('NÃO chama o provider quando o vetor vigente já foi gerado do mesmo texto', async () => {
+      const vaga = {
+        id: 'v-1',
+        titulo: 'Dev Sr',
+        descricao: 'd',
+        requisitos_json: { skill: 'Node.js' },
+      };
+      prisma.vaga.findUnique.mockResolvedValue(vaga);
+      prisma.embedding.findFirst.mockResolvedValue({
+        id: 'emb-vigente',
+        trecho: montarTextoCanonicoVaga(vaga as any),
+        modelo_versao: TEXTO_CANONICO_VERSAO,
+      });
+
+      const out = await service.embedarVaga('v-1');
+
+      expect(out.embeddingId).toBe('emb-vigente');
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it('RE-embeda quando o texto canônico mudou desde o vetor vigente', async () => {
+      prisma.vaga.findUnique.mockResolvedValue({
+        id: 'v-1',
+        titulo: 'Dev Sr',
+        descricao: 'requisitos EDITADOS',
+        requisitos_json: { skill: 'Node.js' },
+      });
+      prisma.embedding.findFirst.mockResolvedValue({
+        id: 'emb-antigo',
+        trecho: 'texto canônico ANTIGO',
+        modelo_versao: TEXTO_CANONICO_VERSAO,
+      });
+      provider.embed.mockResolvedValue({
+        vetores: [[0.1, 0.2, 0.3, 0.4]],
+        modelo: 'voyage-3',
+        usage: { total_tokens: 100 },
+      });
+      prisma.embedding.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.$executeRaw.mockResolvedValue(1);
+
+      const out = await service.embedarVaga('v-1');
+
+      expect(out.embeddingId).not.toBe('emb-antigo');
+      expect(provider.embed).toHaveBeenCalledTimes(1);
     });
 
     it('falha se Voyage retornar dimensão errada', async () => {

@@ -406,6 +406,30 @@ export class EmbeddingService {
     alvoId: string;
     texto: string;
   }): Promise<{ embeddingId: string }> {
+    // Curto-circuito por CONTEÚDO: se o vetor vigente foi gerado deste mesmo
+    // texto (coluna `trecho`), mesmo modelo e mesma versão canônica, re-embedar
+    // produziria um vetor idêntico — não chama o provider. É o guard contra
+    // loops de retry/sync recobrando conteúdo inalterado (a mecânica da queima
+    // de 8M tokens Voyage em jun/2026). Texto/modelo/versão diferentes seguem
+    // o fluxo normal e substituem o vetor.
+    const vigente = await this.prisma.embedding.findFirst({
+      where:
+        input.alvo === 'vaga'
+          ? { vaga_id: input.alvoId, modelo: this.provider.nome }
+          : { curriculo_id: input.alvoId, modelo: this.provider.nome },
+      select: { id: true, trecho: true, modelo_versao: true },
+    });
+    if (
+      vigente &&
+      vigente.modelo_versao === TEXTO_CANONICO_VERSAO &&
+      vigente.trecho === input.texto
+    ) {
+      this.logger.debug(
+        `Embedding já vigente para ${input.alvo}=${input.alvoId} — pulando provider.`,
+      );
+      return { embeddingId: vigente.id };
+    }
+
     const { vetores, modelo, usage } = await this.provider.embed({
       textos: [input.texto],
       inputType: 'document',

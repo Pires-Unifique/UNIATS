@@ -74,6 +74,8 @@ export function EsteiraGupy({ jobId, applicationId, etapaAtual, onMoved }: Props
   }
 
   async function reprovar() {
+    // Motivo é OBRIGATÓRIO — fica registrado na candidatura e vai à Gupy.
+    if (!motivo.trim()) return;
     setMovendo(true);
     setErro(null);
     try {
@@ -81,7 +83,7 @@ export function EsteiraGupy({ jobId, applicationId, etapaAtual, onMoved }: Props
         method: 'PATCH',
         body: {
           status: 'reproved',
-          disapprovalReasonNotes: motivo.trim() || undefined,
+          disapprovalReasonNotes: motivo.trim(),
         },
       });
       setReprovando(false);
@@ -201,15 +203,21 @@ export function EsteiraGupy({ jobId, applicationId, etapaAtual, onMoved }: Props
             <textarea
               className="w-full border border-grafite-200 rounded-md px-2 py-1.5 text-sm"
               rows={2}
-              placeholder="Motivo da reprovação (opcional)"
+              placeholder="Motivo da reprovação (obrigatório)"
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
             />
+            <p className="text-xs text-grafite-400">
+              O motivo fica registrado na candidatura e é enviado à Gupy.
+            </p>
             <div className="flex gap-2">
               <button
                 type="button"
-                className="btn text-xs bg-red-600 text-[#fff] hover:bg-red-700"
-                disabled={movendo}
+                className="btn text-xs bg-red-600 text-[#fff] hover:bg-red-700 disabled:opacity-50"
+                disabled={movendo || !motivo.trim()}
+                title={
+                  motivo.trim() ? undefined : 'Informe o motivo da reprovação.'
+                }
                 onClick={() => void reprovar()}
               >
                 {movendo ? 'Reprovando…' : 'Confirmar reprovação'}

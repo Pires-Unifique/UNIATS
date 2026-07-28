@@ -248,3 +248,85 @@ describe('ClaudeService.extrairDadosRG', () => {
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });
+
+describe('ClaudeService.redigirSensivel (Camada 2 — censura LGPD)', () => {
+  let service: ClaudeService;
+
+  beforeEach(() => {
+    createMock.mockReset();
+    service = new ClaudeService(configMock());
+  });
+
+  it('força a ferramenta redigir_sensivel e remapeia por índice', async () => {
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'redigir_sensivel',
+          input: {
+            turnos: [
+              { i: 0, texto: 'Tenho [OCULTADO: DADO DE SAÚDE], preciso de home office' },
+              { i: 1, texto: 'Trabalhei 5 anos em backend' },
+            ],
+          },
+        },
+      ],
+      usage: { input_tokens: 50, output_tokens: 30 },
+    });
+
+    const out = await service.redigirSensivel([
+      { falante: 'Ana', texto: 'Tenho depressão, preciso de home office' },
+      { falante: 'Ana', texto: 'Trabalhei 5 anos em backend' },
+    ]);
+
+    const args = createMock.mock.calls[0][0];
+    expect(args.tool_choice).toEqual({ type: 'tool', name: 'redigir_sensivel' });
+    expect(args.tools[0].name).toBe('redigir_sensivel');
+    expect(out.textos[0]).toContain('[OCULTADO: DADO DE SAÚDE]');
+    expect(out.textos[0]).toContain('preciso de home office');
+    expect(out.textos[1]).toBe('Trabalhei 5 anos em backend');
+  });
+
+  it('índice omitido pelo modelo mantém o texto de ENTRADA (piso, sem vazar)', async () => {
+    // O modelo só devolve o turno 0 → o turno 1 deve permanecer o de entrada
+    // (que, em produção, já passou pela Camada 1/regex).
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'redigir_sensivel',
+          input: {
+            turnos: [{ i: 0, texto: '[OCULTADO: RELIGIÃO], não trabalho sábado' }],
+          },
+        },
+      ],
+      usage: { input_tokens: 10, output_tokens: 10 },
+    });
+
+    const out = await service.redigirSensivel([
+      { falante: 'X', texto: 'Sou evangélico, não trabalho sábado' },
+      { falante: 'Y', texto: 'documento já veio como [OCULTADO: CPF]' },
+    ]);
+
+    expect(out.textos).toHaveLength(2);
+    expect(out.textos[0]).toContain('[OCULTADO: RELIGIÃO]');
+    expect(out.textos[1]).toBe('documento já veio como [OCULTADO: CPF]');
+  });
+
+  it('lista vazia não chama a API', async () => {
+    const out = await service.redigirSensivel([]);
+    expect(createMock).not.toHaveBeenCalled();
+    expect(out.textos).toEqual([]);
+  });
+
+  it('mapeia 429/5xx para ServiceUnavailable (fail-closed → BullMQ re-tenta)', async () => {
+    const err: any = new Error('rate limit');
+    err.status = 429;
+    createMock.mockRejectedValue(err);
+    await expect(
+      service.redigirSensivel([{ falante: 'X', texto: 'oi' }]),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+});

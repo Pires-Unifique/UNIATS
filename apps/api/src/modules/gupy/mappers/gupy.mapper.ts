@@ -251,7 +251,13 @@ export function paraUpsertCandidatura(
   return {
     where: { gupy_id: cand.id },
     create: base,
-    update: base,
+    update: {
+      ...base,
+      // A reprovação feita AQUI grava o motivo em motivo_desclassif, mas a Gupy
+      // nem sempre devolve disqualifiedReason no sync — `undefined` preserva o
+      // valor local em vez de apagá-lo a cada re-sincronização.
+      motivo_desclassif: cand.disqualifiedReason ?? undefined,
+    },
   };
 }
 

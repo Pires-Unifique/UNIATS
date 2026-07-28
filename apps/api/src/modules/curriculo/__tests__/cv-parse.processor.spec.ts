@@ -39,6 +39,9 @@ describe('CvParseProcessor', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
+      embedding: {
+        count: jest.fn().mockResolvedValue(0),
+      },
     };
 
     filaEmbedding = {
@@ -134,5 +137,78 @@ describe('CvParseProcessor', () => {
       { candidaturaId, alvo: 'curriculo' },
       { jobId: `emb-cv-${candidaturaId}` },
     );
+  });
+
+  it('CV já parseado pela versão atual COM vetor: não chama Claude nem enfileira nada', async () => {
+    prisma.curriculoProcessado.findUnique.mockResolvedValue({
+      id: 'cv-1',
+      parser_versao: 'claude-curriculo-v1',
+      arquivo_url: storageKey,
+    });
+    prisma.embedding.count.mockResolvedValue(1);
+
+    const out = await processor.process(fakeJob({ candidaturaId, storageKey }));
+
+    expect(out.parserVersao).toBe('claude-curriculo-v1');
+    expect(storage.getObject).not.toHaveBeenCalled();
+    expect(claude.estruturarCurriculo).not.toHaveBeenCalled();
+    expect(prisma.curriculoProcessado.update).not.toHaveBeenCalled();
+    expect(filaEmbedding.add).not.toHaveBeenCalled();
+  });
+
+  it('CV já parseado SEM vetor: pula Claude mas enfileira embedding (cura vetor perdido)', async () => {
+    prisma.curriculoProcessado.findUnique.mockResolvedValue({
+      id: 'cv-1',
+      parser_versao: 'claude-curriculo-v1',
+      arquivo_url: storageKey,
+    });
+    prisma.embedding.count.mockResolvedValue(0);
+
+    await processor.process(fakeJob({ candidaturaId, storageKey }));
+
+    expect(claude.estruturarCurriculo).not.toHaveBeenCalled();
+    expect(filaEmbedding.add).toHaveBeenCalledWith(
+      'embedding-curriculo',
+      { candidaturaId, alvo: 'curriculo' },
+      { jobId: `emb-cv-${candidaturaId}` },
+    );
+  });
+
+  it('CV parseado por versão ANTIGA do prompt reprocessa normalmente', async () => {
+    prisma.curriculoProcessado.findUnique.mockResolvedValue({
+      id: 'cv-1',
+      parser_versao: 'claude-curriculo-v0',
+      arquivo_url: storageKey,
+    });
+    storage.getObject.mockResolvedValue({
+      body: Buffer.from('binary'),
+      contentType: 'application/pdf',
+      size: 6,
+    });
+    parser.extrairTexto.mockResolvedValue({
+      bruto: 'texto',
+      normalizado: 'texto',
+      parser: 'pdf',
+    });
+    claude.estruturarCurriculo.mockResolvedValue({
+      estruturado: {
+        resumo: 'r',
+        experiencias: [],
+        formacoes: [],
+        competencias: [],
+        idiomas: [],
+        certificacoes: [],
+        anos_experiencia: null,
+      },
+      parserVersao: 'claude-curriculo-v1',
+      tokensEntrada: 1,
+      tokensSaida: 1,
+    });
+    prisma.curriculoProcessado.update.mockResolvedValue({});
+
+    const out = await processor.process(fakeJob({ candidaturaId, storageKey }));
+
+    expect(claude.estruturarCurriculo).toHaveBeenCalled();
+    expect(out.parserVersao).toBe('claude-curriculo-v1');
   });
 });
