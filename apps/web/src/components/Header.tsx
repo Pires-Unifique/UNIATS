@@ -15,8 +15,8 @@ const TITULOS_MODULO: Array<{ prefixos: string[]; texto: string }> = [
     texto: 'Collab — Admissão',
   },
   {
-    // Recrutamento: vagas, agenda, análise, templates e ficha de candidatura.
-    prefixos: ['/vagas', '/entrevistas', '/analise', '/configuracoes', '/candidaturas'],
+    // Recrutamento: início, vagas, agenda, análise, templates e ficha de candidatura.
+    prefixos: ['/inicio', '/vagas', '/entrevistas', '/analise', '/configuracoes', '/candidaturas'],
     texto: 'Collab — Recrutamento',
   },
 ];

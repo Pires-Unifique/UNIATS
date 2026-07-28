@@ -23,7 +23,8 @@ export interface FiltroInterno {
 // Status "positivos" do funil em ordem de progresso. REPROVADO/DESISTENTE são
 // saídas e não entram na escala ordinal — a posição deles é inferida por
 // evidência (tem score → passou triagem; tem entrevista → chegou à entrevista).
-const APOS_TRIAGEM: StatusCandidatura[] = [
+// Exportados: o dashboard (tela de Início) monta o mesmo funil escopado.
+export const APOS_TRIAGEM: StatusCandidatura[] = [
   'TRIAGEM_IA',
   'APROVADO_TRIAGEM',
   'ENTREVISTA_AGENDADA',
@@ -31,18 +32,18 @@ const APOS_TRIAGEM: StatusCandidatura[] = [
   'APROVADO',
   'CONTRATADO',
 ];
-const APOS_AGENDAMENTO: StatusCandidatura[] = [
+export const APOS_AGENDAMENTO: StatusCandidatura[] = [
   'ENTREVISTA_AGENDADA',
   'ENTREVISTA_REALIZADA',
   'APROVADO',
   'CONTRATADO',
 ];
-const APOS_REALIZACAO: StatusCandidatura[] = [
+export const APOS_REALIZACAO: StatusCandidatura[] = [
   'ENTREVISTA_REALIZADA',
   'APROVADO',
   'CONTRATADO',
 ];
-const APROVADOS: StatusCandidatura[] = ['APROVADO', 'CONTRATADO'];
+export const APROVADOS: StatusCandidatura[] = ['APROVADO', 'CONTRATADO'];
 
 const OBSERVACOES = [
   'O funil é cumulativo: cada etapa conta quem a alcançou "pelo menos", derivado do status atual + evidências (entrevistas e scores), já que ainda não há log de transições de etapa.',

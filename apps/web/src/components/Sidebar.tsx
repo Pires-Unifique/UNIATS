@@ -17,7 +17,8 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
   {
     titulo: 'Recrutamento',
     itens: [
-      // Vagas e Agenda: visíveis a todos — o gestor vê só as vagas dele (a API escopa).
+      // Início e Vagas/Agenda: visíveis a todos — a API escopa os dados por papel.
+      { href: '/inicio' as Route, label: 'Início', icon: '🏠' },
       { href: '/vagas' as Route, label: 'Vagas', icon: '📋' },
       { href: '/entrevistas' as Route, label: 'Agenda', icon: '🗓️' },
       // Ações globais de recrutamento: só quem tem a área 'recrutamento'.
@@ -93,7 +94,7 @@ export function Sidebar() {
     <aside className="w-56 shrink-0 border-r border-grafite-100 bg-white">
       <div className="p-4 border-b border-grafite-100">
         <Link
-          href="/vagas"
+          href="/inicio"
           className="text-lg font-semibold text-grafite-900 flex items-center gap-2"
         >
           <Logo size={26} />

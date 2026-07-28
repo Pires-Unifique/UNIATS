@@ -101,8 +101,9 @@ export class AuthService {
    * de domínio: o SSO da pessoa pode ser @unifique enquanto a Gupy ainda tem o
    * managerEmail @redeunifique (e vice-versa) — o auto-vínculo casa TODAS as
    * variações do mesmo local-part. E-mail de domínio fora do grupo volta só ele.
+   * Público: o dashboard usa para casar `recrutador_email` com o usuário logado.
    */
-  private variantesDeEmail(email: string): string[] {
+  variantesDeEmail(email: string): string[] {
     const e = email.trim().toLowerCase();
     const arroba = e.lastIndexOf('@');
     if (arroba < 1) return [e];

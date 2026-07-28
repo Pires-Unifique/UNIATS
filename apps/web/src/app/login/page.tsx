@@ -23,7 +23,7 @@ function LoginInner() {
   const deveVoltarAoApp = pronto && usuario != null && !expired;
   useEffect(() => {
     if (deveVoltarAoApp) {
-      window.location.replace('/vagas');
+      window.location.replace('/inicio');
     }
   }, [deveVoltarAoApp]);
   if (deveVoltarAoApp) return null;
@@ -38,7 +38,7 @@ function LoginInner() {
       return;
     }
     if (typeof window !== 'undefined') {
-      window.location.href = '/vagas';
+      window.location.href = '/inicio';
     }
   }
 

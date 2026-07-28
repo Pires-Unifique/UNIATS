@@ -19,6 +19,7 @@ import { ConfiguracoesModule } from './modules/configuracoes/configuracoes.modul
 import { ClaudeModule } from './modules/claude/claude.module.js';
 import { CryptoModule } from './modules/crypto/crypto.module.js';
 import { CurriculoModule } from './modules/curriculo/curriculo.module.js';
+import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { EmbeddingsModule } from './modules/embeddings/embeddings.module.js';
 import { GraphModule } from './modules/graph/graph.module.js';
 import { GupyModule } from './modules/gupy/gupy.module.js';
@@ -114,6 +115,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
     VagaTemplateModule,
     CandidaturasModule,
     AnaliseModule,
+    DashboardModule,
     AdmissaoModule,
     AcessoModule,
     AlteracaoContratualModule,
