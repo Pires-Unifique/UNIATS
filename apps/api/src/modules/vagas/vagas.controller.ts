@@ -226,8 +226,12 @@ export class VagasController {
     // Recrutador/gestor vêm do próprio payload da Gupy (recruiterName/managerName).
     // Ainda não há vagas criadas pelo sistema, então não usamos a relação interna.
     const payload = (v.gupy_payload ?? {}) as Record<string, unknown>;
+    // O payload cru NÃO vai na resposta (a listagem já fazia isso): o que a tela
+    // precisa dele — nome/e-mail de gestor e recrutador, cidade/estado, link
+    // público — é extraído abaixo em campos próprios.
+    const { gupy_payload: _payload, ...vagaSemPayload } = v;
     return {
-      ...v,
+      ...vagaSemPayload,
       tipo_contrato: traduzirTipoContrato(v.tipo_contrato),
       recrutador: pessoaDoPayload(payload.recruiterName, payload.recruiterEmail),
       gestor: pessoaDoPayload(payload.managerName, payload.managerEmail),

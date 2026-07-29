@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
+import { Prisma } from '@uniats/db';
 
 import {
   VagaGupySchema,
@@ -13,6 +14,7 @@ import {
   paraUpsertVaga,
   paraUpsertCandidato,
   paraUpsertCandidatura,
+  paraUpsertCurriculoGupy,
   traduzirTipoContrato,
 } from '../mappers/gupy.mapper.js';
 
@@ -158,10 +160,9 @@ describe('paraUpsertVaga', () => {
     });
     expect(upsert.create.data_publicacao).toBeInstanceOf(Date);
     expect(upsert.create.requisitos_texto).toContain('Node.js');
-    // Forward-compat: campos desconhecidos viram parte de gupy_payload
-    expect(upsert.create.gupy_payload).toMatchObject({
-      campoDesconhecido: 'futureproof',
-    });
+    // O schema virou ALLOWLIST: campo não declarado é descartado no parse e
+    // NÃO chega ao gupy_payload (antes era .passthrough() e ia tudo).
+    expect(upsert.create.gupy_payload).not.toHaveProperty('campoDesconhecido');
   });
 
   it('atualiza gupy_sincronizado_em em update', () => {
@@ -200,6 +201,139 @@ describe('paraUpsertCandidato', () => {
       telefone: null,
       linkedin_url: null,
     });
+  });
+});
+
+/**
+ * Minimização LGPD: com ?fields=all a Gupy devolve o cadastro completo. O que
+ * não é essencial para a triagem tem de morrer no parse — antes de tocar banco,
+ * fila, log ou prompt de IA.
+ */
+describe('minimização LGPD do payload da Gupy', () => {
+  // Como a Gupy realmente devolve um candidato com fields=all.
+  const candidatoComDadoSensivel = {
+    id: 11223344,
+    name: 'Maria Aparecida',
+    lastName: 'Silva',
+    email: 'maria.silva@example.com',
+    phone: '+5547999990000',
+    city: 'Blumenau',
+    state: 'SC',
+    // --- daqui para baixo: nada disso pode sobreviver ---
+    cpf: '123.456.789-00',
+    birthdate: '1990-04-17',
+    gender: 'Feminino',
+    genderIdentity: 'Mulher cisgênero',
+    sexualOrientation: 'Heterossexual',
+    ethnicity: 'Parda',
+    disabilities: [{ type: 'Auditiva', cid: 'H90.3' }],
+    isPcd: true,
+    addressStreet: 'Rua das Flores',
+    addressNumber: '123',
+    addressZipCode: '89000-000',
+    maritalStatus: 'Casada',
+    profilePictureUrl: 'https://gupy.example.com/foto/maria.jpg',
+  };
+
+  const PROIBIDOS = [
+    'cpf',
+    'birthdate',
+    'gender',
+    'genderIdentity',
+    'sexualOrientation',
+    'ethnicity',
+    'disabilities',
+    'isPcd',
+    'addressStreet',
+    'addressNumber',
+    'addressZipCode',
+    'maritalStatus',
+    'profilePictureUrl',
+  ];
+
+  it('o schema descarta dado sensível e identificador desnecessário', () => {
+    const c = CandidatoGupySchema.parse(candidatoComDadoSensivel);
+    for (const campo of PROIBIDOS) {
+      expect(c).not.toHaveProperty(campo);
+    }
+    // ...sem perder o que a triagem precisa:
+    expect(c.name).toBe('Maria Aparecida');
+    expect(c.email).toBe('maria.silva@example.com');
+    expect(c.phone).toBe('+5547999990000');
+    expect(c.city).toBe('Blumenau');
+  });
+
+  it('nem o dado sensível nem o payload bruto chegam ao banco (candidato)', () => {
+    const c = CandidatoGupySchema.parse(candidatoComDadoSensivel);
+    const upsert = paraUpsertCandidato(c);
+    // Payload bruto deixou de ser persistido; DbNull também limpa linha legada.
+    expect(upsert.create.gupy_payload).toBe(Prisma.DbNull);
+    expect((upsert.update as any).gupy_payload).toBe(Prisma.DbNull);
+    // Varredura: nenhum campo proibido aparece em NENHUM lugar do que grava.
+    const serializado = JSON.stringify(upsert, (_k, v) =>
+      typeof v === 'bigint' ? v.toString() : v,
+    );
+    for (const campo of PROIBIDOS) {
+      expect(serializado).not.toContain(campo);
+    }
+    expect(serializado).not.toContain('123.456.789-00');
+    expect(serializado).not.toContain('H90.3');
+  });
+
+  it('candidatura não persiste o payload (que aninha o candidato inteiro)', () => {
+    const cand = CandidaturaGupySchema.parse({
+      ...candidaturaFakeJson,
+      candidate: candidatoComDadoSensivel,
+    });
+    const upsert = paraUpsertCandidatura(cand, 'vaga-uuid', 'cand-uuid');
+    expect(upsert.create.gupy_payload).toBe(Prisma.DbNull);
+    const serializado = JSON.stringify(upsert, (_k, v) =>
+      typeof v === 'bigint' ? v.toString() : v,
+    );
+    for (const campo of PROIBIDOS) {
+      expect(serializado).not.toContain(campo);
+    }
+  });
+
+  it('respostas do formulário da vaga não são coletadas', () => {
+    // Onde perguntas de diversidade/saúde costumam chegar.
+    const cand = CandidaturaGupySchema.parse({
+      ...candidaturaFakeJson,
+      applicationAnswers: [
+        { question: 'Você é PCD?', answer: 'Sim, deficiência auditiva' },
+      ],
+      customFields: [{ title: 'Autodeclaração de raça/cor', value: 'Parda' }],
+    });
+    expect(cand).not.toHaveProperty('applicationAnswers');
+    expect(cand).not.toHaveProperty('customFields');
+  });
+
+  it('o currículo estruturado usa só experiência/formação/idioma', () => {
+    const cand = CandidaturaGupySchema.parse({
+      ...candidaturaFakeJson,
+      candidate: {
+        ...candidatoComDadoSensivel,
+        workExperience: [
+          {
+            role: 'Analista',
+            companyName: 'Unifique',
+            activitiesPerformed: 'Suporte',
+            startYear: 2020,
+            // Campo extra no item: também precisa ser descartado.
+            salaryAtCompany: 4500,
+          },
+        ],
+        languages: [{ language: 'Inglês', level: 'Avançado' }],
+      },
+    });
+    const upsert = paraUpsertCurriculoGupy(cand, 'candidatura-uuid', 'cand-uuid');
+    expect(upsert).not.toBeNull();
+    const serializado = JSON.stringify(upsert);
+    expect(serializado).toContain('Analista');
+    expect(serializado).not.toContain('salaryAtCompany');
+    for (const campo of PROIBIDOS) {
+      expect(serializado).not.toContain(campo);
+    }
   });
 });
 

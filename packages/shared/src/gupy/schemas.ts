@@ -2,8 +2,17 @@
  * Schemas Zod que descrevem os payloads vindos da Gupy.
  *
  * Princípios:
- * - SEMPRE usar `.passthrough()` para não rejeitar campos novos que a Gupy
- *   adicionar no futuro — apenas validamos o que de fato consumimos.
+ * - **ALLOWLIST, não passthrough.** Estes schemas descartam todo campo que não
+ *   esteja declarado aqui. Com `?fields=all` a Gupy devolve o cadastro completo
+ *   do candidato — inclusive dado sensível do art. 5º II da LGPD (deficiência =
+ *   saúde, raça/cor, identidade de gênero, orientação sexual) e identificadores
+ *   que a triagem não usa (CPF, data de nascimento, endereço completo). Com
+ *   `.passthrough()` tudo isso sobrevivia à validação e ia para o banco.
+ *   Descartar no parse é a única barreira que garante que esse dado não circula
+ *   pelo resto do sistema (fila, log, prompt de IA, JSON de resposta).
+ * - Consequência aceita: campo NOVO da Gupy é ignorado até alguém declará-lo
+ *   aqui. Isso é minimização (art. 6º III) — coletar por precaução é o que a lei
+ *   proíbe. Se precisar de um campo, adicione-o explicitamente.
  * - Datas chegam como ISO-8601 string; convertemos no parser final.
  * - IDs da Gupy podem ser number ou string dependendo da rota; normalizamos para bigint.
  */
@@ -65,16 +74,28 @@ export const VagaGupySchema = z
             title: z.string().optional(),
             // Com fields=all, value pode ser string, número, boolean, array ou objeto.
             value: z.unknown().optional(),
-          })
-          .passthrough(),
+          }),
       )
       .optional()
       .nullable(),
-  })
-  .passthrough();
+  });
 
 export type VagaGupy = z.infer<typeof VagaGupySchema>;
 
+/**
+ * Candidato — SOMENTE o essencial para conduzir um processo seletivo:
+ * identificação, contato para falar com a pessoa, localidade (para vaga
+ * presencial) e o perfil profissional que alimenta a triagem.
+ *
+ * Deliberadamente FORA daqui (a Gupy manda, nós descartamos):
+ * - `birthdate` — idade não é critério de triagem e habilita discriminação.
+ * - `gender`, raça/cor, identidade de gênero, orientação sexual — art. 5º II;
+ *   a Gupy coleta para relatório de diversidade DELA, não para a nossa decisão.
+ * - deficiência/PCD — dado de SAÚDE, o mais sensível do conjunto.
+ * - CPF e documentos — só entram na ADMISSÃO, com base legal própria e por
+ *   outro caminho (ver módulo admissao).
+ * - endereço completo (rua/número/CEP) — cidade e estado bastam.
+ */
 export const CandidatoGupySchema = z
   .object({
     id: idGupy,
@@ -87,11 +108,9 @@ export const CandidatoGupySchema = z
     phoneNumber: z.string().optional().nullable(),
     linkedinUrl: z.string().optional().nullable(),
     linkedinProfileUrl: z.string().optional().nullable(),
-    birthdate: z.string().optional().nullable(),
-    gender: z.string().optional().nullable(),
     city: z.string().optional().nullable(),
     state: z.string().optional().nullable(),
-    // Endereço (vem com fields=all).
+    // Localidade apenas em nível de cidade/estado — sem rua, número ou CEP.
     addressCity: z.string().optional().nullable(),
     addressState: z.string().optional().nullable(),
     addressStateShortName: z.string().optional().nullable(),
@@ -107,8 +126,7 @@ export const CandidatoGupySchema = z
             startYear: z.number().optional().nullable(),
             endMonth: z.number().optional().nullable(),
             endYear: z.number().optional().nullable(),
-          })
-          .passthrough(),
+          }),
       )
       .optional()
       .nullable(),
@@ -120,14 +138,15 @@ export const CandidatoGupySchema = z
           .object({
             language: z.string().optional().nullable(),
             level: z.string().optional().nullable(),
-          })
-          .passthrough(),
+          }),
       )
       .optional()
       .nullable(),
+    // Tolerante a item não-string (a Gupy varia o formato aqui): o mapper
+    // aproveita só as strings. Tipar como z.string() rejeitaria a candidatura
+    // inteira por causa de um elemento inesperado — troca ruim.
     areasOfInterest: z.array(z.unknown()).optional().nullable(),
-  })
-  .passthrough();
+  });
 
 export type CandidatoGupy = z.infer<typeof CandidatoGupySchema>;
 
@@ -138,7 +157,6 @@ export const CandidaturaGupySchema = z
     jobId: idGupy.optional().nullable(),
     job: z
       .object({ id: idGupy.optional().nullable(), name: z.string().optional() })
-      .passthrough()
       .optional()
       .nullable(),
     candidate: CandidatoGupySchema,
@@ -156,8 +174,11 @@ export const CandidaturaGupySchema = z
     movedAt: z.string().optional().nullable(),
     updatedAt: z.string().optional().nullable(),
     resumeUrl: z.string().optional().nullable(),
-  })
-  .passthrough();
+    // NÃO declarar aqui as respostas do candidato ao formulário da vaga
+    // (`applicationAnswers`/`customFields` da candidatura): perguntas de
+    // diversidade e de saúde entram por esse caminho. Se algum dia forem
+    // necessárias, filtre pergunta por pergunta — nunca o bloco inteiro.
+  });
 
 export type CandidaturaGupy = z.infer<typeof CandidaturaGupySchema>;
 

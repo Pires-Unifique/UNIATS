@@ -190,6 +190,9 @@ export function paraUpsertVaga(vaga: VagaGupy): Prisma.VagaUpsertArgs {
     recrutador_email: normalizarEmail(vaga.recruiterEmail),
     requisitos_json: requisitosJson,
     requisitos_texto: requisitosTexto,
+    // Vaga é dado de negócio, não cadastro de candidato — o payload fica, e a
+    // tela ainda lê managerName/recruiterName dele (não há coluna para o NOME).
+    // O schema já é allowlist, então só campos declarados chegam aqui.
     gupy_payload: vaga as unknown as Prisma.JsonObject,
     gupy_sincronizado_em: new Date(),
   };
@@ -219,7 +222,11 @@ export function paraUpsertCandidato(c: CandidatoGupy): Prisma.CandidatoUpsertArg
     linkedin_url: c.linkedinProfileUrl ?? c.linkedinUrl ?? null,
     cidade: c.addressCity ?? c.city ?? null,
     estado: c.addressStateShortName ?? c.addressState ?? c.state ?? null,
-    gupy_payload: c as unknown as Prisma.JsonObject,
+    // Payload bruto NÃO é mais guardado: as colunas acima já são o essencial e
+    // nenhum código lia esta coluna (era só "por precaução" — exatamente o que
+    // a minimização do art. 6º III proíbe). Gravar DbNull em vez de omitir faz
+    // com que cada re-sync LIMPE o payload legado das linhas antigas.
+    gupy_payload: Prisma.DbNull,
   };
   return {
     where: { gupy_id: c.id },
@@ -246,7 +253,10 @@ export function paraUpsertCandidatura(
         ? new Date(cand.createdAt)
         : null,
     movido_em: cand.movedAt ? new Date(cand.movedAt) : null,
-    gupy_payload: cand as unknown as Prisma.JsonObject,
+    // Mesma razão de paraUpsertCandidato: o payload da candidatura carrega o
+    // cadastro inteiro do candidato aninhado em `candidate`, ninguém o lê, e
+    // re-sync com DbNull limpa o que já estava gravado.
+    gupy_payload: Prisma.DbNull,
   };
   return {
     where: { gupy_id: cand.id },
