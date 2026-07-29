@@ -54,7 +54,12 @@ export class GupyWebhookProcessor extends WorkerHost {
           break;
         case 'job.published':
         case 'job.updated':
-          await this.service.sincronizarVaga(id);
+          // Sem `GET /jobs/:id` na Gupy, não há como puxar só esta vaga. Marca
+          // como processado: o sync agendado varre todos os status e converge o
+          // dado (antes isto estourava 404 e reprocessava 5× por nada).
+          this.logger.log(
+            `Vaga gupy=${id} (${event}) será atualizada no próximo sync agendado.`,
+          );
           break;
         default:
           this.logger.warn(`Evento desconhecido ignorado: ${event}`);

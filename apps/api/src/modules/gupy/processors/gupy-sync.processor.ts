@@ -20,9 +20,7 @@ export class GupySyncProcessor extends WorkerHost {
   async process(job: Job<DadosSyncVaga>): Promise<void> {
     const { gupyId } = job.data;
     const id = typeof gupyId === 'bigint' ? gupyId : BigInt(gupyId);
-    if (job.name === 'sincronizar-vaga') {
-      await this.service.sincronizarVaga(id);
-    } else if (job.name === 'sincronizar-candidaturas-vaga') {
+    if (job.name === 'sincronizar-candidaturas-vaga') {
       await this.service.sincronizarCandidaturasDaVaga(id);
     } else {
       this.logger.warn(`Job desconhecido: ${job.name}`);

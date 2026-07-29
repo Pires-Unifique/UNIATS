@@ -30,9 +30,7 @@ type MockPrisma = {
 
 function montarMocks() {
   const filaCV: MockQueue = { add: jest.fn().mockResolvedValue(undefined) };
-  const filaSync: MockQueue = { add: jest.fn().mockResolvedValue(undefined) };
   const client = {
-    obterVaga: jest.fn(),
     obterCandidatura: jest.fn(),
     iterarVagas: jest.fn(),
     iterarCandidaturas: jest.fn(),
@@ -62,29 +60,13 @@ function montarMocks() {
     auth as any,
     admissao as any,
     filaCV as any,
-    filaSync as any,
   );
-  return { service, client, prisma, auth, admissao, filaCV, filaSync };
+  return { service, client, prisma, auth, admissao, filaCV };
 }
 
 async function* gen<T>(items: T[]): AsyncGenerator<T, void, void> {
   for (const it of items) yield it;
 }
-
-describe('GupyService.sincronizarVaga', () => {
-  it('busca na Gupy, faz upsert e retorna o id local', async () => {
-    const { service, client, prisma } = montarMocks();
-    const vaga = VagaGupySchema.parse(vagaFakeJson);
-    (client.obterVaga as any).mockResolvedValue(vaga);
-    prisma.vaga.upsert.mockResolvedValue({ id: 'vaga-uuid-1' });
-
-    const resultado = await service.sincronizarVaga(BigInt(987654));
-
-    expect(client.obterVaga).toHaveBeenCalledWith(BigInt(987654));
-    expect(prisma.vaga.upsert).toHaveBeenCalledTimes(1);
-    expect(resultado).toEqual({ id: 'vaga-uuid-1' });
-  });
-});
 
 describe('GupyService.sincronizarTodasAsVagas', () => {
   it('itera o cliente paginado e conta upserts', async () => {
@@ -181,6 +163,75 @@ describe('GupyService.iniciarSyncVagas', () => {
     const st = service.statusSyncVagas();
     expect(st.emAndamento).toBe(false);
     expect(st.erro).toContain('Gupy 500');
+  });
+});
+
+describe('GupyService — teto de currículos novos (sync agendado)', () => {
+  /** N candidaturas distintas, todas com CV e nenhuma processada ainda. */
+  function candidaturasNovas(n: number) {
+    const base = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    return Array.from({ length: n }, (_, i) => ({
+      ...base,
+      id: base.id + BigInt(i), // id é BigInt no schema — não mistura com number
+    }));
+  }
+
+  it('para de enfileirar CVs ao atingir o teto, mas segue gravando candidaturas', async () => {
+    const { service, client, prisma, filaCV } = montarMocks();
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen(candidaturasNovas(5)));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    let seq = 0;
+    prisma.candidatura.upsert.mockImplementation(async () => ({
+      id: `app-${seq++}`,
+    }));
+
+    const orcamento = { restante: 2, adiados: 0 };
+    const r = await service.sincronizarCandidaturasDaVaga(
+      BigInt(987654),
+      orcamento,
+    );
+
+    expect(r.total).toBe(5); // todas as candidaturas foram sincronizadas
+    expect(filaCV.add).toHaveBeenCalledTimes(2); // só 2 CVs entraram na fila
+    expect(orcamento.restante).toBe(0);
+    expect(orcamento.adiados).toBe(3); // os outros 3 ficam para a próxima rodada
+  });
+
+  it('sem orçamento (disparo manual) processa todos os novos', async () => {
+    const { service, client, prisma, filaCV } = montarMocks();
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen(candidaturasNovas(4)));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    let seq = 0;
+    prisma.candidatura.upsert.mockImplementation(async () => ({
+      id: `app-${seq++}`,
+    }));
+
+    await service.sincronizarCandidaturasDaVaga(BigInt(987654));
+    expect(filaCV.add).toHaveBeenCalledTimes(4);
+  });
+
+  it('CV já processado não consome o teto', async () => {
+    const { service, client, prisma, filaCV } = montarMocks();
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen(candidaturasNovas(3)));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    let seq = 0;
+    prisma.candidatura.upsert.mockImplementation(async () => ({
+      id: `app-${seq++}`,
+    }));
+    prisma.curriculoProcessado.findUnique.mockResolvedValue({
+      arquivo_url: 'curriculo/aa/bb/sha.pdf',
+      parser_versao: 'claude-curriculo-v1',
+    });
+
+    const orcamento = { restante: 2, adiados: 0 };
+    await service.sincronizarCandidaturasDaVaga(BigInt(987654), orcamento);
+
+    expect(filaCV.add).not.toHaveBeenCalled();
+    expect(orcamento.restante).toBe(2); // intacto
+    expect(orcamento.adiados).toBe(0);
   });
 });
 
@@ -285,20 +336,15 @@ describe('GupyService.sincronizarCandidaturasDaVaga', () => {
 });
 
 describe('GupyService.sincronizarCandidatura', () => {
-  it('agenda backfill da vaga se ela não existir e lança NotFoundException', async () => {
-    const { service, client, prisma, filaSync } = montarMocks();
+  it('lança NotFoundException se a vaga não existir (converge no sync agendado)', async () => {
+    const { service, client, prisma } = montarMocks();
     const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
     (client.obterCandidatura as any).mockResolvedValue(cand);
     prisma.vaga.findUnique.mockResolvedValue(null);
 
     await expect(
       service.sincronizarCandidatura(BigInt(5544332211)),
-    ).rejects.toBeInstanceOf(NotFoundException);
-
-    expect(filaSync.add).toHaveBeenCalledWith(
-      'sincronizar-vaga',
-      { gupyId: cand.jobId },
-    );
+    ).rejects.toThrow(/sync agendado/);
   });
 
   it('upserts candidato + candidatura e retorna o id quando a vaga existe', async () => {

@@ -430,8 +430,8 @@ model Entrevista {
   graph_organizador_email String?                   // conta sob a qual o transcript existe
 
   status              StatusEntrevista @default(AGENDADA)
-  bot_provider        String?                       // "meetstream"
-  bot_session_id      String?                       // id do bot na MeetStream
+  bot_provider        String?                       // "playwright"
+  bot_session_id      String?                       // id da sessão do bot
   bot_status          String?                       // "joined", "recording", "ended"
   iniciada_em         DateTime?
   finalizada_em       DateTime?
@@ -638,14 +638,14 @@ enum OrigemAvaliacao {
 }
 
 // ---------------------------------------------------------------------
-// TRANSCRIÇÕES — saída do AssemblyAI (com diarização)
+// TRANSCRIÇÕES — transcript do Teams (Graph) + Whisper local, com diarização
 // ---------------------------------------------------------------------
 model Transcricao {
   id              String   @id @default(uuid()) @db.Uuid
   entrevista_id   String   @unique @db.Uuid
 
-  provider        String                              // "assemblyai"
-  provider_id     String?                             // id do job AssemblyAI
+  provider        String                              // "graph" | "playwright"
+  provider_id     String?                             // id da transcrição na origem
   idioma          String   @default("pt-BR")
   texto_completo  String   @db.Text
   segmentos       Json                                // [{inicio_ms, fim_ms, falante, texto, confianca}]
@@ -671,7 +671,7 @@ model AnaliseVoz {
   id                  String   @id @default(uuid()) @db.Uuid
   entrevista_id       String   @unique @db.Uuid
 
-  provider            String                              // "assemblyai"
+  provider            String                              // motor de análise de voz
   sentimento_global   String?                             // POSITIVO/NEUTRO/NEGATIVO
   confianca_media     Float?                              // 0..1
   nervosismo_medio    Float?
@@ -691,7 +691,7 @@ model AnaliseVoz {
 // ---------------------------------------------------------------------
 model WebhookRecebido {
   id              String   @id @default(uuid()) @db.Uuid
-  provider        String                              // "gupy" | "zapi" | "sendgrid" | "meetstream" | "assemblyai"
+  provider        String                              // "gupy" | "waha" | "sendgrid" | "autentique"
   evento          String                              // "application.created" etc.
   external_id     String?                             // id do evento no provider (idempotência)
   payload         Json

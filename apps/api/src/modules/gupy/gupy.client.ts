@@ -243,9 +243,10 @@ export class GupyClient {
     );
   }
 
-  async obterVaga(id: bigint): Promise<VagaGupy> {
-    return await this.get(`/jobs/${id}`, undefined, VagaGupySchema);
-  }
+  // NÃO existe `obterVaga`: a Gupy não expõe `GET /jobs/:id` (validado em
+  // produção — devolve 404 de rota, não 404 de recurso). Vaga individual só
+  // chega pela listagem paginada com `status` explícito (`iterarVagas`), que é
+  // o que o sync agendado varre.
 
   /** Lista as etapas (steps) de uma vaga — fonte dos `currentStepId`. */
   async listarEtapasDaVaga(params: ListarEtapasParams): Promise<EtapaGupy[]> {

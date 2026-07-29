@@ -14,7 +14,6 @@ function montarProcessor(opts?: {
   } as any;
   const service = opts?.serviceImpl ?? {
     sincronizarCandidatura: jest.fn().mockResolvedValue({ id: 'app-1' }),
-    sincronizarVaga: jest.fn().mockResolvedValue({ id: 'vaga-1' }),
   };
   return {
     processor: new GupyWebhookProcessor(prisma, service),
@@ -70,8 +69,8 @@ describe('GupyWebhookProcessor', () => {
     });
   });
 
-  it('despacha job.updated → sincronizarVaga', async () => {
-    const { processor, service } = montarProcessor({
+  it('job.updated é marcado como processado (a vaga converge no sync agendado)', async () => {
+    const { processor, prisma } = montarProcessor({
       findUniqueImpl: jest.fn().mockResolvedValue({
         id: 'wh-2',
         processado: false,
@@ -81,14 +80,17 @@ describe('GupyWebhookProcessor', () => {
     await processor.process({
       data: { webhookId: 'wh-2', event: 'job.updated' },
     } as any);
-    expect(service.sincronizarVaga).toHaveBeenCalledWith(BigInt(987654));
+    // Sem GET /jobs/:id na Gupy, tentar puxar a vaga só gerava 404 + 5 retries.
+    expect(prisma.webhookRecebido.update).toHaveBeenCalledWith({
+      where: { id: 'wh-2' },
+      data: expect.objectContaining({ processado: true }),
+    });
   });
 
   it('em caso de erro, incrementa tentativas, persiste ultimo_erro e re-lança', async () => {
     const erro = new Error('falha de upstream');
     const service = {
       sincronizarCandidatura: jest.fn().mockRejectedValue(erro),
-      sincronizarVaga: jest.fn(),
     };
     const { processor, prisma } = montarProcessor({
       findUniqueImpl: jest.fn().mockResolvedValue({

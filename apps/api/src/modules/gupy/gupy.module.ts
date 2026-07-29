@@ -8,13 +8,20 @@ import { GupyController } from './gupy.controller.js';
 import { GupyWebhookController } from './gupy-webhook.controller.js';
 import { GupyWebhookProcessor } from './processors/gupy-webhook.processor.js';
 import { GupySyncProcessor } from './processors/gupy-sync.processor.js';
+import { GupySyncSchedulerService } from './services/gupy-sync-scheduler.service.js';
 
 @Module({
   // AuthService: auto-vínculo gestor↔vaga; AdmissaoModule: gatilho automático de
   // admissão quando a candidatura entra em CONTRATADO (passou do R&S na Gupy).
   imports: [AuthModule, AdmissaoModule],
   controllers: [GupyController, GupyWebhookController],
-  providers: [GupyClient, GupyService, GupyWebhookProcessor, GupySyncProcessor],
+  providers: [
+    GupyClient,
+    GupyService,
+    GupyWebhookProcessor,
+    GupySyncProcessor,
+    GupySyncSchedulerService,
+  ],
   exports: [GupyService, GupyClient],
 })
 export class GupyModule {}

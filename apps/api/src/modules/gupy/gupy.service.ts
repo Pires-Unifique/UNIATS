@@ -32,8 +32,6 @@ export class GupyService {
     private readonly admissao: AdmissaoService,
     @InjectQueue(QUEUE_NAMES.CV_DOWNLOAD)
     private readonly filaCV: Queue,
-    @InjectQueue(QUEUE_NAMES.GUPY_SYNC)
-    private readonly filaSync: Queue,
   ) {}
 
   /** Estado atual do currículo da candidatura (uma leitura, reusada nas decisões abaixo). */
@@ -74,20 +72,6 @@ export class GupyService {
       return;
     }
     await this.prisma.curriculoProcessado.upsert(args);
-  }
-
-  /**
-   * Sincroniza UMA vaga (busca na Gupy → upsert local).
-   * Idempotente — pode ser chamado N vezes.
-   */
-  async sincronizarVaga(gupyId: bigint): Promise<{ id: string }> {
-    const vagaGupy = await this.client.obterVaga(gupyId);
-    const upsert = paraUpsertVaga(vagaGupy);
-    const vaga = await this.prisma.vaga.upsert(upsert);
-    // Liga ao gestor que já tenha logado (se o e-mail bater e a vaga estiver sem dono).
-    await this.auth.vincularGestorAoSincronizar(vaga.id, vaga.gestor_email);
-    this.logger.log(`Vaga sincronizada: ${vaga.id} (gupy=${vagaGupy.id})`);
-    return { id: vaga.id };
   }
 
   /**
@@ -183,8 +167,17 @@ export class GupyService {
   /**
    * Sincroniza candidaturas de uma vaga (paginado).
    * Enfileira o download do currículo de cada candidatura nova.
+   *
+   * `orcamentoCvs` (opcional) limita quantos currículos NOVOS entram na fila
+   * nesta execução — os dados da candidatura são gravados de qualquer forma, só
+   * o processamento pago (Claude + Voyage) é adiado. Usado pelo sync agendado
+   * para nunca virar uma avalanche de processamento; sem ele o comportamento é
+   * o de sempre (processa todos os novos).
    */
-  async sincronizarCandidaturasDaVaga(gupyVagaId: bigint): Promise<{ total: number }> {
+  async sincronizarCandidaturasDaVaga(
+    gupyVagaId: bigint,
+    orcamentoCvs?: { restante: number; adiados: number },
+  ): Promise<{ total: number }> {
     const vaga = await this.prisma.vaga.findUnique({
       where: { gupy_id: gupyVagaId },
       select: { id: true },
@@ -216,17 +209,24 @@ export class GupyService {
       // cada passada do sync re-baixava → re-parseava (Claude) → re-embedava
       // (Voyage) TODAS as candidaturas (o dedupe por jobId expira em 24h).
       if (cand.resumeUrl && !GupyService.cvJaProcessado(cvExistente)) {
-        await this.filaCV.add(
-          'baixar-cv',
-          {
-            candidaturaId: candidatura.id,
-            candidatoId: candidato.id,
-            url: cand.resumeUrl,
-          },
-          {
-            jobId: `cv-${candidatura.id}`, // idempotência no nível da fila
-          },
-        );
+        if (orcamentoCvs && orcamentoCvs.restante <= 0) {
+          // Teto da execução atingido: a candidatura já está gravada, o CV
+          // entra na próxima rodada (a fila não guarda dívida).
+          orcamentoCvs.adiados += 1;
+        } else {
+          await this.filaCV.add(
+            'baixar-cv',
+            {
+              candidaturaId: candidatura.id,
+              candidatoId: candidato.id,
+              url: cand.resumeUrl,
+            },
+            {
+              jobId: `cv-${candidatura.id}`, // idempotência no nível da fila
+            },
+          );
+          if (orcamentoCvs) orcamentoCvs.restante -= 1;
+        }
       }
       total += 1;
     }
@@ -242,6 +242,7 @@ export class GupyService {
     totalVagas: 0,
     vagasProcessadas: 0,
     candidaturasImportadas: 0,
+    cvsAdiados: 0,
   };
 
   statusBulkCandidaturas() {
@@ -251,8 +252,14 @@ export class GupyService {
   /**
    * Dispara, em BACKGROUND, a sincronização de candidaturas de TODAS as vagas
    * já importadas. Retorna na hora; acompanhe via `statusBulkCandidaturas`.
+   *
+   * `tetoCvsNovos` limita o processamento pago desta execução (ver
+   * `sincronizarCandidaturasDaVaga`). O sync agendado sempre passa um teto; o
+   * disparo manual não passa nenhum (o usuário pediu explicitamente).
    */
-  iniciarSyncCandidaturasTodas(): { iniciado: boolean } & ReturnType<
+  iniciarSyncCandidaturasTodas(
+    opts: { tetoCvsNovos?: number } = {},
+  ): { iniciado: boolean } & ReturnType<
     GupyService['statusBulkCandidaturas']
   > {
     if (this.bulkCand.emAndamento) {
@@ -263,7 +270,13 @@ export class GupyService {
       totalVagas: 0,
       vagasProcessadas: 0,
       candidaturasImportadas: 0,
+      cvsAdiados: 0,
     };
+
+    const orcamento =
+      opts.tetoCvsNovos === undefined
+        ? undefined
+        : { restante: opts.tetoCvsNovos, adiados: 0 };
 
     void (async () => {
       // Só vagas "vivas": com o sync trazendo TODOS os status da Gupy, puxar
@@ -280,8 +293,9 @@ export class GupyService {
       this.bulkCand.totalVagas = vagas.length;
       for (const v of vagas) {
         try {
-          const r = await this.sincronizarCandidaturasDaVaga(v.gupy_id);
+          const r = await this.sincronizarCandidaturasDaVaga(v.gupy_id, orcamento);
           this.bulkCand.candidaturasImportadas += r.total;
+          if (orcamento) this.bulkCand.cvsAdiados = orcamento.adiados;
         } catch (err) {
           this.logger.warn(
             `Bulk candidaturas: vaga gupy=${v.gupy_id} falhou: ${(err as Error).message}`,
@@ -296,8 +310,13 @@ export class GupyService {
       )
       .finally(() => {
         this.bulkCand.emAndamento = false;
+        // Truncagem NUNCA é silenciosa: se o teto adiou currículos, o log diz
+        // quantos ficaram para a próxima rodada.
+        const adiados = this.bulkCand.cvsAdiados;
         this.logger.log(
-          `Bulk candidaturas concluído: ${this.bulkCand.candidaturasImportadas} candidatura(s) em ${this.bulkCand.vagasProcessadas} vaga(s).`,
+          `Bulk candidaturas concluído: ${this.bulkCand.candidaturasImportadas} candidatura(s) ` +
+            `em ${this.bulkCand.vagasProcessadas} vaga(s)` +
+            (adiados > 0 ? ` — ${adiados} currículo(s) adiado(s) pelo teto.` : '.'),
         );
       });
 
@@ -321,10 +340,11 @@ export class GupyService {
       select: { id: true },
     });
     if (!vaga) {
-      // Vaga ainda não importada — enfileira a sincronização dela e re-tenta depois.
-      await this.filaSync.add('sincronizar-vaga', { gupyId: jobGupyId });
+      // Não há como buscar UMA vaga na Gupy (sem GET /jobs/:id). A vaga entra
+      // na próxima varredura do sync agendado, que também traz as candidaturas
+      // dela — então este webhook não precisa ser recuperado.
       throw new NotFoundException(
-        `Vaga gupy_id=${jobGupyId} ainda não importada — agendado backfill`,
+        `Vaga gupy_id=${jobGupyId} ainda não importada — converge no próximo sync agendado`,
       );
     }
 

@@ -192,14 +192,7 @@ describe('GupyClient', () => {
     });
   });
 
-  describe('obterVaga / obterCandidatura', () => {
-    it('GET /jobs/:id', async () => {
-      nock(BASE).get('/jobs/987654').reply(200, vagaFakeJson);
-      const client = new GupyClient(montarConfig());
-      const v = await client.obterVaga(BigInt(987654));
-      expect(v.id).toBe(BigInt(987654));
-    });
-
+  describe('obterCandidatura', () => {
     it('GET /companies/applications/:id', async () => {
       nock(BASE)
         .get('/companies/applications/5544332211')

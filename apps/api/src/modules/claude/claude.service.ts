@@ -384,8 +384,8 @@ export class ClaudeService {
 
   /**
    * Gera a ATA (resumo + tópicos) de uma entrevista a partir do transcript.
-   * Mesmo prompt/schema para qualquer provedor de transcrição — usado no
-   * bake-off (assemblyai x meetstream) para isolar a qualidade da transcrição.
+   * Mesmo prompt/schema para qualquer motor de transcrição (Graph/Teams,
+   * Whisper local ou o texto já fundido) — a ATA não depende da origem.
    */
   async gerarAtaReuniao(
     transcript: string,

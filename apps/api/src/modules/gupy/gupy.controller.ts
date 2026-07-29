@@ -226,14 +226,6 @@ export class GupyController {
     return { movido: true };
   }
 
-  @Post('sync/vaga/:gupyId')
-  async sincronizarVaga(@Param('gupyId') gupyIdStr: string) {
-    if (!/^\d+$/.test(gupyIdStr)) {
-      throw new BadRequestException('gupyId deve ser numérico');
-    }
-    return this.service.sincronizarVaga(BigInt(gupyIdStr));
-  }
-
   /** Importa TODAS as vagas (background — retorna na hora, sem prender o proxy). */
   @Post('sync/vagas')
   async sincronizarTodas() {

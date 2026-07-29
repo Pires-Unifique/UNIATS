@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   HeadBucketCommand,
@@ -259,6 +260,33 @@ export class StorageService implements OnModuleInit {
       const status = (err as S3ServiceException)?.$metadata?.httpStatusCode;
       if (status === 404 || status === 403) return false;
       throw err;
+    }
+  }
+
+  /**
+   * Apaga um objeto DE VERDADE do bucket. Usado pela retenção LGPD (áudio de
+   * entrevista após RETENCAO_AUDIO_DIAS) — o direito à eliminação (Art. 18 VI)
+   * exige remover o blob, não só a referência no banco.
+   *
+   * Idempotente: objeto inexistente conta como apagado (o S3/MinIO devolve 204
+   * mesmo sem a key; 404/403 aqui significa "já não está lá"). Qualquer outra
+   * falha PROPAGA — quem chama precisa saber que o dado continua no storage e
+   * não deve limpar a referência que permite achá-lo depois.
+   */
+  async deleteObject(key: string): Promise<void> {
+    try {
+      await this.client.send(
+        new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+    } catch (err) {
+      const status = (err as S3ServiceException)?.$metadata?.httpStatusCode;
+      if (status === 404 || status === 403) return;
+      this.logger.error(
+        `DELETE falhou para key=${key}: ${(err as Error).message}`,
+      );
+      throw new InternalServerErrorException(
+        'Falha ao apagar objeto no storage.',
+      );
     }
   }
 

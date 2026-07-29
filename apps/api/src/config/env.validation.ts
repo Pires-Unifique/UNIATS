@@ -96,6 +96,18 @@ const EnvSchema = z.object({
   GUPY_CAREERS_URL_MAP: z
     .string()
     .default('165265=https://unifique-investimentos.gupy.io'),
+  // Sync agendado (substitui o botão "Sincronizar Gupy"). Lidos direto de
+  // process.env pelo scheduler — aqui ficam documentados e validados.
+  // transform (não coerce): z.coerce.boolean() leria a string "false" como
+  // `true` e o flag nunca desligaria — mesmo cuidado do AUTH_ENABLED acima.
+  GUPY_SYNC_CRON_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() !== 'false'),
+  GUPY_SYNC_CRON: z.string().min(9).default('0 */6 * * *'),
+  // Teto de currículos NOVOS processados (Claude + Voyage) por rodada. O que
+  // passar do teto continua salvo como candidatura e entra na próxima.
+  GUPY_SYNC_CRON_TETO_CVS: z.coerce.number().int().nonnegative().default(50),
 
   // Storage (S3/MinIO)
   STORAGE_PROVIDER: z
@@ -229,21 +241,9 @@ const EnvSchema = z.object({
   // Segredo compartilhado do callback interno do bot (header x-playwright-secret).
   PLAYWRIGHT_CALLBACK_SECRET: z.string().min(8).optional(),
 
-  // MeetStream (Camada 4b — bot de entrevista)
-  MEETSTREAM_API_KEY: z.string().min(8).optional(),
-  MEETSTREAM_BASE_URL: z.string().url().default('https://api.meetstream.ai'),
-  MEETSTREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
-  MEETSTREAM_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
-  MEETSTREAM_WEBHOOK_SECRET: z.string().min(16).optional(),
-
-  // AssemblyAI (Camada 4c — transcrição)
-  ASSEMBLYAI_API_KEY: z.string().min(20).optional(),
-  ASSEMBLYAI_LANGUAGE_CODE: z.string().min(2).default('pt'),
-  ASSEMBLYAI_SPEAKER_LABELS: z.coerce.boolean().default(true),
-  ASSEMBLYAI_SENTIMENT_ANALYSIS: z.coerce.boolean().default(true),
-  ASSEMBLYAI_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
-  ASSEMBLYAI_RETRY_MAX: z.coerce.number().int().nonnegative().default(3),
-  ASSEMBLYAI_WEBHOOK_SECRET: z.string().min(16).optional(),
+  // MeetStream e AssemblyAI foram REMOVIDOS (jul/2026): a transcrição roda com
+  // o transcript oficial do Teams via Graph + Whisper local, reconciliados pelo
+  // Claude. As chaves saíram do schema para não continuarem válidas em prod.
 
   // Workers Camada 4b/c/d
   BOT_ENTREVISTA_CONCURRENCY: z.coerce.number().int().positive().default(2),

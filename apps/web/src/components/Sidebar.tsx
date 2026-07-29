@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 
 import { type Area, useAuth } from '../lib/auth';
+import { type ModuloProduto, moduloHabilitado } from '../lib/modulos';
 import { Logo } from './Logo';
 
 // `areas`: área(s) que liberam o item. `undefined` = qualquer usuário
@@ -13,7 +14,14 @@ import { Logo } from './Logo';
 // em "Vagas"/"Agenda"). 'admin' enxerga tudo (tratado no filtro).
 type Item = { href: Route; label: string; icon: string; areas?: Area[] };
 
-const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
+// `modulo`: fase do produto em que a seção entra (ver lib/modulos.ts). Seção de
+// módulo desligado não aparece para ninguém — nem para admin.
+const secoes: Array<{
+  titulo: string;
+  areas?: Area[];
+  modulo?: ModuloProduto;
+  itens: Item[];
+}> = [
   {
     titulo: 'Recrutamento',
     itens: [
@@ -33,6 +41,7 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
   {
     titulo: 'Admissão',
     areas: ['admissao'],
+    modulo: 'admissao',
     itens: [
       { href: '/admissao' as Route, label: 'Admissões', icon: '🧾', areas: ['admissao'] },
     ],
@@ -42,6 +51,7 @@ const secoes: Array<{ titulo: string; areas?: Area[]; itens: Item[] }> = [
     // será escopado pela detecção de liderança na API, como Vagas/Agenda. A fila
     // de aprovações do DHO (área 'dho') entra como item próprio quando plugarmos.
     titulo: 'Administração de Pessoas',
+    modulo: 'pessoas',
     itens: [
       { href: '/alteracao-contratual' as Route, label: 'Alteração contratual', icon: '📝' },
       { href: '/offboarding' as Route, label: 'Offboarding', icon: '👋' },
@@ -82,6 +92,7 @@ export function Sidebar() {
   const { areas, apenasGestaoAcessos } = useAuth();
 
   const secoesVisiveis = secoes
+    .filter((secao) => moduloHabilitado(secao.modulo))
     .map((secao) => ({
       ...secao,
       itens: secao.itens.filter((it) =>

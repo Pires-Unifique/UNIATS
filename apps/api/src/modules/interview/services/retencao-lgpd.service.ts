@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@uniats/db';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { StorageService } from '../../storage/storage.service.js';
@@ -55,9 +56,12 @@ export class RetencaoLGPDService {
     for (const e of expirados) {
       if (!e.audio_url) continue;
       try {
-        // Best-effort: se o blob já foi removido manualmente, segue em frente.
-        // (Adicionar `storage.deleteObject` quando o método for implementado.
-        //  Por enquanto, zeramos a referência — o blob fica órfão para limpeza manual.)
+        // Apaga o BLOB primeiro. Se isso falhar, o catch abaixo preserva
+        // `audio_url` — zerar a referência antes de remover o objeto deixaria
+        // o áudio no bucket sem nenhum ponteiro para encontrá-lo (foi o que
+        // acontecia enquanto `deleteObject` não existia). Blob ausente conta
+        // como sucesso, então o retry do dia seguinte converge.
+        await this.storage.deleteObject(e.audio_url);
         await this.prisma.entrevista.update({
           where: { id: e.id },
           data: {
@@ -79,8 +83,10 @@ export class RetencaoLGPDService {
         });
         removidos++;
       } catch (err) {
+        // Mantém audio_url intacto de propósito: a entrevista volta na janela
+        // do próximo cron e tentamos de novo.
         this.logger.warn(
-          `Falha ao retirar áudio da entrevista ${e.id}: ${(err as Error).message}`,
+          `Falha ao apagar áudio da entrevista ${e.id} (segue pendente): ${(err as Error).message}`,
         );
       }
     }
@@ -106,6 +112,14 @@ export class RetencaoLGPDService {
           data: {
             texto_completo: '[retencao_lgpd: conteudo removido]',
             segmentos: {} as unknown as object,
+            // Motores/fusão guardam o MESMO conteúdo bruto da conversa e
+            // nasceram depois desta rotina — sem limpá-los, a retenção de 12
+            // meses zerava só a via antiga e o diálogo continuava legível em
+            // `texto_fundido` (que é justamente o que a tela exibe).
+            // Colunas Json? exigem Prisma.DbNull para virar NULL no banco.
+            whisper_segmentos: Prisma.DbNull,
+            texto_fundido: null,
+            segmentos_fundidos: Prisma.DbNull,
             expira_em: null, // marca como já tratada para não repetir
           },
         });
