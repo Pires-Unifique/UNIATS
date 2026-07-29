@@ -42,6 +42,8 @@ export const FormacaoSchema = z.object({
       'outro',
     ])
     .optional(),
+  /** "concluída" | "em andamento" | "incompleta" — texto livre p/ ir ao vetor. */
+  status: z.string().optional(),
   inicio: z
     .string()
     .regex(/^\d{4}(-\d{2})?$/)
@@ -134,6 +136,10 @@ export const CURRICULO_TOOL_INPUT_SCHEMA = {
               'curso-livre',
               'outro',
             ],
+          },
+          status: {
+            type: 'string',
+            description: 'concluída, em andamento ou incompleta.',
           },
           inicio: { type: 'string', pattern: '^\\d{4}(-\\d{2})?$' },
           fim: { type: 'string' },

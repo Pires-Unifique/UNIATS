@@ -130,8 +130,32 @@ export const CandidatoGupySchema = z
       )
       .optional()
       .nullable(),
+    // Nível de escolaridade agregado (enum: graduation, high_school, …). É o
+    // ÚNICO dado de formação que usávamos — e sem curso/instituição o texto
+    // canônico saía como "undefined — undefined". Serve só de fallback agora.
     schooling: z.unknown().optional().nullable(),
     schoolingStatus: z.string().optional().nullable(),
+    // Formação DETALHADA (curso + instituição + tipo + período). Presente em
+    // ~66% dos candidatos e é o sinal de formação que de fato importa para a
+    // triagem — principalmente em vaga técnica/júnior, onde o curso decide.
+    academicQualification: z
+      .array(
+        z.object({
+          course: z.string().optional().nullable(),
+          institution: z.string().optional().nullable(),
+          // graduation | technical_course | post_graduate | technological |
+          // master_degree | phd | high_school
+          formation: z.string().optional().nullable(),
+          // complete | in_progress | incomplete
+          status: z.string().optional().nullable(),
+          startMonth: z.number().optional().nullable(),
+          startYear: z.number().optional().nullable(),
+          endMonth: z.number().optional().nullable(),
+          endYear: z.number().optional().nullable(),
+        }),
+      )
+      .optional()
+      .nullable(),
     languages: z
       .array(
         z

@@ -22,6 +22,8 @@ import {
   vagaFakeJson,
   candidatoFakeJson,
   candidaturaFakeJson,
+  candidatoComFormacaoFakeJson,
+  candidatoSoSchoolingFakeJson,
 } from './fixtures/gupy.fixtures.js';
 
 describe('mapearStatusVaga', () => {
@@ -201,6 +203,79 @@ describe('paraUpsertCandidato', () => {
       telefone: null,
       linkedin_url: null,
     });
+  });
+});
+
+describe('paraUpsertCurriculoGupy — formação vinda de academicQualification', () => {
+  function montar(candidate: unknown) {
+    const cand = CandidaturaGupySchema.parse({
+      ...candidaturaFakeJson,
+      candidate,
+    });
+    return paraUpsertCurriculoGupy(cand, 'candidatura-uuid', 'cand-uuid');
+  }
+
+  it('usa curso + instituição + tipo + status (antes só tinha o nível agregado)', () => {
+    const upsert = montar(candidatoComFormacaoFakeJson);
+    const formacoes = upsert!.create.formacoes as any[];
+
+    expect(formacoes).toHaveLength(2);
+    expect(formacoes[0]).toMatchObject({
+      curso: 'Análise e Desenvolvimento de Sistemas',
+      instituicao: 'SENAI Blumenau',
+      nivel: 'tecnologo',
+      status: 'concluída',
+      inicio: '2018-02',
+      fim: '2020-12',
+    });
+    expect(formacoes[1]).toMatchObject({
+      curso: 'Engenharia de Software',
+      nivel: 'pos-graduacao',
+      status: 'em andamento',
+      fim: null, // ainda cursando
+    });
+  });
+
+  it('o texto consolidado traz curso e instituição, nunca "undefined"', () => {
+    const upsert = montar(candidatoComFormacaoFakeJson);
+    const texto = upsert!.create.texto_normalizado as string;
+
+    expect(texto).toContain('Análise e Desenvolvimento de Sistemas');
+    expect(texto).toContain('SENAI Blumenau');
+    expect(texto).toContain('em andamento');
+    expect(texto).not.toContain('undefined');
+  });
+
+  it('sem academicQualification, cai no schooling agregado — e ainda sem "undefined"', () => {
+    const upsert = montar(candidatoSoSchoolingFakeJson);
+    const formacoes = upsert!.create.formacoes as any[];
+
+    expect(formacoes).toHaveLength(1);
+    expect(formacoes[0]).toMatchObject({
+      curso: null,
+      instituicao: null,
+      nivel: 'outro', // high_school não tem equivalente no enum
+      status: 'concluída',
+    });
+    expect(upsert!.create.texto_normalizado as string).not.toContain('undefined');
+  });
+
+  it('marca parser_versao v2 (rastro de quem já foi reconstruído)', () => {
+    const upsert = montar(candidatoComFormacaoFakeJson);
+    expect(upsert!.create.parser_versao).toBe('gupy-structured-v2');
+  });
+
+  it('descarta item de formação sem curso E sem instituição', () => {
+    const upsert = montar({
+      ...candidatoComFormacaoFakeJson,
+      academicQualification: [
+        { id: 'x', course: null, institution: null, formation: 'graduation' },
+      ],
+    });
+    // Cai no fallback do schooling, em vez de gravar formação vazia.
+    const formacoes = upsert!.create.formacoes as any[];
+    expect(formacoes).toHaveLength(1);
+    expect(formacoes[0].curso).toBeNull();
   });
 });
 

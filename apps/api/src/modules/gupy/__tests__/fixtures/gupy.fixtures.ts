@@ -48,6 +48,58 @@ export const candidatoFakeJson = {
   state: 'SC',
 };
 
+/**
+ * Candidato como a Gupy realmente devolve com fields=all: formação detalhada em
+ * `academicQualification` (curso + instituição) e o `schooling` agregado.
+ */
+export const candidatoComFormacaoFakeJson = {
+  ...candidatoFakeJson,
+  schooling: 'graduation',
+  schoolingStatus: 'complete',
+  academicQualification: [
+    {
+      id: 'aq-1',
+      course: 'Análise e Desenvolvimento de Sistemas',
+      institution: 'SENAI Blumenau',
+      formation: 'technological',
+      status: 'complete',
+      startMonth: 2, startYear: 2018,
+      endMonth: 12, endYear: 2020,
+    },
+    {
+      id: 'aq-2',
+      course: 'Engenharia de Software',
+      institution: 'UNIFEBE',
+      formation: 'post_graduate',
+      status: 'in_progress',
+      startMonth: 3, startYear: 2023,
+      endMonth: null, endYear: null,
+    },
+  ],
+  workExperience: [
+    {
+      role: 'Analista de Suporte',
+      companyName: 'Unifique',
+      activitiesPerformed: 'Atendimento nível 2 e configuração de OLT.',
+      startMonth: 1, startYear: 2021,
+      endMonth: null, endYear: null,
+    },
+  ],
+  languages: [{ language: 'Inglês', level: 'intermediario' }],
+};
+
+/** Candidato SEM formação detalhada — só o `schooling` agregado (fallback). */
+export const candidatoSoSchoolingFakeJson = {
+  ...candidatoFakeJson,
+  id: 11223355,
+  schooling: 'high_school',
+  schoolingStatus: 'complete',
+  academicQualification: [],
+  workExperience: [
+    { role: 'Vendedor', companyName: 'Loja X', startMonth: 1, startYear: 2022 },
+  ],
+};
+
 export const candidaturaFakeJson = {
   id: 5544332211,
   jobId: 987654,

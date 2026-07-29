@@ -105,5 +105,63 @@ describe('texto-canonico', () => {
       const matches = txt.match(/Node(?!\.)/g) ?? [];
       expect(matches.length).toBe(1);
     });
+
+    /**
+     * Regressão: a interpolação direta gravava "undefined — undefined" no vetor
+     * quando a formação vinha sem curso/instituição. Aconteceu em 490 dos 511
+     * vetores (96%) — a formação sumia do ranking e sobrava um token constante.
+     */
+    it('formação sem curso/instituição NÃO gera "undefined" no texto', () => {
+      const txt = montarTextoCanonicoCurriculo({
+        estruturado: {
+          experiencias: [],
+          formacoes: [
+            { nivel: 'graduacao', status: 'concluída' } as any,
+            { curso: undefined, instituicao: undefined } as any,
+          ],
+          competencias: [],
+          idiomas: [],
+          certificacoes: [],
+        },
+      });
+      expect(txt).not.toContain('undefined');
+      expect(txt).toContain('graduacao, concluída');
+    });
+
+    it('formação sem NENHUM dado não cria a seção "Formação"', () => {
+      const txt = montarTextoCanonicoCurriculo({
+        estruturado: {
+          experiencias: [],
+          formacoes: [{} as any],
+          competencias: ['Node'],
+          idiomas: [],
+          certificacoes: [],
+        },
+      });
+      expect(txt).not.toContain('Formação');
+      expect(txt).not.toContain('undefined');
+    });
+
+    it('exibe curso, instituição, nível e status juntos', () => {
+      const txt = montarTextoCanonicoCurriculo({
+        estruturado: {
+          experiencias: [],
+          formacoes: [
+            {
+              curso: 'Análise e Desenvolvimento de Sistemas',
+              instituicao: 'SENAI Blumenau',
+              nivel: 'tecnologo',
+              status: 'em andamento',
+            },
+          ],
+          competencias: [],
+          idiomas: [],
+          certificacoes: [],
+        },
+      });
+      expect(txt).toContain(
+        'Análise e Desenvolvimento de Sistemas — SENAI Blumenau (tecnologo, em andamento)',
+      );
+    });
   });
 });

@@ -159,6 +159,47 @@ export function extrairRequisitos(
   return { json, texto: linhas.join('\n\n') };
 }
 
+/**
+ * Vocabulário de formação da Gupy → enum do nosso schema. A Gupy usa o mesmo
+ * conjunto em `academicQualification.formation` e em `candidate.schooling`.
+ */
+function nivelFormacao(valor: unknown): string | null {
+  const v = typeof valor === 'string' ? valor.trim().toLowerCase() : '';
+  const mapa: Record<string, string> = {
+    graduation: 'graduacao',
+    technical_course: 'tecnico',
+    technological: 'tecnologo',
+    post_graduate: 'pos-graduacao',
+    mba: 'mba',
+    master_degree: 'mestrado',
+    phd: 'doutorado',
+    high_school: 'outro',
+    elementary_school: 'outro',
+  };
+  return mapa[v] ?? (v ? 'outro' : null);
+}
+
+/** `complete|in_progress|incomplete` → rótulo legível (vai para o vetor). */
+function statusFormacao(valor: unknown): string | null {
+  const v = typeof valor === 'string' ? valor.trim().toLowerCase() : '';
+  const mapa: Record<string, string> = {
+    complete: 'concluída',
+    in_progress: 'em andamento',
+    incomplete: 'incompleta',
+  };
+  return mapa[v] ?? null;
+}
+
+/** (ano, mês) → "YYYY-MM" ou "YYYY"; sem ano, null. */
+function periodoAcademico(
+  ano?: number | null,
+  mes?: number | null,
+): string | null {
+  if (ano == null) return null;
+  if (mes == null) return String(ano);
+  return `${ano}-${String(mes).padStart(2, '0')}`;
+}
+
 /** Normaliza e-mail vindo da Gupy (lower/trim); vazio → null. */
 function normalizarEmail(valor: unknown): string | null {
   const e = typeof valor === 'string' ? valor.trim().toLowerCase() : '';
@@ -309,9 +350,41 @@ export function paraUpsertCurriculoGupy(
     nivel: l.level ?? null,
   }));
 
-  const formacoes = c.schooling
-    ? [{ nivel: String(c.schooling), status: c.schoolingStatus ?? null }]
-    : [];
+  // FORMAÇÃO: prioriza `academicQualification` (curso + instituição + tipo +
+  // período), presente em ~66% dos candidatos. O caminho antigo usava só
+  // `schooling` e produzia `{nivel}` sem curso/instituição — o que fazia o texto
+  // canônico virar "undefined — undefined" e apagar a formação do vetor.
+  // `schooling` fica como fallback de quem não tem a formação detalhada.
+  const formacoesDetalhadas = (c.academicQualification ?? [])
+    .map((f) => {
+      const curso = f.course?.trim() || null;
+      const instituicao = f.institution?.trim() || null;
+      if (!curso && !instituicao) return null;
+      return {
+        curso,
+        instituicao,
+        nivel: nivelFormacao(f.formation),
+        status: statusFormacao(f.status),
+        inicio: periodoAcademico(f.startYear, f.startMonth),
+        fim: periodoAcademico(f.endYear, f.endMonth),
+      };
+    })
+    .filter((f): f is NonNullable<typeof f> => f !== null);
+
+  const formacoes = formacoesDetalhadas.length
+    ? formacoesDetalhadas
+    : c.schooling
+      ? [
+          {
+            curso: null,
+            instituicao: null,
+            nivel: nivelFormacao(String(c.schooling)),
+            status: statusFormacao(c.schoolingStatus),
+            inicio: null,
+            fim: null,
+          },
+        ]
+      : [];
 
   const competencias = Array.isArray(c.areasOfInterest)
     ? c.areasOfInterest.filter((x): x is string => typeof x === 'string')
@@ -341,7 +414,12 @@ export function paraUpsertCurriculoGupy(
   }
   if (formacoes.length) {
     linhas.push('FORMAÇÃO:');
-    for (const f of formacoes) linhas.push(`- ${f.nivel} (${f.status ?? '-'})`);
+    for (const f of formacoes) {
+      const cabeca = [f.curso, f.instituicao].filter(Boolean).join(' — ');
+      const detalhes = [f.nivel, f.status].filter(Boolean).join(', ');
+      const linha = cabeca && detalhes ? `${cabeca} (${detalhes})` : cabeca || detalhes;
+      if (linha) linhas.push(`- ${linha}`);
+    }
   }
   if (idiomas.length) {
     linhas.push('IDIOMAS:');
@@ -365,7 +443,11 @@ export function paraUpsertCurriculoGupy(
     competencias,
     idiomas: idiomas as unknown as Prisma.JsonArray,
     anos_experiencia: anosExperiencia,
-    parser_versao: 'gupy-structured-v1',
+    // v2: formação passou a vir de `academicQualification` (curso + instituição).
+    // Bumpar o rótulo deixa rastro de quais linhas já foram reconstruídas — o
+    // re-sync reescreve todas, e o guard por conteúdo do EmbeddingService
+    // re-embeda só quem realmente mudou de texto.
+    parser_versao: 'gupy-structured-v2',
   };
 
   return {

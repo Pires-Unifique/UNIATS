@@ -124,13 +124,20 @@ export function montarTextoCanonicoCurriculo(
   }
 
   if (cv.estruturado.formacoes?.length) {
+    // Monta só com o que EXISTE. Interpolar direto (`${f.curso} — ${f.instituicao}`)
+    // gravava a string literal "undefined — undefined" no vetor sempre que a
+    // formação vinha sem curso/instituição — acontecia em 96% dos currículos
+    // vindos do perfil da Gupy, apagando o sinal de formação do ranking.
     const form = cv.estruturado.formacoes
-      .map(
-        (f) =>
-          `${f.curso} — ${f.instituicao}${f.nivel ? ` (${f.nivel})` : ''}`,
-      )
+      .map((f) => {
+        const cabeca = [f.curso, f.instituicao].filter(Boolean).join(' — ');
+        const detalhes = [f.nivel, f.status].filter(Boolean).join(', ');
+        if (cabeca && detalhes) return `${cabeca} (${detalhes})`;
+        return cabeca || detalhes;
+      })
+      .filter((l) => l.trim().length > 0)
       .join('\n');
-    partes.push(`\nFormação:\n${form}`);
+    if (form) partes.push(`\nFormação:\n${form}`);
   }
 
   if (cv.estruturado.idiomas?.length) {
