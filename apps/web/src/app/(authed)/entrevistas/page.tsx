@@ -1,7 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
+const STATUS_AGENDA = [
+  'AGENDADA',
+  'EM_ANDAMENTO',
+  'FINALIZADA',
+  'CANCELADA',
+  'NAO_COMPARECEU',
+];
 
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
@@ -24,21 +39,63 @@ interface EntrevistaAgenda {
   entrevistador: { nome: string } | null;
 }
 
+// useSearchParams exige Suspense no page (regra do App Router no build).
 export default function EntrevistasIndex() {
+  return (
+    <Suspense
+      fallback={<div className="text-sm text-grafite-400 p-4">Carregando…</div>}
+    >
+      <EntrevistasIndexInner />
+    </Suspense>
+  );
+}
+
+function EntrevistasIndexInner() {
+  // Deep-link do painel inicial ("Precisa de você"): /entrevistas?status=...
+  // ou ?pendencia=sem_parecer (finalizadas sem parecer final). Inicializa
+  // DIRETO da URL (evita o fetch sem filtro que, chegando depois, sobrescrevia
+  // a lista filtrada) e reage a navegações com outra query.
+  const searchParams = useSearchParams();
+  const statusUrl = searchParams.get('status');
+  const pendenciaUrl = searchParams.get('pendencia');
+  // 'SEM_PARECER' é valor sintético do select — vira ?pendencia=sem_parecer.
+  const filtroUrl =
+    pendenciaUrl === 'sem_parecer'
+      ? 'SEM_PARECER'
+      : statusUrl && STATUS_AGENDA.includes(statusUrl)
+        ? statusUrl
+        : null;
+
   const [entrevistas, setEntrevistas] = useState<EntrevistaAgenda[] | null>(
     null,
   );
   const [erro, setErro] = useState<string | null>(null);
-  const [statusFiltro, setStatusFiltro] = useState<string>('AGENDADA');
+  const [statusFiltro, setStatusFiltro] = useState<string>(
+    filtroUrl ?? 'AGENDADA',
+  );
 
+  useEffect(() => {
+    if (filtroUrl) setStatusFiltro(filtroUrl);
+  }, [filtroUrl]);
+
+  // Aborta a requisição anterior — evita resposta velha fora de ordem.
+  const abortRef = useRef<AbortController | null>(null);
   const carregar = useCallback(async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setErro(null);
     try {
       const itens = await api<EntrevistaAgenda[]>('/api/entrevistas', {
-        query: { status: statusFiltro || undefined },
+        query:
+          statusFiltro === 'SEM_PARECER'
+            ? { pendencia: 'sem_parecer' }
+            : { status: statusFiltro || undefined },
+        signal: ctrl.signal,
       });
       setEntrevistas(itens);
     } catch (err) {
+      if (ctrl.signal.aborted) return; // requisição substituída — ignora
       setEntrevistas([]);
       if (err instanceof ApiError) setErro(err.message);
       else setErro('Falha ao carregar entrevistas.');
@@ -65,7 +122,9 @@ export default function EntrevistasIndex() {
           <option value="AGENDADA">Agendadas</option>
           <option value="EM_ANDAMENTO">Em andamento</option>
           <option value="FINALIZADA">Finalizadas</option>
+          <option value="SEM_PARECER">Finalizadas sem parecer</option>
           <option value="CANCELADA">Canceladas</option>
+          <option value="NAO_COMPARECEU">No-show</option>
           <option value="">Todas</option>
         </select>
       </div>

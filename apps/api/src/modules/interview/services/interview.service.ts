@@ -936,12 +936,24 @@ export class InterviewService {
    * Agenda de entrevistas — alimenta a página "Agenda". Por padrão lista as
    * AGENDADAS (próximas, ordem crescente); sem filtro de status lista todas em
    * ordem decrescente. `gestorId` escopa às vagas daquele gestor (null = todas,
-   * usado por admin/recrutamento).
+   * usado por admin/recrutamento). `semParecer` filtra as FINALIZADAS sem
+   * parecer final (janela de 60 dias — mesma regra do card "Precisa de você").
    */
-  async listarAgenda(status?: string, gestorId?: string | null) {
+  async listarAgenda(
+    status?: string,
+    gestorId?: string | null,
+    semParecer?: boolean,
+  ) {
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (gestorId) where.candidatura = { vaga: { gestor_id: gestorId } };
+    if (semParecer) {
+      where.status = 'FINALIZADA';
+      where.parecer_final = null;
+      where.finalizada_em = {
+        gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+      };
+    }
     return this.prisma.entrevista.findMany({
       where,
       orderBy: { agendada_para: status === 'AGENDADA' ? 'asc' : 'desc' },

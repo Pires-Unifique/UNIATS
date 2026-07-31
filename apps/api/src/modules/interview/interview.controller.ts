@@ -157,6 +157,7 @@ export class InterviewController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Query('candidaturaId') candidaturaId?: string,
     @Query('status') status?: string,
+    @Query('pendencia') pendencia?: string,
   ) {
     // Com candidaturaId: histórico daquela candidatura (uso no detalhe do
     // candidato). Sem candidaturaId: agenda — escopada às vagas do gestor.
@@ -172,12 +173,21 @@ export class InterviewController {
       'EM_ANDAMENTO',
       'FINALIZADA',
       'CANCELADA',
+      'NAO_COMPARECEU',
     ];
     if (status && !STATUS_VALIDOS.includes(status)) {
       throw new BadRequestException('status inválido.');
     }
+    // Pendência do card "Precisa de você": finalizadas sem parecer final.
+    if (pendencia && pendencia !== 'sem_parecer') {
+      throw new BadRequestException(`pendencia inválida: ${pendencia}`);
+    }
     // Gestor vê só a agenda das vagas dele; admin/recrutamento veem tudo.
-    return this.service.listarAgenda(status, this.auth.escopoGestorId(usuario));
+    return this.service.listarAgenda(
+      status,
+      this.auth.escopoGestorId(usuario),
+      pendencia === 'sem_parecer',
+    );
   }
 
   /**

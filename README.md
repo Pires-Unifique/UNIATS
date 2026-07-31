@@ -1,29 +1,43 @@
-# Plataforma de Triagem & Análise de Entrevistas — Integração Gupy
+# Collab — Recrutamento & Seleção (Unifique)
 
-Plataforma interna da Unifique para automatizar a triagem de candidatos vindos da Gupy, ranqueá-los por aderência à vaga, conduzir mensagens automatizadas, gravar e transcrever entrevistas no Google Meet, e analisar tom de voz dos candidatos. Compliance LGPD por padrão.
+Plataforma interna da Unifique que puxa candidatos da Gupy, ranqueia por aderência à vaga
+com apoio de IA, conduz a comunicação com o candidato (WhatsApp/e-mail), agenda a
+entrevista no Teams e transcreve a conversa. Minimização e LGPD por construção.
 
-> **Estado atual do repositório:** Camada 1 (ingestão Gupy: API + webhooks + persistência idempotente) implementada e testada. Próximas camadas (parsing de CV, embeddings/ranking, mensageria, bot de entrevista) ficam em sprints subsequentes.
+> **Nome:** o produto é **Collab** (`collab.unifique.com.br`, API em
+> `api-collab.unifique.com.br`), e os pacotes e containers acompanham (`@collab/*`,
+> `collab-api`, `collab-web`). Quatro identificadores **continuam `uniats` de propósito**,
+> porque renomeá-los em sistema vivo destrói ou abandona dado: usuário/banco do Postgres,
+> `STORAGE_BUCKET`, `REDIS_QUEUE_PREFIX` e os volumes Docker (pinados em `uniats_*` no
+> `docker-compose.prod.yml`). Somam-se a eles o `AZURE_AD_AUDIENCE` (`api://uniats-api`,
+> identificador do app no Entra) e a label do runner. Todos nascem com o nome certo, de
+> graça, na virada para o servidor novo.
+
+> **Fase 1:** a entrega atual foca em **Recrutamento & Seleção**. Os módulos de Admissão
+> e Administração de Pessoas (Alteração Contratual e Offboarding) existem no código, mas
+> estão **ocultos da navegação** — ver `apps/web/src/lib/modulos.ts`.
 
 ---
 
 ## 1. Arquitetura em 30 segundos
 
 ```
-   Gupy ATS  ──(REST + Webhooks)──>  Camada 1 (ingestão)
-                                         │
-                                         ▼
-                                Postgres + pgvector
-                                         │
-        ┌────────────────────────────────┼────────────────────────────────┐
-        ▼                                ▼                                ▼
- Camada 2 (Parser CV)    Camada 3 (Embeddings + LLM)    Camada 4 (Mensageria)
-                                         │
-                                         ▼
-                              Camada 5 (Bot de entrevista
-                              Meet → AssemblyAI → Análise voz)
+   Gupy ATS ──(REST; sync agendado 6/6h)──> ingestão (allowlist LGPD)
+                                                │
+                                                ▼
+                                     Postgres + pgvector
+                                                │
+        ┌───────────────────────┬───────────────┴───────────┬────────────────────┐
+        ▼                       ▼                           ▼                    ▼
+  perfil estruturado     embeddings (Voyage)          mensageria           entrevista
+  do candidato           + ranking (Claude)        WhatsApp (WAHA)      Teams via Graph
+                                                    e-mail (SendGrid)   → transcrição
+                                                                        → fusão + ATA
 ```
 
-Detalhes em `docs/arquitetura.md` (diagrama das 5 camadas) e `packages/db/prisma/schema.prisma` (modelo de dados).
+O fluxo real está detalhado nas seções 6.x. Modelo de dados em
+`packages/db/prisma/schema.prisma`. Critérios da avaliação por IA em
+[`docs/ranking-criterios.md`](docs/ranking-criterios.md).
 
 ---
 
@@ -151,25 +165,32 @@ psql $DATABASE_URL -c "SELECT extname FROM pg_extension;"
 ### 3.5. Subir a API
 
 ```bash
-pnpm --filter @uniats/api dev
+pnpm --filter @collab/api dev
 ```
 
-A API sobe em `http://localhost:3001`. Smoke test:
+A API sobe em `http://localhost:13001` (o front, em `13000`). Smoke test:
 
 ```bash
-curl http://localhost:3001/health
+curl http://localhost:13001/health
 # {"status":"ok","timestamp":"..."}
 ```
 
+> `/health` fica **fora** do prefixo `/api` — é `GET /health`, não `/api/health`.
+
 ### 3.6. Expor o webhook publicamente (ngrok)
 
-A Gupy precisa de uma URL pública para entregar webhooks. Em outro terminal:
+> **Na prática o sync não depende disso.** A ingestão roda por **sync agendado**
+> (seção 6.1); os webhooks da Gupy são opcionais e hoje ficam desabilitados quando
+> `GUPY_WEBHOOK_SECRET` está vazio. Além disso, o ambiente implantado é interno —
+> webhooks vindos da internet podem simplesmente não alcançá-lo.
+
+Se ainda assim quiser testar webhooks localmente, em outro terminal:
 
 ```bash
-ngrok http 3001
+ngrok http 13001
 ```
 
-Copie a URL HTTPS impressa (ex.: `https://abcd-1234.ngrok-free.app`) e configure no painel da Gupy como `https://abcd-1234.ngrok-free.app/webhooks/gupy`.
+Copie a URL HTTPS impressa (ex.: `https://abcd-1234.ngrok-free.app`) e configure no painel da Gupy como `https://abcd-1234.ngrok-free.app/webhooks/gupy`. Defina também `GUPY_WEBHOOK_SECRET` — sem ele o endpoint responde desabilitado (falha fechada, de propósito).
 
 > Quando o ngrok reiniciar, a URL muda. Reconfigurar no painel toda vez é chato — para testes prolongados, use uma URL fixa (plano pago do ngrok, ou Cloudflare Tunnel).
 
@@ -179,8 +200,8 @@ Copie a URL HTTPS impressa (ex.: `https://abcd-1234.ngrok-free.app`) e configure
 
 ```bash
 # Desenvolvimento
-pnpm --filter @uniats/api dev        # API em watch mode
-pnpm --filter @uniats/web dev        # Front (Next.js) — sprint futuro
+pnpm --filter @collab/api dev        # API em watch mode
+pnpm --filter @collab/web dev        # Front (Next.js) — sprint futuro
 pnpm dev                              # tudo em paralelo via Turborepo
 
 # Banco
@@ -189,14 +210,15 @@ pnpm db:studio                        # GUI do Prisma em localhost:5555
 pnpm db:seed                          # repovoar com dados de demo
 
 # Testes
-pnpm --filter @uniats/api test       # unitários (Jest + nock)
-pnpm --filter @uniats/api test:cov   # com cobertura
-pnpm --filter @uniats/api test:int   # integração (requer docker-compose up)
+pnpm --filter @collab/api test       # unitários (Jest + nock)
+pnpm --filter @collab/api test:cov   # com cobertura
+pnpm --filter @collab/api test:int   # integração (requer docker-compose up)
 
-# Sincronização Gupy (sob demanda, sem esperar webhook)
-curl -X POST http://localhost:3001/api/gupy/sync/vagas
-curl -X POST http://localhost:3001/api/gupy/sync/vaga/<GUPY_VAGA_ID>
-curl -X POST http://localhost:3001/api/gupy/sync/vaga/<GUPY_VAGA_ID>/candidaturas
+# Sincronização Gupy (sob demanda; o normal é o cron de 6/6h fazer sozinho)
+curl -X POST http://localhost:13001/api/gupy/sync/vagas
+curl -X POST http://localhost:13001/api/gupy/sync/candidaturas-todas
+curl -X POST http://localhost:13001/api/gupy/sync/vaga/<GUPY_VAGA_ID>/candidaturas
+# Não existe endpoint para sincronizar UMA vaga: a Gupy não expõe GET /jobs/:id.
 
 # Infra
 pnpm infra:up         # sobe Postgres/Redis/MinIO/MailHog
@@ -337,7 +359,7 @@ Para enxergar o bucket em dev, acesse `http://localhost:9001` (console) com `tri
 # faz deploy, e dispara:
 psql $DATABASE_URL -tAc \
   "SELECT candidatura_id FROM curriculos_processados WHERE parser_versao <> 'claude-curriculo-v2'" \
-  | xargs -I{} curl -X POST http://localhost:3001/api/curriculos/{}/reprocessar
+  | xargs -I{} curl -X POST http://localhost:13001/api/curriculos/{}/reprocessar
 ```
 
 ---
@@ -437,7 +459,11 @@ docker run -it --rm \
   devlikeapro/waha
 ```
 
-Após subir, abra `http://localhost:3000/dashboard` (X-Api-Key acima) e escaneie o QR com o WhatsApp do número operacional. Preencha `WAHA_API_KEY` e `WAHA_WEBHOOK_SECRET` no `.env` com os mesmos valores.
+Após subir, escaneie o QR com o WhatsApp do número operacional e preencha `WAHA_API_KEY` e `WAHA_WEBHOOK_SECRET` no `.env` com os mesmos valores. O `docker-compose` do projeto expõe o WAHA em `http://localhost:4000` (dentro do container ele escuta na 3000).
+
+> No ambiente implantado o QR é lido pela própria tela **Sistema → WhatsApp** do Collab — o WAHA fica em loopback e a API faz o proxy. Não é preciso túnel SSH nem expor o dashboard.
+
+> O número usado pelo WAHA **vive sendo banido** (WhatsApp Web não-oficial). Existe um pacer com janela de horário, teto diário e jitter, configurável na tela WhatsApp. A solução definitiva é migrar o contato com candidato para a Cloud API oficial.
 
 **Pipeline**
 
@@ -494,7 +520,7 @@ O agendamento de entrevista baseado na disponibilidade do Teams (Microsoft Graph
 
 | Variável | Default | Para que serve |
 |---|---|---|
-| `WAHA_BASE_URL` | `http://localhost:3000` | URL do WAHA. |
+| `WAHA_BASE_URL` | — (obrigatória) | URL do WAHA. Não tem default; em dev, `http://localhost:4000`. |
 | `WAHA_API_KEY` | — | X-Api-Key configurada no container. |
 | `WAHA_SESSION` | `default` | Nome da sessão (Plus permite várias). |
 | `WAHA_WEBHOOK_SECRET` | — opcional | HMAC-SHA512 dos webhooks. **Defina em produção.** |
@@ -531,139 +557,113 @@ WAHA Core (gratuito) suporta apenas `session=default`. Para múltiplos números 
 
 ---
 
-## 6.4. Camada 4b/c/d — Entrevistas (bot + transcrição + voz)
+## 6.4. Entrevistas — agendamento no Teams + transcrição
 
-Esta camada cobre o ciclo completo: bot do MeetStream entra na chamada do Google Meet, grava áudio, transcrição com diarização via AssemblyAI Universal-2 e análise descritiva de tom de voz com Claude. Tudo criptografado em repouso (AES-256-GCM) com retenção LGPD.
+> **Histórico:** este fluxo já foi desenhado com bot do MeetStream no Google Meet e
+> transcrição via AssemblyAI. **Ambos foram removidos** (o ambiente é interno e os
+> webhooks externos não chegavam). Hoje é Microsoft Teams via Graph.
 
-**Pré-requisitos LGPD (obrigatórios)**
+O ciclo é: propor horários ao candidato por WhatsApp → o voto confirma e cria a reunião
+no Teams → o transcript oficial é puxado pelo Graph após a reunião → um segundo motor
+(Whisper local, forçado em `pt`) roda em paralelo → o Claude reconcilia os dois na
+"melhor versão" → gera a ATA e analisa as respostas às perguntas do DHO.
 
-Antes de qualquer entrevista com bot:
-1. Coletar consentimento de gravação do candidato (campo `candidatos.consentimento_gravacao_em`). Sem isso, `agendar()` e `iniciarBot()` recusam.
-2. Coletar consentimento LGPD geral (`candidatos.consentimento_lgpd_em`).
-3. Versão dos termos aceitos fica em `consentimento_lgpd_versao` para auditoria.
+**Por que dois motores:** a transcrição automática do Teams é travada em `en-US` e não há
+como forçar `pt-BR` por API — áudio em português sai como inglês fonético alucinado. O
+Whisper local cobre isso, e a fusão usa o Teams para diarização (quem falou) e o Whisper
+para o conteúdo.
 
-**Pipeline completo**
+**Censura LGPD antes de persistir:** o texto cru vive só em memória. `RedacaoService`
+aplica duas camadas — regex determinístico (CPF, telefone, e-mail, documentos) e análise
+semântica via Claude para o art. 5º II (saúde, raça, religião, opinião política, filiação
+sindical, vida sexual) — e o banco só recebe texto já censurado, com marcador
+`[OCULTADO: CATEGORIA]`. Pretensão salarial é preservada de propósito.
+
+**Pipeline**
 
 ```
-[recrutador agenda]
-  → POST /api/entrevistas (cria AGENDADA)
-  → POST /api/entrevistas/:id/iniciar-bot  (ou cron 5min antes — futuro)
-  → enqueue → bot-entrevista
-                 └─ MeetStream.criarBot(meetUrl, webhookUrl)
-                    └─ entrevistas.bot_session_id, status=EM_ANDAMENTO
+[propor horários ao candidato]
+  → POST /api/mensagens/enquete-horarios (WhatsApp, enquete)
+  → pré-reserva: holds tentativos na agenda do recrutador/gestor por horário proposto
 
-[bot grava a chamada]
-[webhook /webhooks/meetstream]
-  ├─ bot.joined  → entrevistas.iniciada_em + bot_status='joined'
-  ├─ bot.recording → bot_status='recording'
-  └─ bot.ended  → enqueue audio-process
+[candidato vota]
+  → webhook WAHA (poll.vote) → enqueue confirmar-enquete
+     ├─ cria a reunião no Teams via Graph (recordAutomatically)
+     ├─ apaga os holds dos horários não escolhidos
+     ├─ guarda graph_online_meeting_id + graph_organizador_email
+     └─ notifica in-app (sino) recrutador/gestor/entrevistador
+  → link da call é enviado ao candidato em max(agora, início − 2h)
 
-[worker audio-process]
-  ├─ MeetStream.obterGravacao(botId) → URL temporária
-  ├─ MeetStream.baixarAudio(url) (HTTPS-only, 200MB cap)
-  ├─ valida MIME (mp3/wav/m4a/ogg/webm)
-  ├─ SHA-256 do plaintext (auditoria)
-  ├─ CryptoService.encrypt(audio, AAD=entrevistaId)  ← AES-256-GCM
-  ├─ StorageService.putObject(audio/<sha>/<sha>.enc, metadata={algoritmo, mimeOriginal})
-  ├─ entrevistas.audio_url + sha256 + audio_expira_em = now+90d
-  └─ enqueue transcricao
+[após a reunião]
+  → enqueue transcricao-graph (pull do transcript oficial do Teams)
+     ├─ RedacaoService.redigirTurnos()   ← censura ANTES de persistir
+     ├─ transcricoes.texto_completo + segmentos (diarizado, mas em en-US)
+     └─ enqueue fusao-transcricao
 
-[worker transcricao]
-  ├─ StorageService.getObject(key)
-  ├─ CryptoService.decrypt(payload, AAD=entrevistaId)
-  ├─ AssemblyAI.uploadAudio(plaintext, mime)  → upload_url temporária
-  ├─ AssemblyAI.criarTranscricao({audio_url, webhook, speaker_labels, sentiment, language:pt})
-  └─ transcricoes.provider_id = tx-id
-
-[webhook /webhooks/assemblyai]
-  └─ status=completed
-     ├─ AssemblyAI.obterTranscricao(tx-id) → texto + utterances + sentiment
-     ├─ transcricoes.texto_completo + segmentos (jsonb)
-     └─ enqueue analise-voz
-
-[worker analise-voz]
-  ├─ identifica candidato (speaker com mais fala)
-  ├─ métricas determinísticas: hesitação_count (regex "ah/eh/tipo/sabe/né"), 
-  │    sentimento global, confiança média da transcrição
-  ├─ Claude tool-use "analisar_tom_de_voz" → confianca/nervosismo/entusiasmo/observações
-  │    (fallback determinístico se LLM falha — não bloqueia o pipeline)
-  └─ analises_voz upsert
+[fusão — 2 motores]
+  → Whisper local (forçado pt) preenche whisper_segmentos
+  → Claude reconcilia Teams (quem falou) × Whisper (o que foi dito)
+     ├─ transcricoes.texto_fundido + segmentos_fundidos  ← é o que a tela exibe
+     ├─ gera a ATA (resumo + tópicos)
+     └─ analisa respostas às perguntas do DHO (respostas_entrevista)
 
 [cron diário 03:00]
   └─ RetencaoLGPDService.aplicarRetencaoDiaria()
-     ├─ audio_expira_em < now → apaga blob + zera audio_url (audit log)
-     └─ transcricao.expira_em < now → trunca texto_completo + segmentos
+     ├─ áudio expirado → apaga o blob no storage e zera a referência
+     └─ transcrição expirada → trunca texto_completo, segmentos, texto_fundido,
+        segmentos_fundidos e whisper_segmentos
 ```
+
+> **Bot Playwright** (`services/playwright-bot`) existe como fallback para capturar
+> legendas entrando na sala, e está **desligado por padrão**
+> (`PLAYWRIGHT_BOT_ENABLED=false`).
 
 **Endpoints**
 
 | Método | Rota | O que faz |
 |---|---|---|
-| `POST` | `/api/entrevistas` | Agenda. Body: `{candidaturaId, agendadaPara, meetUrl, duracaoEstimadaMin?, entrevistadorId?, googleEventId?}`. |
-| `GET` | `/api/entrevistas/:id` | Detalhe + transcrição + análise de voz (sem `audio_url` cru). |
-| `GET` | `/api/entrevistas?candidaturaId=` | Histórico de entrevistas. |
-| `POST` | `/api/entrevistas/:id/iniciar-bot` | Enfileira `bot-entrevista` (idempotente). |
-| `POST` | `/api/entrevistas/:id/encerrar` | Encerra bot antes do horário. |
-| `POST` | `/api/entrevistas/:id/cancelar` | Cancela entrevista (body: `{motivo?}`). |
-| `POST` | `/webhooks/meetstream` | HMAC. Eventos `bot.joined/bot.recording/bot.ended/bot.failed`. |
-| `POST` | `/webhooks/assemblyai` | Header `X-Webhook-Secret`. Eventos `completed/error`. |
+| `POST` | `/api/entrevistas` | Agenda. Cria a reunião no Teams via Graph. |
+| `POST` | `/api/entrevistas/confirmar-enquete` | Confirma o horário votado pelo candidato. |
+| `GET` | `/api/entrevistas/:id` | Detalhe + transcrição (sem `audio_url` cru). |
+| `GET` | `/api/entrevistas?candidaturaId=` | Histórico; sem o parâmetro, a agenda escopada por papel. |
+| `POST` | `/api/entrevistas/:id/transcrever-graph` | Dispara o pull do transcript do Teams. |
+| `POST` | `/api/entrevistas/:id/transcrever-playwright` | Fallback pelo bot (desligado por padrão). |
+| `POST` | `/api/entrevistas/:id/cancelar` | Cancela a entrevista (body: `{motivo?}`). |
+| `POST` | `/api/entrevistas/:id/anotacoes` | Anotações do entrevistador. |
 
-**Variáveis novas**
+**Variáveis**
 
 | Variável | Default | Para que serve |
 |---|---|---|
-| `MEETSTREAM_API_KEY` | — | Token MeetStream (header `Authorization: Token <key>`). |
-| `MEETSTREAM_BASE_URL` | `https://api.meetstream.ai` | Endpoint base. |
-| `MEETSTREAM_WEBHOOK_SECRET` | — opcional | HMAC-SHA256 dos webhooks. **Defina em produção.** |
-| `ASSEMBLYAI_API_KEY` | — | Sem prefixo Bearer. |
-| `ASSEMBLYAI_WEBHOOK_SECRET` | — opcional | Valor do header `X-Webhook-Secret`. |
-| `ASSEMBLYAI_SPEAKER_LABELS` | `true` | Diarização. |
-| `ASSEMBLYAI_SENTIMENT_ANALYSIS` | `true` | Sentiment por trecho. |
-| `DATA_ENCRYPTION_KEY` | — | 32 bytes em base64. **Obrigatória em produção.** |
-| `RETENCAO_AUDIO_DIAS` | `90` | Após esse prazo, blob é apagado + audio_url zerado. |
-| `RETENCAO_TRANSCRICAO_DIAS` | `365` | Após esse prazo, `texto_completo` é truncado. |
-| `AUDIO_MAX_BYTES` | `209715200` (200 MB) | Hard cap por gravação. |
-| `PUBLIC_BASE_URL` | `http://localhost:3001` | URL pública usada nos webhook URLs do MeetStream/AssemblyAI. Em dev use ngrok. |
+| `INTERVIEW_ORGANIZER_EMAIL` | — | Conta que organiza a reunião e sob a qual o transcript existe no Graph. A Application Access Policy do Entra precisa estar escopada nela. |
+| `AGENDA_ORGANIZADOR_FALLBACK_EMAIL` | — | Usado quando a vaga não tem recrutador com agenda. |
+| `GRAPH_TRANSCRICAO_AUTO_ENABLED` | `true` | Puxa o transcript automaticamente após a reunião. |
+| `PLAYWRIGHT_BOT_ENABLED` | `false` | Liga o bot de legendas (fallback). |
+| `REDACAO_SEMANTICA_ENABLED` | `true` | Camada 2 da censura LGPD. Desligar deixa só o piso da regex — **não recomendado**. |
+| `DATA_ENCRYPTION_KEY` | — | 32 bytes em base64. Necessária para os campos cifrados. |
+| `RETENCAO_TRANSCRICAO_DIAS` | `365` | Prazo do `expira_em`, gravado na **criação** da transcrição (mudar não recalcula as existentes). |
+| `RETENCAO_AUDIO_DIAS` | `90` | Prazo do áudio. **Hoje sem efeito prático:** nenhum áudio é capturado desde a remoção do MeetStream. |
 
 **Criptografia em repouso (AES-256-GCM)**
 
-- Chave única (DEK) de 32 bytes vinda de `DATA_ENCRYPTION_KEY` (base64).
-- IV de 12 bytes random por arquivo — NUNCA reusado.
-- Tag de autenticação de 16 bytes — detecta tampering.
-- **AAD = `entrevistaId` (UTF-8)** — impede que alguém troque o blob entre entrevistas. Decrypt com AAD errado falha com erro de integridade.
-- Layout serializado: `iv (12) || tag (16) || ciphertext (n)`.
-- O sha256 gravado em `entrevistas.audio_sha256` é do **plaintext**, não do ciphertext — necessário para idempotência cross-key e auditoria independente.
+O `CryptoService` cifra com DEK única de 32 bytes (`DATA_ENCRYPTION_KEY`, base64), IV de 12
+bytes por arquivo (nunca reusado), tag de 16 bytes e **AAD = `entrevistaId`** — o que impede
+trocar um blob entre entrevistas. Layout: `iv (12) || tag (16) || ciphertext (n)`.
 
-Para evoluir para envelope-encryption com KMS (recomendado em produção crítica), substitua o `CryptoService` por uma versão que gere uma DEK por arquivo e criptografe a DEK com a CMK no KMS.
+> A camada existe e está testada, mas **hoje não há áudio para cifrar** — a captura saiu
+> junto com o MeetStream. Ela volta a importar quando a gravação for retomada.
 
 **LGPD — pontos importantes**
 
-- Bot não entra na sala sem `consentimento_gravacao_em` registrado. Se for revogado entre `agendar` e `iniciarBot`, o worker `bot-start` cancela a entrevista automaticamente.
-- Áudio nunca é retornado pelo `GET /api/entrevistas/:id` — campo é removido da resposta. Acesso ao áudio cru deve passar por endpoint dedicado com auditoria (a ser adicionado).
-- Cron de retenção registra cada apagamento/truncagem em `registro_auditoria` (LGPD Art. 37).
-- A análise de voz é descritiva, não preditiva — não decide contratação. O `parecer_final` é preenchido por humano e `parecer_aprovado_por` exige revisão (Art. 20).
-- Prompt do Claude proíbe explicitamente inferir sotaque/idade/gênero/origem regional como evidência.
-
-**Setup em dev**
-
-```bash
-# 1. Gere a chave de criptografia
-openssl rand -base64 32  # cole em DATA_ENCRYPTION_KEY
-
-# 2. Suba ngrok para expor webhooks à internet
-ngrok http 3001
-# Cole a URL HTTPS em PUBLIC_BASE_URL e nas configurações do MeetStream/AssemblyAI
-
-# 3. Em outra aba, suba a API
-cd apps/api && pnpm dev
-
-# 4. Cadastre o webhook URL no painel MeetStream:
-#    https://<seu-ngrok>.ngrok-free.app/webhooks/meetstream
-#    Configure também o webhook secret.
-
-# 5. AssemblyAI configura o secret no momento da criação do job
-#    (já fazemos isso no AssemblyAIClient.criarTranscricao).
-```
+- Censura antes de persistir: o banco nunca recebe o texto cru da conversa (ver acima).
+- Retenção registra cada apagamento/truncagem em `registro_auditoria` (Art. 37).
+- Nenhuma decisão é automatizada: os scores são sugestão, e mover ou reprovar candidato
+  grava a revisão humana em `scores.revisado_por`/`revisado_em` (Art. 20).
+- `audio_url` nunca é devolvido pelo `GET /api/entrevistas/:id`.
+- ⚠️ **Consentimento de gravação não é aplicado hoje.** `candidatos.consentimento_gravacao_em`
+  é gravado quando o recrutador marca a opção no agendamento, mas **nada bloqueia** a
+  transcrição na ausência dele — o guard prometido em versões anteriores referenciava
+  código que foi removido. Item aberto.
 
 ---
 
@@ -688,26 +688,29 @@ Prompt versionado em `PERGUNTAS_PROMPT_VERSION`. Saída revalidada por Zod antes
 
 ### 6.5.2. Frontend — `apps/web` (Next.js 14 + Tailwind)
 
-Aplicação React App Router. Auth via Microsoft Entra ID (MSAL React) — em dev, se `NEXT_PUBLIC_AZURE_AD_CLIENT_ID` estiver vazio, o frontend roda em modo "dev sem login" com usuário fake.
+Aplicação React App Router. Auth via Microsoft Entra ID (MSAL React).
 
 **Páginas**
 
 | Rota | O que faz |
 |---|---|
-| `/login` | Botão "Entrar com Microsoft". Redirect MSAL. |
-| `/vagas` | Lista vagas locais (já sincronizadas). Filtros + busca + botão "Sincronizar Gupy" (POST `/api/gupy/sync/vagas`). |
-| `/vagas/[id]/ranking` | Top-K candidatos com score consolidado, similaridade vetorial e ranking LLM. Botão "Re-rerank toda a vaga". |
-| `/candidaturas/[id]` | CV estruturado, três scores, justificativa LLM com evidências citadas, botão "aprovar análise (LGPD Art. 20)", "gerar perguntas", "recalcular score". Estado dos consentimentos LGPD visível. |
-| `/entrevistas/[id]` | Perguntas pré-geradas (lista com competência + dificuldade), botões iniciar/encerrar bot, transcrição com resumo, análise de voz (barras de confiança/nervosismo/entusiasmo) e observações descritivas do LLM. |
+| `/login` | Entrar com Microsoft (redirect MSAL). |
+| `/inicio` | Painel do recrutador — indicadores, agenda do dia, pendências ("Precisa de você") e funil. É o pouso pós-login. |
+| `/vagas` | Vagas sincronizadas, com filtros e busca. |
+| `/vagas/[id]/ranking` | Top-K candidatos com score consolidado, similaridade vetorial e ranking LLM. |
+| `/candidaturas/[id]` | CV estruturado, scores com justificativa e evidências citadas, geração de perguntas, envio de mensagem e agendamento. |
+| `/entrevistas` e `/entrevistas/[id]` | Agenda e detalhe: perguntas, transcrição fundida, ATA e respostas do candidato por pergunta. |
+| `/cargos`, `/vagas/publicar` | Catálogo de cargos e publicação de vaga a partir dele. |
+| `/analise`, `/configuracoes/*` | Painel de análise, templates de mensagem, perguntas padrão e a seção Sistema (usuários, WhatsApp, chaves de API). |
 
 **Setup**
 
 ```bash
 cd apps/web
 cp .env.example .env.local
-# Em dev sem Azure AD, deixe NEXT_PUBLIC_AZURE_AD_CLIENT_ID vazio.
+# Preencha os NEXT_PUBLIC_AZURE_AD_* com os dados do App Registration.
 pnpm install
-pnpm dev    # roda em http://localhost:3000
+pnpm dev    # roda em http://localhost:13000
 ```
 
 **Auth flow**
@@ -715,21 +718,25 @@ pnpm dev    # roda em http://localhost:3000
 1. `AuthProvider` (em `src/lib/auth.tsx`) inicializa MSAL no client.
 2. Após login, todos os requests via `api()` recebem `Authorization: Bearer <token>` (escopo configurado em `NEXT_PUBLIC_AZURE_AD_API_SCOPE`).
 3. Respostas 401 redirecionam para `/login?expired=1`.
-4. O backend valida o token contra `AZURE_AD_AUDIENCE`/`AZURE_AD_TENANT_ID` (módulo de auth a ligar via guard global — fora do escopo desta camada).
+4. O backend **valida a assinatura do token** contra `AZURE_AD_AUDIENCE`/`AZURE_AD_TENANT_ID` (`AzureStrategy` + `AuthGuard`), com `AUTH_ENABLED=true` no ambiente implantado. A autorização é por **área** (`admin`, `recrutamento`, `admissao`, `dho`, `gestao_acessos`) via `@Areas()`/`AreasGuard`, mais posse de vaga para o gestor — que enxerga só as vagas dele.
 
 **Decisões de UI**
 
-- Tipos vêm de `@uniats/shared` — frontend e backend usam o mesmo shape.
+- Tipos vêm de `@collab/shared` — frontend e backend usam o mesmo shape.
 - Cliente HTTP (`src/lib/api.ts`) centraliza Bearer token, 401 redirect e erros amigáveis. Suporta validação Zod opcional do response shape.
 - Componentes mínimos sem dependência de UI lib pesada — `clsx` + Tailwind. Substituir por shadcn/Radix se quiser ganhar mais polish sem reescrever lógica.
 - Páginas autenticadas vivem em `src/app/(authed)/` — o layout desse grupo aplica `AuthGuard` automaticamente.
 
 **LGPD na UI**
 
-- Bloco "Consentimentos LGPD" no detalhe da candidatura mostra estado e datas dos consentimentos (geral + gravação de voz).
-- Botão "Aprovar análise" só fica disponível para um humano e marca `revisado_por` + `revisado_em` em `scores` (Art. 20).
-- Análise de voz vem acompanhada do disclaimer "descritiva, não decisória".
-- `audio_url` cru NUNCA é mostrado ou linkado no frontend.
+- Bloco "Consentimentos LGPD" no detalhe da candidatura mostra o estado dos consentimentos.
+  ⚠️ `consentimento_lgpd_em` **nunca é preenchido** — o aceite é colhido na Gupy, fora do
+  Collab, e o payload dela não traz esse campo. O selo aparece sempre como pendente, o que
+  induz a leitura errada de que falta base legal: o tratamento da candidatura se apoia no
+  **Art. 7º V** (procedimentos preliminares de contrato), não em consentimento. Item aberto.
+- Marcar revisão humana grava `revisado_por` + `revisado_em` em `scores` (Art. 20).
+- Trechos censurados aparecem como pílula `[OCULTADO: …]` na transcrição.
+- `audio_url` cru nunca é mostrado nem linkado.
 
 ---
 
@@ -750,8 +757,10 @@ pnpm install
 cp .env.example .env
 # Edite .env e preencha pelo menos: ANTHROPIC_API_KEY, VOYAGE_API_KEY,
 # AZURE_AD_*, GUPY_*, DATA_ENCRYPTION_KEY (openssl rand -base64 32).
-# Em dev você pode deixar SENDGRID, WAHA, MEETSTREAM, ASSEMBLYAI vazios —
-# a inicialização degrada (logs de warning), mas a API sobe.
+# Em dev você pode deixar SENDGRID e WAHA vazios — a inicialização degrada
+# (logs de warning), mas a API sobe.
+# Deixe GUPY_SYNC_CRON_ENABLED=false em dev: a máquina local usa o MESMO
+# tenant da Gupy que o ambiente implantado, e dois crons varreriam em dobro.
 
 # 3. Infra local
 pnpm infra:up
@@ -762,48 +771,32 @@ pnpm db:generate              # gera o cliente Prisma
 pnpm db:migrate               # cria tabelas + índice HNSW
 pnpm db:seed                  # usuário admin de dev
 
-# 5. API
-pnpm --filter @uniats/api dev
+# 5. API + web (o `pnpm dev` da raiz sobe os dois via turbo)
+pnpm dev
 # Em outro terminal:
-curl http://localhost:3001/health
+curl http://localhost:13001/health
 # → {"status":"ok",...}
 
 # 6. Frontend
 cp apps/web/.env.example apps/web/.env.local
-# (deixe AZURE_AD_CLIENT_ID vazio em dev para login fake)
-pnpm --filter @uniats/web dev
-# abra http://localhost:3000 → redireciona para /vagas
+pnpm dev
+# abra http://localhost:13000 → após o login, cai em /inicio
 
 # 7. Validação rápida
 # (a) typecheck: tudo verde em apps/api e apps/web
 pnpm typecheck
 # (b) testes unitários do backend
-pnpm --filter @uniats/api test
+pnpm --filter @collab/api test
 ```
 
 **Smoke test funcional ponta-a-ponta** (precisa de credenciais reais):
 
-1. UI `/vagas` → clique "Sincronizar Gupy" → API chama `POST /api/gupy/sync/vagas` → vagas aparecem na tabela.
-2. Clique em uma vaga → `/vagas/[id]/ranking` → após o worker `embedding` processar, os candidatos rankeados aparecem com score consolidado.
-3. Clique em um candidato → `/candidaturas/[id]` → veja CV estruturado + justificativa LLM com evidências. Clique "Aprovar análise" (LGPD Art. 20).
-4. Clique "Gerar perguntas" → `POST /api/perguntas/gerar` → veja perguntas customizadas.
-5. Agende entrevista com `POST /api/entrevistas` (use cURL — UI de agendamento não está nesta versão) → clique "Iniciar bot" → MeetStream entra na sala.
-6. Após o bot terminar: webhook MeetStream → áudio é criptografado (AES-256-GCM) e salvo no MinIO → AssemblyAI gera transcrição → análise de voz é gravada → tudo aparece em `/entrevistas/[id]`.
-
-**Status verificado nesta sessão**
-
-- `pnpm typecheck` apps/api → **0 erros** ✓
-- `pnpm typecheck` apps/web → **0 erros** ✓
-- `pnpm --filter @uniats/api test` → **127/131 testes passam** ✓ (4 falhas conhecidas em testes auxiliares; 16 suites dependem do Prisma engine em runtime — passam após `pnpm db:generate`)
-
-**O que ainda fica fora do MVP atual** (próximos passos sugeridos):
-
-- Auth guard Azure AD no backend ligado em todas as rotas `/api/*` (hoje a validação acontece no frontend via MSAL; o backend confia no Bearer token sem verificar a assinatura).
-- UI de agendamento de entrevista (hoje só via cURL).
-- Job scheduler para iniciar o bot automaticamente N minutos antes do horário.
-- Apagamento real do blob de áudio no MinIO no cron de retenção (hoje só zera a referência no banco).
-- CI/CD (GitHub Actions com matrix: typecheck + test + build).
-- Observabilidade (OpenTelemetry exporter para Tempo/Jaeger + Sentry SDK).
+1. `/vagas` → "Sincronizar Gupy" (ou espere o sync agendado) → as vagas aparecem.
+2. Abra uma vaga → `/vagas/[id]/ranking` → após o worker `embedding` processar, os candidatos aparecem com score consolidado.
+3. Abra um candidato → `/candidaturas/[id]` → CV estruturado + justificativa do LLM com evidências citadas.
+4. "Gerar perguntas" → `POST /api/perguntas/gerar`.
+5. Agende a entrevista pela tela (ou proponha horários por WhatsApp e deixe o voto confirmar) → a reunião é criada no Teams.
+6. Depois da reunião: o transcript é puxado do Graph, fundido com o Whisper, censurado e exibido em `/entrevistas/[id]` com ATA e respostas por pergunta.
 
 ---
 
@@ -834,7 +827,7 @@ Faltou rodar `pnpm db:migrate`. Se o erro persistir, confira se o `DATABASE_URL`
 
 Causas mais comuns, em ordem:
 
-1. **Segredo HMAC diferente entre o painel e o `.env`**. Cole o mesmo valor exato nos dois lugares e reinicie a API (`pnpm --filter @uniats/api dev`).
+1. **Segredo HMAC diferente entre o painel e o `.env`**. Cole o mesmo valor exato nos dois lugares e reinicie a API (`pnpm --filter @collab/api dev`).
 2. **Body alterado por proxy reverso**. O ngrok normalmente preserva o body, mas se você estiver atrás de Nginx/Cloudflare, garanta que o body bruto chega no Node (a API usa `express.raw` apenas em `/webhooks/gupy`).
 3. **Cabeçalho `X-Gupy-Signature` em formato diferente do esperado** (`sha256=<hex64>`). Inspecione com:
    ```bash
@@ -884,26 +877,55 @@ redis-cli LRANGE bull:gupy-webhook:failed 0 5
 
 ---
 
-## 8. Segurança e LGPD — checklist mínimo
+## 8. Segurança e LGPD
 
-- Secrets **nunca** vão para o git. `.env` está no `.gitignore`. Use cofre da equipe.
-- `DATA_ENCRYPTION_KEY` rotaciona-se a cada 12 meses ou em incidente.
-- Logs estruturados (`pino`) redactam `Authorization`, `email`, `phone`, `cpf` em produção.
-- Webhook HMAC com `timingSafeEqual` — sem oracle de timing.
-- Download de currículo só aceita `https://` — defesa SSRF.
-- Soft delete (`excluido_em`) padrão para entidades com PII.
-- Auditoria: `registro_auditoria` é append-only (trigger SQL bloqueia DELETE).
-- Retenção: áudio 90 dias, transcrição 12 meses (variáveis no `.env`).
+**Minimização na entrada.** Os schemas Zod da Gupy são **allowlist**: campo não declarado
+morre no parse, antes de tocar banco, fila, log ou prompt. Com `?fields=all` a Gupy devolve
+o cadastro completo — CPF, data de nascimento, gênero, raça, **deficiência**, endereço
+completo, e respostas de formulário que incluem altura e peso. Nada disso entra.
+O payload bruto de candidato e candidatura **não é persistido**.
+
+> Ao acrescentar um campo ao schema, pergunte a finalidade antes. E **nunca** declare
+> `additionalQuestions` da candidatura em bloco — é por onde chegam perguntas de saúde.
+
+**Censura antes de persistir.** Transcrição e resumo passam pelo `RedacaoService` (regex +
+semântica via Claude) e o banco só recebe texto censurado. Ver seção 6.4.
+
+**Decisão humana.** Os scores da IA são sugestão. Mover ou reprovar candidato grava a
+revisão humana em `scores` (Art. 20). Critérios da avaliação documentados em
+[`docs/ranking-criterios.md`](docs/ranking-criterios.md) — exigência do Art. 20 sobre
+informação a respeito dos critérios.
+
+**Operacional.** Secrets fora do git (`.env` no `.gitignore`; em produção vêm do secret
+`ENV_PRODUCTION`). Logs `pino` redactam `Authorization`, `email`, `phone`, `cpf`.
+Webhooks com HMAC e `timingSafeEqual`. Soft delete (`excluido_em`) nas entidades com PII.
+`registro_auditoria` é append-only.
+
+**Retenção.** Transcrição 12 meses (`RETENCAO_TRANSCRICAO_DIAS`, aplicado na criação).
+⚠️ `RETENCAO_CV_DIAS` está declarada mas **não há rotina de retenção de currículo** —
+currículos, candidatos e candidaturas ficam indefinidamente. Item aberto, junto com a
+ausência de um fluxo de exclusão a pedido do titular (Art. 18).
 
 ---
 
-## 9. Próximos passos do roadmap
+## 9. Itens abertos
 
-1. **Camada 2** — parsing de currículo (pdfjs / docx → texto limpo) + storage no MinIO.
-2. **Camada 3** — embeddings Voyage AI + ranking via Claude Sonnet 4.6 com justificativa por candidato.
-3. **Camada 4** — mensageria Z-API (WhatsApp) e SendGrid (e-mail) com templates aprovados pelo DHO.
-4. **Camada 5** — bot do Meet (MeetStream) + transcrição (AssemblyAI Universal-2) + análise de voz.
-5. Painel web (Next.js + Tailwind) com SSO Azure AD e RBAC (Recrutador / Gestor / Admin).
+Pendências conhecidas, para quem for pegar o projeto:
+
+1. **Retenção de currículo e exclusão a pedido do titular** (Art. 18) — não existem.
+2. **Consentimento**: `consentimento_lgpd_em` nunca preenchido; consentimento de gravação
+   não bloqueia a transcrição. Ver seções 6.4 e 6.5.2.
+3. **E-mail inoperante**: o cliente SendGrid está pronto, mas sem `SENDGRID_API_KEY` todo
+   envio falha.
+4. **Currículo em PDF**: a Gupy **não expõe arquivo de currículo** nesta API — o ranking
+   trabalha só com o perfil estruturado dela. O pipeline `cv-download`/`cv-parse` existe
+   mas nunca é acionado.
+5. **Rebrand técnico** (pacotes `@collab/*`, domínio, containers) — previsto para a virada
+   do servidor, junto com a conta de serviço da agenda e a rotação de segredos.
+6. **Módulos do DHO** (Admissão, Alteração Contratual, Offboarding): implementados, ocultos,
+   com conectores Senior/Autentique em modo simulado.
+7. **Dependências**: auditoria acusa vulnerabilidades altas, com destaque para o Next.js
+   (upgrade de major pendente).
 
 ---
 

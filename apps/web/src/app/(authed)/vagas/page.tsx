@@ -1,7 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
@@ -53,6 +61,16 @@ function opcoesPessoas(
   );
 }
 
+/** Valida o valor de ?pendencia= (deep-link do painel inicial). */
+const PENDENCIAS_VALIDAS = [
+  'sem_candidatura',
+  'candidaturas_paradas',
+  'enquete_sem_resposta',
+];
+function validarPendencia(valor: string | null): string {
+  return valor && PENDENCIAS_VALIDAS.includes(valor) ? valor : '';
+}
+
 /** Local exibido/filtrado — mesma regra da coluna da tabela. */
 function localDaVaga(v: VagaResumo): string {
   return v.remoto
@@ -73,7 +91,18 @@ function opcoesTexto(
   return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 
+// useSearchParams exige Suspense no page (regra do App Router no build).
 export default function VagasPage() {
+  return (
+    <Suspense
+      fallback={<div className="text-sm text-grafite-400 p-4">Carregando…</div>}
+    >
+      <VagasPageInner />
+    </Suspense>
+  );
+}
+
+function VagasPageInner() {
   // O sync org-wide da Gupy exige área recrutamento/admin (guard na API);
   // gestor sem essas áreas nem vê o botão — clicar só renderia um 403.
   const { podeVerTudo, apenasGestaoAcessos } = useAuth();
@@ -85,6 +114,16 @@ export default function VagasPage() {
       window.location.replace('/configuracoes/usuarios');
     }
   }, [apenasGestaoAcessos]);
+  // Deep-link do painel inicial: /vagas?pendencia=... abre já filtrado (e com
+  // o painel de filtros visível, para o recrutador ver o que está aplicado).
+  // useSearchParams (e não window.location): na navegação client-side o
+  // location ainda pode apontar pra URL anterior, e navegar de novo para
+  // /vagas com outra query não remonta o componente. Inicializar o estado
+  // DIRETO da URL evita o 1º fetch sem filtro (que, mais lento, terminava
+  // depois do filtrado e sobrescrevia a lista).
+  const searchParams = useSearchParams();
+  const pendenciaUrl = validarPendencia(searchParams.get('pendencia'));
+
   const [vagas, setVagas] = useState<VagaResumo[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
@@ -92,15 +131,33 @@ export default function VagasPage() {
   // Filtros por pessoa — client-side sobre a lista carregada (≤200 vagas),
   // pela chave e-mail/nome. '' = todos. Ficam atrás do botão "Filtros" para
   // não poluir a barra de busca.
-  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(Boolean(pendenciaUrl));
   const [gestorFiltro, setGestorFiltro] = useState('');
   const [recrutadorFiltro, setRecrutadorFiltro] = useState('');
   const [departamentoFiltro, setDepartamentoFiltro] = useState('');
   const [localFiltro, setLocalFiltro] = useState('');
+  // Pendência — server-side, mesmas definições do "Precisa de você" do início.
+  const [pendenciaFiltro, setPendenciaFiltro] = useState(pendenciaUrl);
+
+  // Cobre a navegação para /vagas com OUTRA query com a página já montada
+  // (ex.: clicar em outro card do "Precisa de você").
+  useEffect(() => {
+    if (pendenciaUrl) {
+      setPendenciaFiltro(pendenciaUrl);
+      setStatusFiltro('PUBLICADA');
+      setFiltrosAbertos(true);
+    }
+  }, [pendenciaUrl]);
   const [sincronizando, setSincronizando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
+  // Respostas fora de ordem (ex.: fetch antigo mais lento sobrescrevendo o
+  // atual): cada carregar() aborta o anterior e ignora resposta abortada.
+  const abortRef = useRef<AbortController | null>(null);
   const carregar = useCallback(async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setErro(null);
     try {
       const resp = await api<{ total: number; itens: VagaResumo[] }>(
@@ -111,17 +168,20 @@ export default function VagasPage() {
             // todos os status é escolha deliberada ('TODOS').
             status: statusFiltro,
             q: busca || undefined,
+            pendencia: pendenciaFiltro || undefined,
             limite: 200,
           },
+          signal: ctrl.signal,
         },
       );
       setVagas(resp.itens);
     } catch (err) {
+      if (ctrl.signal.aborted) return; // requisição substituída — ignora
       setVagas([]);
       if (err instanceof ApiError) setErro(err.message);
       else setErro('Falha ao carregar vagas.');
     }
-  }, [busca, statusFiltro]);
+  }, [busca, statusFiltro, pendenciaFiltro]);
 
   useEffect(() => {
     void carregar();
@@ -141,7 +201,8 @@ export default function VagasPage() {
     (gestorFiltro ? 1 : 0) +
     (recrutadorFiltro ? 1 : 0) +
     (departamentoFiltro ? 1 : 0) +
-    (localFiltro ? 1 : 0);
+    (localFiltro ? 1 : 0) +
+    (pendenciaFiltro ? 1 : 0);
   const vagasFiltradas = useMemo(
     () =>
       (vagas ?? []).filter(
@@ -353,6 +414,32 @@ export default function VagasPage() {
               ))}
             </select>
           </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-grafite-400">
+              Pendência
+            </span>
+            <select
+              className="w-72 border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white"
+              value={pendenciaFiltro}
+              onChange={(e) => {
+                setPendenciaFiltro(e.target.value);
+                // Pendência é definida sobre vagas NO AR (mesma regra do início).
+                if (e.target.value) setStatusFiltro('PUBLICADA');
+              }}
+              title="Mesmas pendências do card 'Precisa de você' da página inicial."
+            >
+              <option value="">Todas as vagas</option>
+              <option value="sem_candidatura">
+                Sem candidatura (no ar há +14 dias)
+              </option>
+              <option value="candidaturas_paradas">
+                Com candidaturas paradas (+7 dias, sem entrevista)
+              </option>
+              <option value="enquete_sem_resposta">
+                Com enquete de horários sem resposta (+24h)
+              </option>
+            </select>
+          </label>
           {qtdFiltrosAtivos > 0 && (
             <button
               type="button"
@@ -362,6 +449,7 @@ export default function VagasPage() {
                 setRecrutadorFiltro('');
                 setDepartamentoFiltro('');
                 setLocalFiltro('');
+                setPendenciaFiltro('');
               }}
             >
               Limpar filtros

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import type { Route } from 'next';
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import type {
@@ -406,34 +407,35 @@ function Pendencias({ dados }: { dados: DashboardDTO }) {
       texto: 'Enquetes sem resposta há +24h',
       detalhe: 'candidato ainda não votou nos horários',
       tom: 'bad',
+      href: '/vagas?pendencia=enquete_sem_resposta',
     },
     {
       qtd: p.entrevistasSemParecer,
       texto: 'Entrevistas sem parecer final',
       detalhe: 'finalizadas nos últimos 60 dias',
       tom: 'warn',
-      href: '/entrevistas',
+      href: '/entrevistas?pendencia=sem_parecer',
     },
     {
       qtd: p.candidaturasParadas,
       texto: 'Candidaturas paradas há +7 dias',
       detalhe: 'aprovadas na triagem, sem entrevista',
       tom: 'warn',
-      href: '/vagas',
+      href: '/vagas?pendencia=candidaturas_paradas',
     },
     {
       qtd: p.noShows7d,
       texto: 'No-shows para reagendar',
       detalhe: 'últimos 7 dias',
       tom: 'bad',
-      href: '/entrevistas',
+      href: '/entrevistas?status=NAO_COMPARECEU',
     },
     {
       qtd: p.vagasSemCandidatura,
       texto: 'Vagas no ar sem candidatura',
       detalhe: 'publicadas há mais de 14 dias',
       tom: 'info',
-      href: '/vagas',
+      href: '/vagas?pendencia=sem_candidatura',
     },
   ];
   const linhas = todas.filter((l) => l.qtd > 0);
@@ -467,7 +469,7 @@ function Pendencias({ dados }: { dados: DashboardDTO }) {
           </div>
           {l.href && (
             <Link
-              href={l.href as '/entrevistas' | '/vagas'}
+              href={l.href as Route}
               className="text-xs font-medium text-unifique-700 dark:text-unifique-400 hover:underline shrink-0"
             >
               Ver →

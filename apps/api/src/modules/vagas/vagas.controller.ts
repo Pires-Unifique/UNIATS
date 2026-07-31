@@ -108,6 +108,7 @@ export class VagasController {
     @Query('status') status?: string,
     @Query('q') q?: string,
     @Query('limite') limiteStr?: string,
+    @Query('pendencia') pendencia?: string,
   ) {
     let limite = 50;
     if (limiteStr) {
@@ -133,6 +134,51 @@ export class VagasController {
         { titulo: { contains: q, mode: 'insensitive' } },
         { codigo: { contains: q, mode: 'insensitive' } },
       ];
+    }
+    // Filtro de PENDÊNCIA — mesmas definições do card "Precisa de você" do
+    // painel inicial (dashboard.service), para o "Ver →" abrir a lista já
+    // filtrada. Pendência só faz sentido em vaga NO AR: sobrepõe o status.
+    if (pendencia) {
+      const agora = Date.now();
+      const ha24h = new Date(agora - 24 * 60 * 60 * 1000);
+      const ha7d = new Date(agora - 7 * 24 * 60 * 60 * 1000);
+      const ha14d = new Date(agora - 14 * 24 * 60 * 60 * 1000);
+      where.status = 'PUBLICADA';
+      if (pendencia === 'enquete_sem_resposta') {
+        // Tem enquete de horários aguardando voto do candidato há +24h.
+        where.candidaturas = {
+          some: {
+            enquetes_horario: {
+              some: { status: 'AGUARDANDO', criado_em: { lt: ha24h } },
+            },
+          },
+        };
+      } else if (pendencia === 'sem_candidatura') {
+        // Publicada há +14 dias e nenhuma candidatura.
+        where.candidaturas = { none: {} };
+        where.AND = [
+          {
+            OR: [
+              { data_publicacao: { lt: ha14d } },
+              { data_publicacao: null, criado_em: { lt: ha14d } },
+            ],
+          },
+        ];
+      } else if (pendencia === 'candidaturas_paradas') {
+        // Tem candidato aprovado na triagem parado há +7 dias sem entrevista.
+        where.candidaturas = {
+          some: {
+            status: 'APROVADO_TRIAGEM',
+            entrevistas: { none: {} },
+            OR: [
+              { movido_em: { lt: ha7d } },
+              { movido_em: null, criado_em: { lt: ha7d } },
+            ],
+          },
+        };
+      } else {
+        throw new BadRequestException(`pendencia inválida: ${pendencia}`);
+      }
     }
     // Gestor/visualizador: restringe às vagas dele.
     const escopo = escopoPorArea(usuario);
