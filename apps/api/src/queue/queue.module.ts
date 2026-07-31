@@ -42,7 +42,7 @@ export const QUEUE_NAMES = {
         const url = config.getOrThrow<string>('REDIS_URL');
         return {
           connection: { url } as any, // ioredis aceita a URL
-          prefix: config.get<string>('REDIS_QUEUE_PREFIX') ?? 'uniats',
+          prefix: config.get<string>('REDIS_QUEUE_PREFIX') ?? 'collab',
           defaultJobOptions: {
             attempts: 5,
             backoff: { type: 'exponential', delay: 1000 },

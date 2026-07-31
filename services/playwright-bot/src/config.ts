@@ -22,7 +22,7 @@ const envBool = (def: boolean) =>
 const Schema = z.object({
   // Fila — DEVE casar com REDIS_URL/REDIS_QUEUE_PREFIX/QUEUE_NAMES da API.
   REDIS_URL: z.string().url().startsWith('redis'),
-  REDIS_QUEUE_PREFIX: z.string().min(1).default('uniats'),
+  REDIS_QUEUE_PREFIX: z.string().min(1).default('collab'),
   PLAYWRIGHT_QUEUE: z.string().min(1).default('playwright-join'),
   PLAYWRIGHT_CONCURRENCY: z.coerce.number().int().positive().default(2),
 

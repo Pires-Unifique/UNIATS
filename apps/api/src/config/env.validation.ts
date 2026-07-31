@@ -16,11 +16,11 @@ const EnvSchema = z.object({
 
   DATABASE_URL: z.string().url().startsWith('postgres'),
   REDIS_URL: z.string().url().startsWith('redis'),
-  // NÃO renomeie para 'collab' no ambiente atual: o prefixo é parte da chave de
-  // toda fila no Redis. Trocar abandona os jobs em voo (transcrição, embedding,
-  // mensagem) — eles ficam num namespace que nenhum worker escuta mais. Nasce
-  // com o nome certo no servidor novo.
-  REDIS_QUEUE_PREFIX: z.string().min(1).default('uniats'),
+  // O prefixo é parte da chave de TODA fila no Redis. Trocá-lo em sistema vivo
+  // abandona os jobs em voo (transcrição, embedding, mensagem) num namespace que
+  // nenhum worker escuta — por isso a passagem de 'uniats' para 'collab' foi
+  // feita junto com o wipe da base (docs/wipe-base-rebrand.md), não sozinha.
+  REDIS_QUEUE_PREFIX: z.string().min(1).default('collab'),
 
   // Azure AD (login dos usuários internos).
   // MVP: autenticação local de dev — Azure AD opcional até o SSO ser ligado.

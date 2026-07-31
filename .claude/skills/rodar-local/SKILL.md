@@ -47,7 +47,7 @@ Existem **dois `DATABASE_URL` apontando para bancos diferentes**:
 
 | Arquivo | Banco | Quem usa |
 |---|---|---|
-| `.env` (raiz) | `uniats` | a **API** |
+| `.env` (raiz) | `collab` | a **API** |
 | `packages/db/.env` | `triagem` | o **Prisma CLI** (migrate/seed/studio) |
 
 Ou seja: `prisma migrate deploy` sem override migra o banco **errado** e o app continua

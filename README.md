@@ -4,14 +4,18 @@ Plataforma interna da Unifique que puxa candidatos da Gupy, ranqueia por aderên
 com apoio de IA, conduz a comunicação com o candidato (WhatsApp/e-mail), agenda a
 entrevista no Teams e transcreve a conversa. Minimização e LGPD por construção.
 
-> **Nome:** o produto é **Collab** (`collab.unifique.com.br`, API em
-> `api-collab.unifique.com.br`), e os pacotes e containers acompanham (`@collab/*`,
-> `collab-api`, `collab-web`). Quatro identificadores **continuam `uniats` de propósito**,
-> porque renomeá-los em sistema vivo destrói ou abandona dado: usuário/banco do Postgres,
-> `STORAGE_BUCKET`, `REDIS_QUEUE_PREFIX` e os volumes Docker (pinados em `uniats_*` no
-> `docker-compose.prod.yml`). Somam-se a eles o `AZURE_AD_AUDIENCE` (`api://uniats-api`,
-> identificador do app no Entra) e a label do runner. Todos nascem com o nome certo, de
-> graça, na virada para o servidor novo.
+> **Nome:** o produto é **Collab** — `collab.unifique.com.br`, API em
+> `api-collab.unifique.com.br` —, e os identificadores técnicos acompanham:
+> pacotes `@collab/*`, containers e imagens `collab-*`, volumes `collab_*`, banco e
+> usuário `collab`, `STORAGE_BUCKET=collab`, `REDIS_QUEUE_PREFIX=collab`. A troca do
+> banco/bucket/fila só foi possível porque a base de homologação foi **zerada** na
+> virada do nome — em sistema vivo ela destruiria ou abandonaria dado. Ver o runbook
+> em [docs/wipe-base-rebrand.md](docs/wipe-base-rebrand.md).
+>
+> Dois identificadores **seguem `uniats` de propósito**, e nenhum tem relação com o
+> banco: o `AZURE_AD_AUDIENCE` (`api://uniats-api` — identificador opaco do app no
+> Entra; trocar invalida todo token emitido) e a label do runner (`uniats-prod` — é o
+> registro do runner na máquina). Ambos têm comentário no lugar explicando o porquê.
 
 > **Fase 1:** a entrega atual foca em **Recrutamento & Seleção**. Os módulos de Admissão
 > e Administração de Pessoas (Alteração Contratual e Offboarding) existem no código, mas

@@ -11,11 +11,10 @@
 # Pré-requisito: infra/.env.production preenchido (ver .env.production.example).
 # =====================================================================
 
-# Prefixo dos containers (collab-api-1, collab-web-1, ...). ATENÇÃO: este nome
-# também prefixa os volumes nomeados. Os volumes já existentes no servidor
-# nasceram como `uniats_*`, então cada um está PINADO no nome físico lá embaixo
-# (`name: uniats_...`) — sem isso, o rename faria o Docker criar volumes novos
-# e vazios: Postgres em branco, MinIO em branco e WAHA pedindo QR de novo.
+# Prefixo dos containers (collab-api-1, collab-web-1, ...) e dos volumes
+# nomeados (collab_pgdata, ...). Os volumes `uniats_*` da stack anterior NÃO são
+# reaproveitados: a base foi zerada de propósito na virada do nome, então tudo
+# nasce com o nome certo. Ver o runbook em docs/wipe-base-rebrand.md.
 name: collab
 
 services:
@@ -23,14 +22,14 @@ services:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: uniats
+      POSTGRES_USER: collab
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env.production}
-      POSTGRES_DB: uniats
+      POSTGRES_DB: collab
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U uniats -d uniats"]
+      test: ["CMD-SHELL", "pg_isready -U collab -d collab"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -170,18 +169,12 @@ services:
       redis: { condition: service_healthy }
       api: { condition: service_started }
 
-# Nomes FÍSICOS preservados de propósito (era o projeto `uniats`). Não troque
-# para `collab_*` em sistema vivo: o Docker não renomeia volume, ele criaria
-# outro vazio e a stack subiria sem banco, sem arquivos e sem pareamento do
-# WhatsApp. Os nomes certos nascem de graça no servidor novo.
+# Sem `name:` explícito: o Docker prefixa com o projeto (`collab_pgdata`, ...).
+# Os volumes `uniats_*` antigos continuam no disco do servidor até serem
+# removidos à mão — o wipe faz isso; ver docs/wipe-base-rebrand.md.
 volumes:
   pgdata:
-    name: uniats_pgdata
   redisdata:
-    name: uniats_redisdata
   miniodata:
-    name: uniats_miniodata
   wahasessions:
-    name: uniats_wahasessions
   whispercache:
-    name: uniats_whispercache
