@@ -324,7 +324,56 @@ sudo -n true && echo "sudo ok (sem travar)"            # valida o risco 1
 > todo em território da infra (Zabbix, possivelmente AD). Renomear agora é opcional
 > — se for adiar, não há nenhuma pendência técnica gerada por isso.
 
-## 8. Rollback
+## 8. O que pode quebrar o CI/CD
+
+### ⚠️ 8.1 Conflito de porta — o mais provável
+
+O job de deploy roda `docker compose up -d`. Como o projeto agora se chama
+`collab`, o compose cria uma stack **nova** em vez de recriar a existente. Se a
+stack `uniats-*` ainda estiver de pé, ela segura `127.0.0.1:13000` e `:13001`, e os
+containers novos morrem com *port is already allocated* → **o job de deploy falha**.
+
+Por isso a ordem do passo 3.1 (derrubar com `-p uniats`) é **antes do merge**, não
+depois. Há um intervalo de app fora do ar entre derrubar e o CD subir — aceitável
+em homologação.
+
+### ⚠️ 8.2 Secret desatualizado derruba o `migrate deploy`
+
+O job de deploy roda as migrations lendo `DATABASE_URL` do `.env.production`, que é
+escrito a partir do secret `ENV_PRODUCTION`. Se o secret ainda apontar usuário/banco
+`uniats` enquanto o Postgres novo nasce como `collab`, o passo de migration falha e
+**derruba o deploy inteiro**. Atualize o secret (seção 2) antes do merge.
+
+### ✅ 8.3 `--frozen-lockfile` — validado
+
+O maior risco do rename de pacotes era o `pnpm install --frozen-lockfile` dos
+Dockerfiles recusar o `pnpm-lock.yaml` regerado. **Testado em 31/07 rodando
+localmente os mesmos dois comandos do CI**, e ambos passaram:
+
+```bash
+docker build -f Dockerfile.api --target test -t collab-api-test:local .   # 38 suites / 392 testes OK
+docker build -f Dockerfile.web --target test -t collab-web-test:local .   # typecheck OK
+```
+
+### ✅ 8.4 O que não quebra
+
+- **Label do runner**: ficou `uniats-prod` de propósito — o job continua achando executor.
+- **Imagens de teste**: viraram `collab-*-test`, e o prune do CI passou a casar
+  `(collab|uniats)-*-test`, então as antigas continuam sendo varridas.
+
+### 8.5 Disco (histórico de ENOSPC nesta máquina)
+
+`uniats-api:latest` e `uniats-web:latest` **mantêm as tags**, e `docker image prune -f`
+só remove imagem *dangling* — então elas ficam ocupando ~1–2 GB indefinidamente, além
+dos ~7 GB de build cache medidos em 31/07. Depois que a stack nova estiver de pé e
+validada:
+
+```bash
+docker rmi uniats-api:latest uniats-web:latest uniats-playwright-bot:latest
+docker builder prune -af --keep-storage=12g
+```
+
+## 9. Rollback
 
 Depois do passo 3.4 **não há rollback dos dados** — os volumes foram removidos.
 O que se desfaz é o código: `git revert` dos commits do rebrand devolve os nomes
