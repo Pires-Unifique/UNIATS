@@ -18,63 +18,52 @@ PSQL="$COMPOSE exec -T postgres psql -U uniats -d uniats"   # usuário ANTIGO, a
 
 ---
 
-## 1. ANTES de zerar — o que não se recupera depois
+## 1. ANTES de zerar — uma conferência de 30 segundos
 
-### 1.1 Holds na agenda do Outlook (faça isso primeiro)
-
-Os holds tentativos de pré-reserva são eventos reais na agenda do recrutador/gestor.
-A [limpeza automática](../apps/api/src/modules/interview/services/pre-reserva-cleanup.service.ts)
-acha esses eventos pela coluna `holds` (JSON com `eventId`) da tabela
-`enquetes_horario`. **Zerado o banco, nada mais sabe quais eventos são holds** —
-eles ficam presos na agenda para sempre, bloqueando horários.
-
-Quantos existem:
+**Contexto (2026-07-31):** o sistema não está em uso por ninguém — só testes do
+próprio Guilherme, e ele confirmou que não há holds pendentes na agenda. Por isso
+esta seção é **verificação**, não procedimento. Rode as três queries de uma vez;
+se vierem todas vazias, siga direto para a seção 2.
 
 ```sql
-SELECT status, count(*)
-FROM enquetes_horario
-WHERE holds IS NOT NULL
-GROUP BY status;
+-- (a) Holds de pré-reserva ainda presos em alguma agenda
+SELECT status, count(*) FROM enquetes_horario WHERE holds IS NOT NULL GROUP BY status;
+
+-- (b) Enquete de WhatsApp aguardando voto
+SELECT count(*) FROM enquetes_horario WHERE status = 'AGUARDANDO';
+
+-- (c) Chaves de API ativas
+SELECT nome, prefixo, criado_em FROM chaves_api WHERE revogada_em IS NULL;
 ```
 
-Se houver algum, a via prática é o **Outlook**: os holds são criados com a
-categoria `Pré-reserva UniATS` (eventos antigos mantêm a categoria antiga — o
-rebrand só afeta os novos). Filtre a agenda por essa categoria e apague em lote.
+### Se (a) voltar com linhas
 
+Os holds são eventos reais na agenda. A
+[limpeza automática](../apps/api/src/modules/interview/services/pre-reserva-cleanup.service.ts)
+acha esses eventos pela coluna `holds` (JSON com `eventId`), e **zerado o banco
+nada mais sabe quais eventos do Outlook são holds** — ficam presos para sempre.
+Via prática: no Outlook, filtrar pela categoria `Pré-reserva UniATS` (eventos
+antigos mantêm a categoria antiga — o rebrand só afeta os novos) e apagar em lote.
 Para saber em quais caixas procurar:
 
 ```sql
 SELECT DISTINCT jsonb_array_elements(holds::jsonb) ->> 'participante' AS caixa
-FROM enquetes_horario
-WHERE holds IS NOT NULL;
+FROM enquetes_horario WHERE holds IS NOT NULL;
 ```
 
-### 1.2 Enquetes de WhatsApp em voo
+### Se (b) voltar com linhas
 
 O voto casa por `provider_msg_id`. Depois do wipe, quem votar numa enquete já
 enviada cai no log `Voto de enquete sem enquete correspondente` e **o voto é
 descartado em silêncio** — para o candidato, ele respondeu e nada aconteceu.
+Reenvie a enquete depois do wipe.
 
-```sql
-SELECT id, candidatura_id, criado_em
-FROM enquetes_horario
-WHERE status = 'AGUARDANDO'
-ORDER BY criado_em DESC;
-```
+### Se (c) voltar com linhas
 
-Se houver candidato aguardando, decida: avisar por mensagem que o horário será
-reenviado, ou aceitar a perda e reenviar a enquete depois do wipe.
+Só o `sha256` vai ao banco: as chaves **não** são recuperáveis, apenas reemitidas.
+Anote os nomes para reemitir e avisar quem consome.
 
-### 1.3 Chaves de API
-
-Só o `sha256` vai ao banco — não há como recuperar as chaves, apenas reemitir.
-Anote quem existe para avisar os consumidores:
-
-```sql
-SELECT nome, prefixo, criado_em, revogada_em FROM chaves_api ORDER BY criado_em;
-```
-
-### 1.4 O que NÃO precisa de ação
+### O que NÃO precisa de ação
 
 - **Vagas, candidatos, candidaturas, embeddings** — voltam pelo sync da Gupy (passo 5).
 - **Admin** — volta no primeiro login pela allowlist `AUTH_ADMIN_EMAILS`.
@@ -231,7 +220,57 @@ pnpm --filter @collab/db run seed
 
 ---
 
-## 7. Rollback
+## 7. Apêndice — renomear o hostname do servidor (`TIO-TI-UNIATS-HML`)
+
+**Opcional e independente do wipe.** Nada na aplicação depende do hostname:
+
+- O código **nunca** lê `os.hostname()` — conferido em `apps/`, `packages/` e `services/`.
+- Os containers se falam pelo DNS interno do compose (`postgres`, `redis`, `minio`,
+  `api`), não pelo nome do host.
+- O `server_name` do nginx e o CN/SAN do certificado usam o FQDN público
+  (`collab.unifique.com.br`), não o hostname da máquina.
+- O proxy corporativo aponta para o **IP** `10.252.5.37`, e o script de firewall
+  também trabalha com IP. SSH por IP, idem.
+- O runner do GitHub Actions **não** quebra: o nome dele foi fixado no arquivo
+  `.runner` no momento do registro e não é re-derivado do hostname. Ele só continua
+  aparecendo com o nome antigo na UI. Quem deriva de `$(hostname)` é apenas o
+  `--name` em `infra/setup-server.sh`, que só roda ao (re)registrar o runner.
+
+### Os três riscos reais
+
+1. **`/etc/hosts` — a que morde todo mundo.** Trocar `/etc/hostname` sem atualizar
+   `/etc/hosts` faz **todo `sudo` travar 10–30 s** com `sudo: unable to resolve
+   host`, porque a resolução reversa do nome novo falha. Troque os dois juntos.
+
+2. **Zabbix (porta 10050 liberada no firewall).** O agente se identifica ao
+   servidor pelo `Hostname=` do `zabbix_agentd.conf`. Se estiver com
+   `HostnameItem=system.hostname` (automático), o nome muda, **o servidor Zabbix
+   deixa de casar o host e o monitoramento morre em silêncio**. Se estiver
+   hardcoded, continua funcionando com o nome velho. Confira antes:
+   `grep -E '^\s*(Hostname|HostnameItem)' /etc/zabbix/zabbix_agent*.conf`.
+   Monitoramento é da infra — alinhe com eles.
+
+3. **Se a máquina for joined ao domínio AD** (o padrão do nome sugere isso):
+   renomear host com SSSD/realmd invalida a conta de máquina e exige sair e
+   re-joinar. Verifique com `realm list` e `systemctl status sssd` — se ambos
+   vierem vazios/inexistentes, não há esse risco.
+
+### Como fazer, se for fazer
+
+```bash
+NOVO=TIO-TI-COLLAB-HML
+sudo hostnamectl set-hostname "$NOVO"
+sudo sed -i "s/TIO-TI-UNIATS-HML/$NOVO/g" /etc/hosts   # confira o arquivo antes
+hostname; hostnamectl status
+sudo -n true && echo "sudo ok (sem travar)"            # valida o risco 1
+```
+
+> **Recomendação:** um servidor novo será provisionado antes da implantação total,
+> e ele nasce com o nome certo de graça. O ganho aqui é só cosmético e o risco vive
+> todo em território da infra (Zabbix, possivelmente AD). Renomear agora é opcional
+> — se for adiar, não há nenhuma pendência técnica gerada por isso.
+
+## 8. Rollback
 
 Depois do passo 3.4 **não há rollback dos dados** — os volumes foram removidos.
 O que se desfaz é o código: `git revert` dos commits do rebrand devolve os nomes
