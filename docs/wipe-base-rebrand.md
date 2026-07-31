@@ -108,11 +108,22 @@ Anote os nomes para reemitir e avisar quem consome.
 
 ## 2. Atualizar o secret `ENV_PRODUCTION` — antes do deploy
 
-É lá que mora a config real, não no arquivo local. Precisa mudar junto:
+É lá que mora a config real, não no arquivo local.
+
+> ⚠️ **NÃO substitua o secret pelo `infra/.env.production` local.** Medido em 31/07: o
+> arquivo local define **58 chaves menos** que o app suporta — entre elas o pacer
+> anti-ban do WhatsApp (`WHATSAPP_CAP_DIARIO`, `WHATSAPP_PACING`, janela, jitter), as
+> janelas de retenção LGPD (`RETENCAO_AUDIO_DIAS`, `RETENCAO_TRANSCRICAO_DIAS`,
+> `RETENCAO_CV_DIAS`), `REDACAO_SEMANTICA_ENABLED` e `GUPY_SYNC_CRON_TETO_CVS`. Se o
+> secret tiver alguma dessas ajustada, colar o arquivo inteiro a devolve ao default **em
+> silêncio** — e o teto diário do WhatsApp é ramped up à mão, então perdê-lo é convite a
+> novo banimento. **Edite apenas as linhas abaixo, dentro do secret.**
+
+Precisa mudar:
 
 | Variável | Valor novo |
 |---|---|
-| `DATABASE_URL` | `postgresql://collab:<senha>@postgres:5432/collab?schema=public&connection_limit=20` |
+| `DATABASE_URL` | trocar **usuário E banco**, preservando a senha: `postgresql://`~~`uniats`~~`collab``:<MESMA senha>@postgres:5432/`~~`uniats`~~`collab``?schema=public&connection_limit=20` |
 | `REDIS_QUEUE_PREFIX` | `collab` |
 | `STORAGE_BUCKET` | `collab` |
 | `STORAGE_ACCESS_KEY` | `collab` (é o `MINIO_ROOT_USER`) |
