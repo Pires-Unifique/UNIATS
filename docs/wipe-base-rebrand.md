@@ -10,55 +10,87 @@ de desenvolvimento, que também precisa ser zerada (usa bind mount).
 > **Ordem importa.** Os passos da seção 1 são irreversíveis se você pular: depois
 > do wipe, não existe mais no mundo a informação necessária para executá-los.
 
+### Pré-requisito de acesso (levantado em 2026-07-31)
+
+O checkout fica em **`/opt/actions-runner/_work/UNIATS/UNIATS`** — é a árvore do
+runner, dona do usuário do runner (grupo `suporte-n2`). Duas consequências práticas:
+
+- **`git` não está instalado no host.** Não conte com comandos git no servidor.
+- **Sua conta pessoal não lê esse diretório.** Todo comando que usa o arquivo do
+  compose (`down`, `up`, `run`) precisa de `sudo` ou de rodar como o usuário do
+  runner. Resolva isso **antes** de começar, ou você trava no meio.
+
+Os comandos que usam apenas `docker` (`docker rm`, `docker volume rm`,
+`docker exec`, `docker inspect`) **não** dependem do repo e funcionam com sua conta,
+desde que ela esteja no grupo `docker`.
+
 ```bash
 # Atalho usado no resto do documento (rode na raiz do checkout do repo):
+cd /opt/actions-runner/_work/UNIATS/UNIATS
 COMPOSE="docker compose --env-file infra/.env.production -f infra/docker-compose.prod.yml"
-PSQL="$COMPOSE exec -T postgres psql -U uniats -d uniats"   # usuário ANTIGO, antes do wipe
+PSQL="docker exec -i uniats-postgres-1 psql -U uniats -d uniats"   # usuário ANTIGO, antes do wipe
 ```
+
+> O `PSQL` acima usa `docker exec` direto (não o compose) justamente para não
+> depender de ler o repo nas conferências da seção 1.
 
 ---
 
-## 1. ANTES de zerar — uma conferência de 30 segundos
+## 1. ANTES de zerar — liberar os holds da agenda (obrigatório)
 
-**Contexto (2026-07-31):** o sistema não está em uso por ninguém — só testes do
-próprio Guilherme, e ele confirmou que não há holds pendentes na agenda. Por isso
-esta seção é **verificação**, não procedimento. Rode as três queries de uma vez;
-se vierem todas vazias, siga direto para a seção 2.
+Conferência (rode as três de uma vez):
 
 ```sql
--- (a) Holds de pré-reserva ainda presos em alguma agenda
-SELECT status, count(*) FROM enquetes_horario WHERE holds IS NOT NULL GROUP BY status;
-
--- (b) Enquete de WhatsApp aguardando voto
-SELECT count(*) FROM enquetes_horario WHERE status = 'AGUARDANDO';
-
--- (c) Chaves de API ativas
-SELECT nome, prefixo, criado_em FROM chaves_api WHERE revogada_em IS NULL;
+SELECT 'holds presos' AS check, count(*) FROM enquetes_horario WHERE holds IS NOT NULL
+UNION ALL SELECT 'enquete aguardando voto', count(*) FROM enquetes_horario WHERE status='AGUARDANDO'
+UNION ALL SELECT 'chaves de API ativas', count(*) FROM chaves_api WHERE revogado_em IS NULL;
 ```
 
-### Se (a) voltar com linhas
+> A coluna é `revogado_em` (masculino), não `revogada_em`.
 
-Os holds são eventos reais na agenda. A
-[limpeza automática](../apps/api/src/modules/interview/services/pre-reserva-cleanup.service.ts)
-acha esses eventos pela coluna `holds` (JSON com `eventId`), e **zerado o banco
-nada mais sabe quais eventos do Outlook são holds** — ficam presos para sempre.
-Via prática: no Outlook, filtrar pela categoria `Pré-reserva UniATS` (eventos
-antigos mantêm a categoria antiga — o rebrand só afeta os novos) e apagar em lote.
-Para saber em quais caixas procurar:
+**Medido em 2026-07-31 no servidor:** `holds presos = 7`, distribuídos entre
+**duas caixas** — `guilherme.viana@` e `silvio.rizzo@`. Enquetes aguardando voto: 0.
+Chaves de API ativas: 0. Ou seja: **este passo é obrigatório**, e um dos holds está
+na agenda de outra pessoa. A impressão inicial de que não havia holds pendentes
+não se sustentou nos dados.
+
+### Como liberar (sem precisar de acesso à agenda de ninguém)
+
+Não apague no Outlook: você não tem a caixa do colega. Use o caminho que já existe
+e é testado — a [limpeza automática](../apps/api/src/modules/interview/services/pre-reserva-cleanup.service.ts)
+roda de 30 em 30 min e remove hold de **qualquer** caixa, porque o Graph é app-only.
+Ela só considera enquetes `CANCELADA` ou `AGUARDANDO` vencidas (>3 dias). Então
+basta marcá-las como canceladas e deixar o cron trabalhar:
 
 ```sql
-SELECT DISTINCT jsonb_array_elements(holds::jsonb) ->> 'participante' AS caixa
-FROM enquetes_horario WHERE holds IS NOT NULL;
+-- Torna os 7 holds elegíveis à limpeza automática na próxima rodada
+UPDATE enquetes_horario SET status = 'CANCELADA' WHERE holds IS NOT NULL;
 ```
 
-### Se (b) voltar com linhas
+Escrever no banco aqui é inofensivo — ele vai ser zerado em seguida. Espere a
+próxima rodada do cron (≤30 min) e confirme que chegou a zero:
+
+```sql
+SELECT count(*) FROM enquetes_horario WHERE holds IS NOT NULL;   -- tem de ser 0
+```
+
+No log da API, procure `Pré-reserva cleanup: N hold(s) removidos`. **Só siga para
+o wipe depois que essa contagem for 0** — depois de zerar o banco, nada mais no
+mundo sabe quais eventos do Outlook são holds, e eles ficam presos para sempre.
+
+> Se o Graph estiver desabilitado (`graph.enabled === false`), o cron não roda e
+> este caminho não funciona. Aí a alternativa é o Outlook: filtrar pela categoria
+> `Pré-reserva UniATS` (eventos antigos mantêm a categoria antiga — o rebrand só
+> afeta os novos) e apagar em lote, o que exige acesso às duas caixas.
+
+### Se a segunda contagem voltar diferente de zero
 
 O voto casa por `provider_msg_id`. Depois do wipe, quem votar numa enquete já
 enviada cai no log `Voto de enquete sem enquete correspondente` e **o voto é
 descartado em silêncio** — para o candidato, ele respondeu e nada aconteceu.
 Reenvie a enquete depois do wipe.
 
-### Se (c) voltar com linhas
+### Se a terceira voltar diferente de zero
 
 Só o `sha256` vai ao banco: as chaves **não** são recuperáveis, apenas reemitidas.
 Anote os nomes para reemitir e avisar quem consome.
@@ -143,10 +175,15 @@ O caminho normal é o CD: merge da branch `feat/rebrand-collab-tecnico` na `main
 corporativo, a redirect URI nova existir no Entra e o secret estar atualizado
 (seção 2) — o corte é seco, a URL antiga deixa de atender.
 
-Depois que a stack subir:
+**As migrations rodam sozinhas.** O job `deploy` do `.github/workflows/cicd.yml` já
+executa `prisma migrate deploy` a cada deploy da `main`, então o schema é criado do
+zero automaticamente — validado localmente em 31/07: as 26 migrations aplicaram numa
+base vazia sem erro (`All migrations have been successfully applied`), incluindo as
+que estavam pendentes. O comando 4.1 abaixo é só para o caso de você subir a stack à
+mão, sem passar pelo CD.
 
 ```bash
-# 4.1 Schema do zero (as 26 migrations, em ordem)
+# 4.1 Schema do zero — SÓ se você não usou o CD (que já faz isso)
 $COMPOSE run --rm --no-deps -e NODE_OPTIONS= api \
   pnpm --filter @collab/db exec prisma migrate deploy
 
@@ -249,24 +286,28 @@ pnpm --filter @collab/db run seed
   aparecendo com o nome antigo na UI. Quem deriva de `$(hostname)` é apenas o
   `--name` em `infra/setup-server.sh`, que só roda ao (re)registrar o runner.
 
-### Os três riscos reais
+### Os três riscos, medidos no servidor em 2026-07-31
 
-1. **`/etc/hosts` — a que morde todo mundo.** Trocar `/etc/hostname` sem atualizar
-   `/etc/hosts` faz **todo `sudo` travar 10–30 s** com `sudo: unable to resolve
-   host`, porque a resolução reversa do nome novo falha. Troque os dois juntos.
+1. ⚠️ **`/etc/hosts` — confirmado como risco real.** O hostname
+   `TIO-TI-UNIATS-HML` **não** está no `/etc/hosts`; a resolução do próprio nome
+   depende inteiramente de DNS. Hoje funciona porque o DNS resolve o nome atual —
+   mas o nome NOVO não estará no DNS no instante do rename, e aí **todo `sudo`
+   trava 10–30 s** com `sudo: unable to resolve host`. Mitigação obrigatória:
+   adicionar a linha no `/etc/hosts` **junto** com a troca do hostname.
 
-2. **Zabbix (porta 10050 liberada no firewall).** O agente se identifica ao
-   servidor pelo `Hostname=` do `zabbix_agentd.conf`. Se estiver com
-   `HostnameItem=system.hostname` (automático), o nome muda, **o servidor Zabbix
-   deixa de casar o host e o monitoramento morre em silêncio**. Se estiver
-   hardcoded, continua funcionando com o nome velho. Confira antes:
-   `grep -E '^\s*(Hostname|HostnameItem)' /etc/zabbix/zabbix_agent*.conf`.
-   Monitoramento é da infra — alinhe com eles.
+2. ✅ **Zabbix — não quebra.** O agente está com
+   `Hostname=TIO-TI-UNIATS-HML` **hardcoded** em `/etc/zabbix/zabbix_agent2.conf`
+   (linha 10), sem `HostnameItem=system.hostname` e sem override em
+   `zabbix_agent2.d/`. Logo, ele continua reportando o nome antigo e o servidor
+   Zabbix continua casando o host — o monitoramento **não** morre. Fica só
+   desalinhado: para alinhar, é editar essa linha e reiniciar o `zabbix-agent2`,
+   o que é da infra e pode ser feito depois, sem pressa.
 
-3. **Se a máquina for joined ao domínio AD** (o padrão do nome sugere isso):
-   renomear host com SSSD/realmd invalida a conta de máquina e exige sair e
-   re-joinar. Verifique com `realm list` e `systemctl status sssd` — se ambos
-   vierem vazios/inexistentes, não há esse risco.
+3. ✅ **AD — não há join.** `realm list` vazio, sem keytab e `sssd` inativo. Risco
+   eliminado.
+
+**Conclusão:** o único cuidado técnico do rename é o `/etc/hosts`. Isso torna o
+rename bem menos arriscado do que eu supunha — mas também não urgente.
 
 ### Como fazer, se for fazer
 
