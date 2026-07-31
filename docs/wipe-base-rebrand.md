@@ -157,8 +157,21 @@ $COMPOSE run --rm --no-deps -e NODE_OPTIONS= api pnpm --filter @collab/db run se
 $COMPOSE run --rm --no-deps -e NODE_OPTIONS= api pnpm --filter @collab/db run seed:dho
 ```
 
-O bucket `collab` **não** precisa ser criado à mão — o `StorageService` faz
-`HeadBucket` e cria se não existir.
+### 4.4 Criar o bucket À MÃO (em produção não nasce sozinho)
+
+⚠️ O `StorageService` cria o bucket no boot, mas o `onModuleInit`
+[**aborta quando `NODE_ENV === 'production'`**](../apps/api/src/modules/storage/storage.service.ts#L83) —
+de propósito, para o boot não depender do storage. Em dev o bucket aparece sozinho;
+**no servidor, não**. Sem ele, todo upload (áudio, transcrição, currículo) falha.
+
+O `mc` já vem na imagem do MinIO, então é um comando só (idempotente):
+
+```bash
+# Use os MESMOS valores de STORAGE_ACCESS_KEY / STORAGE_SECRET_KEY do .env.production
+$COMPOSE exec -T minio mc alias set local http://localhost:9000 "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY"
+$COMPOSE exec -T minio mc mb --ignore-existing local/collab
+$COMPOSE exec -T minio mc ls local          # deve listar collab/
+```
 
 ---
 
