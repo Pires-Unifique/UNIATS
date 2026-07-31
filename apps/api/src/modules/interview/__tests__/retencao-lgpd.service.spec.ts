@@ -1,4 +1,4 @@
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 
 import { RetencaoLGPDService } from '../services/retencao-lgpd.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';

@@ -1,4 +1,4 @@
-import { PublicarVagaInput } from '@uniats/shared';
+import { PublicarVagaInput } from '@collab/shared';
 
 import { VagaTemplateService } from '../vaga-template.service.js';
 

@@ -4,7 +4,7 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { SolicitacaoAlteracaoDetalheDTO } from '@uniats/shared';
+import type { SolicitacaoAlteracaoDetalheDTO } from '@collab/shared';
 
 import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';

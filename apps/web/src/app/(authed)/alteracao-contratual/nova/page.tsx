@@ -11,7 +11,7 @@ import type {
   SolicitacaoAlteracaoDetalheDTO,
   TipoAlteracaoContratual,
   UnidadeDTO,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { PageHeader } from '@/components/PageHeader';
 import { api, ApiError } from '@/lib/api';

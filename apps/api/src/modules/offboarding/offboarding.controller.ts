@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { PapelAssinanteOffboarding, StatusOffboarding } from '@uniats/db';
+import { PapelAssinanteOffboarding, StatusOffboarding } from '@collab/db';
 import type { Response } from 'express';
 import { z } from 'zod';
 

@@ -2,7 +2,7 @@
  * DTOs do módulo de ALTERAÇÃO CONTRATUAL (DHO).
  *
  * Espelham o shape devolvido pelos controllers REST (`/api/alteracao-contratual`
- * e subrotas de catálogo). Como TODO o frontend lê via `@uniats/shared` (sem
+ * e subrotas de catálogo). Como TODO o frontend lê via `@collab/shared` (sem
  * importar Prisma no navegador), este é o contrato único entre back e front.
  *
  * Os enums de string abaixo espelham EXATAMENTE os enums do Prisma (packages/db).

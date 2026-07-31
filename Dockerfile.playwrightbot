@@ -1,11 +1,11 @@
 # =====================================================================
-# Bot Playwright (fallback de transcrição) — UniATS  •  context = raiz do monorepo
+# Bot Playwright (fallback de transcrição) — Collab  •  context = raiz do monorepo
 # Standalone (fora do workspace pnpm): instala com npm e usa os navegadores já
 # embutidos na imagem oficial do Playwright (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1).
 # A versão do pacote `playwright` DEVE casar com a tag da imagem base.
 # Fase 2: captura áudio (PulseAudio+ffmpeg) e roda Whisper (faster-whisper) como
 # 2º motor de transcrição, pra cruzar com o transcript oficial do Graph.
-# Build: docker build -f Dockerfile.playwrightbot --target runtime -t uniats-playwright-bot .
+# Build: docker build -f Dockerfile.playwrightbot --target runtime -t collab-playwright-bot .
 # =====================================================================
 
 # ---- build: instala deps + compila TS ----------------------------------------------

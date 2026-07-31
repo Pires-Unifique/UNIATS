@@ -8,7 +8,7 @@ import type {
   ItemEncerramentoDTO,
   ProcuradorDTO,
   SolicitacaoOffboardingDetalheDTO,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { MotivoModal } from '@/components/MotivoModal';
 import { PageHeader } from '@/components/PageHeader';

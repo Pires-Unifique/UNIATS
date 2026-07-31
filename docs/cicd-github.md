@@ -102,7 +102,7 @@ usa `conf.d` (não `sites-available`):
 
 ```bash
 sudo dnf -y install nginx
-sudo cp infra/nginx/uniats.conf /etc/nginx/conf.d/uniats.conf
+sudo cp infra/nginx/collab.conf /etc/nginx/conf.d/collab.conf
 sudo nginx -t && sudo systemctl enable --now nginx
 # SELinux: permite o nginx conectar nas portas locais da app
 sudo setsebool -P httpd_can_network_connect 1
@@ -120,7 +120,7 @@ Valide manualmente uma vez (como `ghrunner`, com um `.env.production` local):
 cp infra/.env.production.example infra/.env.production   # preencha os segredos
 docker compose --env-file infra/.env.production -f infra/docker-compose.prod.yml up -d --build
 docker compose --env-file infra/.env.production -f infra/docker-compose.prod.yml \
-  run --rm --no-deps api pnpm --filter @uniats/db exec prisma migrate deploy
+  run --rm --no-deps api pnpm --filter @collab/db exec prisma migrate deploy
 curl -s http://127.0.0.1:13001/health   # {"status":"ok",...}
 curl -sI http://127.0.0.1:13000          # 200/307
 ```

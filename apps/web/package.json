@@ -1,5 +1,5 @@
 {
-  "name": "@uniats/web",
+  "name": "@collab/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -12,7 +12,7 @@
   "dependencies": {
     "@azure/msal-browser": "^3.27.0",
     "@azure/msal-react": "^2.1.1",
-    "@uniats/shared": "workspace:*",
+    "@collab/shared": "workspace:*",
     "clsx": "^2.1.1",
     "next": "^14.2.18",
     "react": "^18.3.1",

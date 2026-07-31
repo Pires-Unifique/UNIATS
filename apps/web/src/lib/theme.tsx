@@ -11,7 +11,7 @@ import {
 
 type Theme = 'light' | 'dark';
 
-const STORAGE_KEY = 'uniats-theme';
+const STORAGE_KEY = 'collab-theme';
 
 type ThemeContextValue = {
   theme: Theme;

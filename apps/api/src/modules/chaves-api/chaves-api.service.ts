@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { ChaveApiCriadaDTO, ChaveApiDTO } from '@uniats/shared';
+import type { ChaveApiCriadaDTO, ChaveApiDTO } from '@collab/shared';
 import { createHash, randomBytes } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service.js';

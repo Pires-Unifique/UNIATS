@@ -55,8 +55,28 @@ export type TemplateVagaParsed = z.infer<typeof TemplateVagaParsedSchema>;
 export interface OpcaoEstruturaDTO {
   id: number;
   nome: string;
+  /** Descrição do recurso, quando a API fornecer (ex.: descrição do cargo). */
+  descricao?: string | null;
   /** true quando é o melhor match sugerido para o texto do template. */
   sugerido?: boolean;
+}
+
+/**
+ * Modelo de vaga (job template) da Gupy, pronto para o seletor da tela.
+ * Já traz os IDs estruturais — selecioná-lo preenche departamento/cargo/filial
+ * de uma vez e informa o `templateId` na publicação.
+ */
+export interface JobTemplateOpcaoDTO {
+  id: number;
+  nome: string;
+  tipo?: string | null;
+  departmentId?: number | null;
+  departmentName?: string | null;
+  roleId?: number | null;
+  roleName?: string | null;
+  branchId?: number | null;
+  branchName?: string | null;
+  descricao?: string | null;
 }
 
 /** Tipos de vaga aceitos pela Gupy (subset usual). */
@@ -93,6 +113,12 @@ export const PublicarVagaInputSchema = z.object({
   mensuravel: z.boolean().nullable().optional(),
 
   // ---- Estrutura / exigências da Gupy ----
+  /**
+   * Modelo de vaga da Gupy escolhido (GET /api/v1/job-templates), quando houver.
+   * A Gupy aplica o conteúdo do modelo ao criar a vaga; nossos campos explícitos
+   * sobrescrevem o que for enviado.
+   */
+  templateId: z.number().int().positive().nullable().optional(),
   departmentId: z.number().int().positive(),
   roleId: z.number().int().positive(),
   branchId: z.number().int().positive().nullable().optional(),

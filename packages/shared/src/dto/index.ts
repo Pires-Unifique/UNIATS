@@ -3,7 +3,7 @@
  *
  * Estes tipos espelham o shape que os controllers REST devolvem. Mantemos
  * em um pacote independente para que o frontend NÃO importe nada do
- * @uniats/db (evita carregar Prisma no navegador) e para que mudanças
+ * @collab/db (evita carregar Prisma no navegador) e para que mudanças
  * de shape sejam visíveis em uma única alteração de arquivo.
  */
 

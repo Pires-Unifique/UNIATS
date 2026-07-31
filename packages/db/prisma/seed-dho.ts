@@ -14,7 +14,7 @@
  *   - hierarquia de líder casando o e-mail de `Manager` com o Email dos colegas.
  * Sem o CSV, cai num conjunto pequeno de dados fictícios.
  *
- * Rode:  pnpm --filter @uniats/db run seed:dho
+ * Rode:  pnpm --filter @collab/db run seed:dho
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

@@ -26,6 +26,12 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.658.1
         version: 3.1052.0
+      '@collab/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@collab/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@nestjs/bullmq':
         specifier: ^10.2.1
         version: 10.2.3(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22)(bullmq@5.77.0)
@@ -59,12 +65,6 @@ importers:
       '@sendgrid/mail':
         specifier: ^8.1.4
         version: 8.1.6
-      '@uniats/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@uniats/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       axios:
         specifier: ^1.7.7
         version: 1.16.1
@@ -189,7 +189,7 @@ importers:
       '@azure/msal-react':
         specifier: ^2.1.1
         version: 2.2.0(@azure/msal-browser@3.30.0)(react@18.3.1)
-      '@uniats/shared':
+      '@collab/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       clsx:

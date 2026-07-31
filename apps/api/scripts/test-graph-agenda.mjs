@@ -82,11 +82,11 @@ async function obterToken() {
 async function criarEvento(token) {
   const corpoHtml =
     `<p>Olá, ${CONVIDADO_NOME}!</p>` +
-    '<p>Reunião de <strong>teste</strong> do agendamento automático do UniATS.</p>' +
+    '<p>Reunião de <strong>teste</strong> do agendamento automático do Collab.</p>' +
     `<p><strong>Quando:</strong> ${fmtBr(inicio)}</p>` +
     '<p>O link do Teams está neste convite — clique em <em>Ingressar</em> no horário.</p>';
   const corpo = {
-    subject: 'Entrevista — Teste UniATS (agendamento automático)',
+    subject: 'Entrevista — Teste Collab (agendamento automático)',
     body: { contentType: 'HTML', content: corpoHtml },
     start: { dateTime: fmtUtc(inicio), timeZone: 'UTC' },
     end: { dateTime: fmtUtc(fim), timeZone: 'UTC' },
@@ -139,7 +139,7 @@ async function enviarWhatsApp(joinUrl) {
     return;
   }
   const texto =
-    '✅ Sua entrevista (TESTE UniATS) está confirmada!\n\n' +
+    '✅ Sua entrevista (TESTE Collab) está confirmada!\n\n' +
     `🗓️ *${fmtBr(inicio)}*\n` +
     `💻 Link do Teams: ${joinUrl}\n\n` +
     'Você também recebeu o convite no e-mail. (Mensagem de teste.)';

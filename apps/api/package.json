@@ -1,5 +1,5 @@
 {
-  "name": "@uniats/api",
+  "name": "@collab/api",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
@@ -30,8 +30,8 @@
     "@nestjs/terminus": "^10.2.3",
     "@nestjs/throttler": "^6.2.1",
     "@sendgrid/mail": "^8.1.4",
-    "@uniats/db": "workspace:*",
-    "@uniats/shared": "workspace:*",
+    "@collab/db": "workspace:*",
+    "@collab/shared": "workspace:*",
     "axios": "^1.7.7",
     "axios-retry": "^4.5.0",
     "bottleneck": "^2.19.5",
@@ -90,8 +90,8 @@
       ]
     },
     "moduleNameMapper": {
-      "^@uniats/shared$": "<rootDir>/../../../packages/shared/src/index.ts",
-      "^@uniats/db$": "<rootDir>/../../../packages/db/src/index.ts",
+      "^@collab/shared$": "<rootDir>/../../../packages/shared/src/index.ts",
+      "^@collab/db$": "<rootDir>/../../../packages/db/src/index.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [

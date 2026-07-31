@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@uniats/db';
-import type { ProcuradorDTO } from '@uniats/shared';
+import { Prisma } from '@collab/db';
+import type { ProcuradorDTO } from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 

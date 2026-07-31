@@ -2,12 +2,12 @@
  * Mapeia payloads da Gupy para entidades do nosso domínio (Prisma).
  * Mantemos puro (sem side-effects) para facilitar teste.
  */
-import { Prisma, StatusVaga, StatusCandidatura } from '@uniats/db';
+import { Prisma, StatusVaga, StatusCandidatura } from '@collab/db';
 import {
   CandidaturaGupy,
   VagaGupy,
   CandidatoGupy,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 const STATUS_VAGA: Record<string, StatusVaga> = {
   draft: 'RASCUNHO',

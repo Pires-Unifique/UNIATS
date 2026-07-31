@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AuthGuard } from '../auth/auth.guard.js';

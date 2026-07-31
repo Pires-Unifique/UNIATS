@@ -1,4 +1,4 @@
-import type { PapelUsuario } from '@uniats/db';
+import type { PapelUsuario } from '@collab/db';
 
 /**
  * Áreas de acesso (módulos). Fonte de verdade da autorização. 'admin' libera

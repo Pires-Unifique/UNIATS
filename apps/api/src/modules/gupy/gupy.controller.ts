@@ -107,6 +107,20 @@ export class GupyController {
     return this.client.listarFiliais({ name: q?.trim() || undefined });
   }
 
+  // ---- Catálogo da Gupy (importar modelos de vaga e cargos) ----
+
+  /** Modelos de vaga (job templates) — atalho que preenche department/role/branch. */
+  @Get('job-templates')
+  async listarJobTemplates(@Query('q') q?: string) {
+    return this.client.listarJobTemplates({ name: q?.trim() || undefined });
+  }
+
+  /** Cargos (roles) da Gupy — traz descrição do cargo quando disponível. */
+  @Get('roles')
+  async listarRoles(@Query('q') q?: string) {
+    return this.client.listarRoles({ name: q?.trim() || undefined });
+  }
+
   // ---- Sincronização (ações de escrita) ----
 
   /**

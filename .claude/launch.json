@@ -4,7 +4,7 @@
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@uniats/web", "dev"],
+      "runtimeArgs": ["--filter", "@collab/web", "dev"],
       "port": 13000
     }
   ]

@@ -1,5 +1,5 @@
 # =====================================================================
-# CI/CD — UniATS  •  GitHub Actions + runner self-hosted na máquina de produção
+# CI/CD — Collab  •  GitHub Actions + runner self-hosted na máquina de produção
 # ---------------------------------------------------------------------
 # A MESMA máquina (Oracle Linux 10) builda e faz deploy. Sem registry: as
 # imagens ficam no daemon Docker local e o compose sobe a partir delas.
@@ -7,6 +7,9 @@
 # Requisitos no runner (ver docs/cicd-github.md):
 #   - Docker + plugin compose; usuário do runner no grupo `docker`
 #   - labels do runner: self-hosted, uniats-prod
+#     (mantida `uniats-prod` no rebrand: a label é o registro do runner na máquina.
+#      Trocar aqui antes de reconfigurar o runner deixa o job sem executor e mata
+#      o deploy. Renomear junto, ou só no servidor novo.)
 #   - Secret do repo ENV_PRODUCTION com o conteúdo do infra/.env.production
 # =====================================================================
 
@@ -35,22 +38,24 @@ jobs:
       - name: Libera espaço no runner (cache BuildKit + imagens de teste antigas)
         # O disco é compartilhado com a produção e vive enchendo (ENOSPC):
         #  1) o cache do BuildKit cresce sem limite a cada build;
-        #  2) as imagens uniats-*-test:<sha> são taggeadas por commit e o
+        #  2) as imagens collab-*-test:<sha> são taggeadas por commit e o
         #     `docker image prune -f` do deploy NÃO remove imagem taggeada.
         # --keep-storage mantém os ~12 GB mais recentes (builds seguem rápidos);
         # se a flag não existir na versão do Docker, cai no prune completo.
         # Nada aqui toca containers em execução nem as imagens de runtime.
+        # O padrão cobre `uniats-*-test` de propósito: são as imagens de antes do
+        # rebrand, ainda no disco do runner. Sem isso elas nunca seriam varridas.
         run: |
           docker builder prune -af --keep-storage=12g || docker builder prune -af || true
           docker image prune -f || true
           docker images --format '{{.Repository}}:{{.Tag}}' \
-            | grep -E '^uniats-(api|web)-test:' | grep -v ':${{ github.sha }}' \
+            | grep -E '^(collab|uniats)-(api|web)-test:' | grep -v ':${{ github.sha }}' \
             | xargs -r docker rmi -f || true
       - uses: actions/checkout@v5
       - name: Test API (lint + typecheck + unit)
-        run: docker build -f Dockerfile.api --target test -t uniats-api-test:${{ github.sha }} .
+        run: docker build -f Dockerfile.api --target test -t collab-api-test:${{ github.sha }} .
       - name: Test Web (lint + typecheck)
-        run: docker build -f Dockerfile.web --target test -t uniats-web-test:${{ github.sha }} .
+        run: docker build -f Dockerfile.web --target test -t collab-web-test:${{ github.sha }} .
 
   # --- BUILD: imagens de runtime (api + web) -----------------------------------------
   build:
@@ -74,7 +79,7 @@ jobs:
     runs-on: [self-hosted, uniats-prod]
     environment:
       name: production
-      url: https://uniats.unifique.com.br
+      url: https://collab.unifique.com.br
     steps:
       - uses: actions/checkout@v5
       - name: Materializa o .env.production a partir do secret
@@ -88,7 +93,7 @@ jobs:
       - name: Aplica migrações Prisma (migrate deploy)
         # -e NODE_OPTIONS= : limpa a flag --use-system-ca (rejeitada pelo Node 20),
         # herdada do ambiente/secret corporativo. Precedência máxima sobre env_file.
-        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps -e NODE_OPTIONS= api pnpm --filter @uniats/db exec prisma migrate deploy
+        run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps -e NODE_OPTIONS= api pnpm --filter @collab/db exec prisma migrate deploy
       - name: Recria api + web com as imagens novas
         run: docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build
       - name: Limpa imagens órfãs

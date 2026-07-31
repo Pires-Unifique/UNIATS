@@ -9,7 +9,7 @@ import type {
   SolicitacaoAcessoDTO,
   StatusAdmissao,
   StatusDocumentoAdmissional,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { PageHeader } from '@/components/PageHeader';
 import { StatusBadge } from '@/components/StatusBadge';

@@ -26,7 +26,7 @@ const csp = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@uniats/shared'],
+  transpilePackages: ['@collab/shared'],
   experimental: {
     typedRoutes: true,
     // SÓ NO WINDOWS (dev): geração estática com 1 worker. O EDR corporativo

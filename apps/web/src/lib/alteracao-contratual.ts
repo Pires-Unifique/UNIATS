@@ -1,9 +1,9 @@
 import type {
   StatusAlteracaoContratual,
   TipoAlteracaoContratual,
-} from '@uniats/shared';
+} from '@collab/shared';
 
-// Rótulos e constantes de RUNTIME do módulo. Ficam no web (não em @uniats/shared)
+// Rótulos e constantes de RUNTIME do módulo. Ficam no web (não em @collab/shared)
 // porque o front importa só TIPOS do shared (`import type`, que é apagado no build);
 // importar valores de lá faria o webpack empacotar o source do pacote. Espelha o
 // padrão de `@/lib/admissao` (ROTULO_ETAPA_ADMISSAO etc.).

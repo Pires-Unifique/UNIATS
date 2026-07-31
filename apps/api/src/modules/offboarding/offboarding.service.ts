@@ -16,7 +16,7 @@ import {
   StatusItemEncerramento,
   StatusOffboarding,
   TipoRespostaItem,
-} from '@uniats/db';
+} from '@collab/db';
 import type {
   AutoPrefillDTO,
   ConfirmarAutodesligamentoInputDTO,
@@ -27,7 +27,7 @@ import type {
   SolicitacaoOffboardingDetalheDTO,
   SolicitacaoOffboardingListItemDTO,
   StatusConvite,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';

@@ -1,5 +1,5 @@
 {
-  "name": "uniats",
+  "name": "collab",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@9.12.0",
@@ -14,11 +14,11 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:int": "turbo run test:int",
-    "db:generate": "pnpm --filter @uniats/db prisma generate",
-    "db:migrate": "pnpm --filter @uniats/db prisma migrate dev",
-    "db:studio": "pnpm --filter @uniats/db prisma studio",
-    "db:seed": "pnpm --filter @uniats/db run seed",
-    "db:seed:fake": "pnpm --filter @uniats/db run seed:fake",
+    "db:generate": "pnpm --filter @collab/db prisma generate",
+    "db:migrate": "pnpm --filter @collab/db prisma migrate dev",
+    "db:studio": "pnpm --filter @collab/db prisma studio",
+    "db:seed": "pnpm --filter @collab/db run seed",
+    "db:seed:fake": "pnpm --filter @collab/db run seed:fake",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "infra:logs": "docker compose -f infra/docker-compose.yml logs -f"

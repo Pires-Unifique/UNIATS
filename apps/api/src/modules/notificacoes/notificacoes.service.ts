@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TipoNotificacao } from '@uniats/db';
+import { TipoNotificacao } from '@collab/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 

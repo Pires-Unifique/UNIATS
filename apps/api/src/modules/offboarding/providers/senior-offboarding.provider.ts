@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { OffboardingSeniorSnapshot } from '@uniats/shared';
+import type { OffboardingSeniorSnapshot } from '@collab/shared';
 
 /**
  * Conector com o SENIOR (RH) para o OFFBOARDING. NÃO há API — a integração real

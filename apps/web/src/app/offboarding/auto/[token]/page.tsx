@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { AutoPrefillDTO } from '@uniats/shared';
+import type { AutoPrefillDTO } from '@collab/shared';
 
 import { Logo } from '@/components/Logo';
 import { api, ApiError } from '@/lib/api';

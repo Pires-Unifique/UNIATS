@@ -1,6 +1,6 @@
 import { Processor, WorkerHost, OnWorkerEvent, InjectQueue } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 import type { Job, Queue } from 'bullmq';
 import { z } from 'zod';
 

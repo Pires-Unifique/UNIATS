@@ -11,12 +11,12 @@ import {
   StatusAlteracaoContratual,
   StatusAssinatura,
   TipoAlteracaoContratual,
-} from '@uniats/db';
+} from '@collab/db';
 import type {
   CriarSolicitacaoAlteracaoInputDTO,
   SolicitacaoAlteracaoDetalheDTO,
   SolicitacaoAlteracaoListItemDTO,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {

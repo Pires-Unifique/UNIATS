@@ -1,11 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 
 import {
   VagaGupySchema,
   CandidatoGupySchema,
   CandidaturaGupySchema,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import {
   mapearStatusVaga,

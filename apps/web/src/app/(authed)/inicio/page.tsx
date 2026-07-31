@@ -9,7 +9,7 @@ import type {
   EntrevistaHojeDTO,
   FunilEtapaDTO,
   VagaResumoDashboardDTO,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { StatusBadge } from '@/components/StatusBadge';
 import { api, ApiError } from '@/lib/api';

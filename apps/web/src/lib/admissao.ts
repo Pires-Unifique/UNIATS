@@ -1,10 +1,10 @@
 // Constantes de apresentação da Admissão (runtime).
 //
-// Ficam aqui (e não importadas de @uniats/shared) porque a web resolve o
+// Ficam aqui (e não importadas de @collab/shared) porque a web resolve o
 // shared pelo SOURCE via path do tsconfig, e o source usa extensões `.js`
 // nos re-exports — o webpack do Next só lida bem com IMPORTS DE TIPO desse
 // pacote (que são apagados). Importar VALORES de lá quebra o bundling.
-import type { StatusAdmissao } from '@uniats/shared';
+import type { StatusAdmissao } from '@collab/shared';
 
 // Ordem canônica das etapas (CANCELADA fica fora do fluxo linear).
 export const ETAPAS_ADMISSAO: readonly StatusAdmissao[] = [

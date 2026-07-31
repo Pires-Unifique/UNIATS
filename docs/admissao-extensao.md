@@ -1,4 +1,4 @@
-# Extensão: Módulo de Admissão (UniATS)
+# Extensão: Módulo de Admissão (Collab)
 
 > Status: **Fase 1 (MVP) implementada.** Fases 2 e 3 e a camada de acesso por
 > grupo de AD estão planejadas (ver roadmap no fim).
@@ -67,8 +67,8 @@ Enums: `StatusAdmissao`, `TipoDocumentoAdmissional`,
 adicionadas em `Candidatura.admissao`, `Candidato.admissoes`, `Vaga.admissoes`,
 `Usuario` (`AdmissaoResponsavel`).
 
-> Exportados como **valor** em `@uniats/db` (usados em runtime) e como tipos
-> (DTOs) em `@uniats/shared`.
+> Exportados como **valor** em `@collab/db` (usados em runtime) e como tipos
+> (DTOs) em `@collab/shared`.
 
 ### Checklist de documentos padrão (seed na criação)
 
@@ -105,7 +105,7 @@ A navegação (`Sidebar`) foi dividida em duas seções: **Recrutamento** e
   contratação e timeline.
 
 > Constantes de apresentação ficam em `apps/web/src/lib/admissao.ts`. A web
-> importa **apenas tipos** de `@uniats/shared` (`import type`) — importar
+> importa **apenas tipos** de `@collab/shared` (`import type`) — importar
 > valores do pacote quebra o bundling do Next (o source usa extensões `.js`).
 
 ## 6. Camada de acesso (planejada — NÃO implementada)
@@ -124,8 +124,8 @@ Recomendação (quando for implementar): acesso por **área**, em duas dimensõe
 - `Usuario.areas AreaSistema[]` (um usuário pode ter uma ou ambas).
 - Módulo `auth`: `AzureAdAuthGuard` (valida JWT do Entra) + `RolesGuard` lendo
   um decorator `@Requer({ area, papelMinimo })`.
-- Mapear áreas a **grupos do Entra** (ex.: `UNIATS-Recrutamento`,
-  `UNIATS-DP-Admissao`) — TI gerencia o time no AD; o guard lê o claim de grupos.
+- Mapear áreas a **grupos do Entra** (ex.: `Collab-Recrutamento`,
+  `Collab-DP-Admissao`) — TI gerencia o time no AD; o guard lê o claim de grupos.
 - Endpoint `/api/me` devolve `{ papel, areas }`; o Sidebar filtra as seções.
 - Dados sensíveis (`Admissao.salario`, `ExameAdmissional`) restritos à área
   `ADMISSAO`; toda leitura → `RegistroAuditoria` (já existe).

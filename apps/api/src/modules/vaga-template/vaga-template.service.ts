@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 import {
   ConhecimentoEspecifico,
   PublicarVagaInput,
   PublicarVagaResultDTO,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -114,6 +114,7 @@ export class VagaTemplateService {
       prerequisites: this.montarPrerequisitos(input),
       additionalInformation: this.montarInformacoesAdicionais(input),
     };
+    if (input.templateId != null) payload.templateId = input.templateId;
     if (input.branchId != null) payload.branchId = input.branchId;
     if (input.workplaceType) payload.workplaceType = input.workplaceType;
     if (input.code) payload.code = input.code;

@@ -15,7 +15,7 @@ import {
   StatusDocumentoAdmissional,
   ResultadoExameAdmissional,
   TipoDocumentoAdmissional,
-} from '@uniats/db';
+} from '@collab/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';

@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, StatusSolicitacaoAcesso, TipoDocumentoAdmissional } from '@uniats/db';
+import { Prisma, StatusSolicitacaoAcesso, TipoDocumentoAdmissional } from '@collab/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { RgExtraidoSchema } from '../claude/rg.schema.js';

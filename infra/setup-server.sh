@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Provisionamento do servidor — UNIATS (Oracle Linux 10, x86_64)
+# Provisionamento do servidor — Collab (Oracle Linux 10, x86_64)
 # ---------------------------------------------------------------------
 # Instala Docker + compose, cria o usuário do runner, instala nginx +
 # firewall/SELinux e registra o GitHub Actions self-hosted runner como
@@ -11,7 +11,7 @@
 #   (ou:  sudo bash infra/setup-server.sh <RUNNER_TOKEN>)
 #
 # O RUNNER_TOKEN vem de:
-#   https://github.com/Pires-Unifique/UNIATS/settings/actions/runners/new
+#   https://github.com/Pires-Unifique/Collab/settings/actions/runners/new
 #   (válido por ~1h; é descartável, pode regenerar)
 #
 # NÃO faz: TLS/certificado e o `cp` do nginx (precisa do código no servidor).
@@ -19,7 +19,7 @@
 # =====================================================================
 set -euo pipefail
 
-REPO_URL="https://github.com/Pires-Unifique/UNIATS"
+REPO_URL="https://github.com/Pires-Unifique/Collab"
 RUNNER_LABELS="uniats-prod"
 RUNNER_USER="ghrunner"
 RUNNER_TOKEN="${RUNNER_TOKEN:-${1:-}}"
@@ -91,4 +91,4 @@ cd "$RUNNER_DIR"
 ./svc.sh status || true
 
 log "OK — runner instalado. Confira em ${REPO_URL}/settings/actions/runners (deve aparecer 'Idle')."
-echo "Próximos passos (após o código estar no servidor): copiar infra/nginx/uniats.conf e configurar TLS — ver docs/cicd-github.md."
+echo "Próximos passos (após o código estar no servidor): copiar infra/nginx/collab.conf e configurar TLS — ver docs/cicd-github.md."

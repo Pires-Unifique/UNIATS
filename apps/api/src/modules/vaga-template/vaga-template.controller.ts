@@ -10,7 +10,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
-import { PublicarVagaInputSchema } from '@uniats/shared';
+import { PublicarVagaInputSchema } from '@collab/shared';
 
 import { Areas } from '../auth/areas.decorator.js';
 import { AreasGuard } from '../auth/areas.guard.js';

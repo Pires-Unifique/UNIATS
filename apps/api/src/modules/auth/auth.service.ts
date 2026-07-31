@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { PapelUsuario, Usuario } from '@uniats/db';
+import type { PapelUsuario, Usuario } from '@collab/db';
 import { createHash } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service.js';

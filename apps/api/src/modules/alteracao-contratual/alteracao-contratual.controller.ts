@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { PapelAssinante, StatusAlteracaoContratual } from '@uniats/db';
+import { PapelAssinante, StatusAlteracaoContratual } from '@collab/db';
 import type { UsuarioAutenticado } from '../auth/auth.types.js';
 import { z } from 'zod';
 

@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { OpcoesFiltroDTO, PainelAnaliseDTO } from '@uniats/shared';
+import type { OpcoesFiltroDTO, PainelAnaliseDTO } from '@collab/shared';
 
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';

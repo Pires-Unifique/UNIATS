@@ -3,7 +3,7 @@
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import type { SolicitacaoOffboardingListItemDTO } from '@uniats/shared';
+import type { SolicitacaoOffboardingListItemDTO } from '@collab/shared';
 
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';

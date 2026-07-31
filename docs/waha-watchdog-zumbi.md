@@ -92,13 +92,13 @@ Quando o alerta disparar (ou ao suspeitar do zumbi):
 
 1. Confirme que é a sessão, não a app:
    ```bash
-   docker logs -f --tail 0 uniats-waha-1 2>&1 | grep -E '"event":|status code'
+   docker logs -f --tail 0 collab-waha-1 2>&1 | grep -E '"event":|status code'
    ```
    Mande uma mensagem de texto normal. Se **nada** sai apesar de `WORKING` → zumbi.
 
 2. **Reinicie o CONTAINER (não a sessão):**
    ```bash
-   docker restart uniats-waha-1 -t 15
+   docker restart collab-waha-1 -t 15
    ```
    Restart de sessão (`POST /sessions/default/restart`) **não** resolve — reaproveita
    o Chromium travado. O login persiste no volume `wahasessions` (não pede QR).
@@ -117,7 +117,7 @@ O probe assume que `GET /api/{session}/chats` **pendura** quando a engine congel
 Isso é plausível, mas não foi testado contra o congelamento real. Validar após o
 deploy:
 
-- **Simulado (rápido, caminho end-to-end):** `docker pause uniats-waha-1` → toda
+- **Simulado (rápido, caminho end-to-end):** `docker pause collab-waha-1` → toda
   chamada pendura → `engineTravada()` estoura o timeout → alerta dispara pros
   admins. Testa o _caminho_ (timeout → detecta → notifica), mas no `pause` até o
   HTTP congela (no zumbi real o HTTP responde e só a engine trava).

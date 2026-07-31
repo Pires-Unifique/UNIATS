@@ -316,7 +316,7 @@ export class GraphClient {
       showAs: 'tentative',
       isReminderOn: false,
       // Categoria nossa: facilita identificar/limpar holds órfãos depois.
-      categories: ['Pré-reserva UniATS'],
+      categories: ['Pré-reserva Collab'],
     };
     const token = await this.obterToken();
     try {

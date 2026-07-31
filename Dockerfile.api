@@ -1,6 +1,6 @@
 # =====================================================================
-# API (NestJS) — UniATS  •  build context = raiz do monorepo
-# Build:  docker build -f Dockerfile.api --target runtime -t uniats-api .
+# API (NestJS) — Collab  •  build context = raiz do monorepo
+# Build:  docker build -f Dockerfile.api --target runtime -t collab-api .
 # Testes: docker build -f Dockerfile.api --target test .
 # =====================================================================
 
@@ -34,16 +34,16 @@ COPY . .
 # corporativo). O pnpm exportaria isso como NODE_OPTIONS e o Node 20 da imagem
 # rejeita a flag, quebrando `pnpm exec` (ex.: prisma migrate). Mantido no repo p/ dev.
 RUN sed -i '/^node-options/d' .npmrc 2>/dev/null || true
-RUN pnpm --filter @uniats/db generate \
- && pnpm --filter @uniats/shared build \
- && pnpm --filter @uniats/db build \
- && pnpm --filter @uniats/api build
+RUN pnpm --filter @collab/db generate \
+ && pnpm --filter @collab/shared build \
+ && pnpm --filter @collab/db build \
+ && pnpm --filter @collab/api build
 
 # ---- test: typecheck + unit (alvo usado só no CI) -----------------------------------
 # (lint removido: o projeto não tem config de ESLint para a API)
 FROM build AS test
-RUN pnpm --filter @uniats/api typecheck \
- && pnpm --filter @uniats/api test
+RUN pnpm --filter @collab/api typecheck \
+ && pnpm --filter @collab/api test
 
 # ---- runtime: imagem final ----------------------------------------------------------
 FROM build AS runtime

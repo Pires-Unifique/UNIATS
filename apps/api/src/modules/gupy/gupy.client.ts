@@ -11,14 +11,17 @@ import {
   EstruturaItemGupySchema,
   EtapaGupy,
   EtapaGupySchema,
+  JobTemplateGupySchema,
+  JobTemplateOpcaoDTO,
   OpcaoEstruturaDTO,
   PaginacaoEstruturaGupySchema,
   PaginacaoGupySchema,
+  RoleGupySchema,
   VagaCriadaGupy,
   VagaCriadaGupySchema,
   VagaGupy,
   VagaGupySchema,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import {
   CriarVagaGupyPayload,
@@ -349,6 +352,72 @@ export class GupyClient {
     params: ListarEstruturaParams = {},
   ): Promise<OpcaoEstruturaDTO[]> {
     return this.listarEstrutura('/branches', params);
+  }
+
+  /** ------------------------------------------------------------------
+   *  Catálogo da API de R&S (base /api/v1) — modelos de vaga e cargos
+   *  -----------------------------------------------------------------*/
+
+  /**
+   * Modelos de vaga (job templates) da Gupy — GET /api/v1/job-templates.
+   * Cada modelo já traz department/role/branch (IDs + nomes), servindo de
+   * atalho para preencher a estrutura e como `templateId` na criação.
+   */
+  async listarJobTemplates(
+    params: ListarEstruturaParams = {},
+  ): Promise<JobTemplateOpcaoDTO[]> {
+    const resp = await this.get(
+      '/job-templates',
+      {
+        name: params.name,
+        page: params.page ?? 1,
+        perPage: params.maxPageSize ?? 50,
+      },
+      PaginacaoEstruturaGupySchema(JobTemplateGupySchema),
+    );
+    const numOuNull = (v: unknown): number | null => {
+      const n = v != null ? Number(v) : NaN;
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    return resp.data
+      .map((t) => ({
+        id: Number(t.id),
+        nome: t.name ?? '(sem nome)',
+        tipo: t.type ?? null,
+        departmentId: numOuNull(t.departmentId),
+        departmentName: t.departmentName ?? null,
+        roleId: numOuNull(t.roleId),
+        roleName: t.roleName ?? null,
+        branchId: numOuNull(t.branchId),
+        branchName: t.branchName ?? null,
+        descricao: t.description ?? null,
+      }))
+      .filter((t) => Number.isFinite(t.id) && t.id > 0);
+  }
+
+  /**
+   * Cargos (roles) da Gupy — GET /api/v1/roles. O `id` é usável como `roleId`
+   * na criação da vaga; alguns tenants trazem a descrição do cargo.
+   */
+  async listarRoles(
+    params: ListarEstruturaParams = {},
+  ): Promise<OpcaoEstruturaDTO[]> {
+    const resp = await this.get(
+      '/roles',
+      {
+        name: params.name,
+        page: params.page ?? 1,
+        perPage: params.maxPageSize ?? 50,
+      },
+      PaginacaoEstruturaGupySchema(RoleGupySchema),
+    );
+    return resp.data
+      .map((r) => {
+        const rawId = r.id ?? r.externalCode;
+        const id = rawId != null ? Number(rawId) : NaN;
+        return { id, nome: r.name ?? '', descricao: r.description ?? null };
+      })
+      .filter((r) => Number.isFinite(r.id) && r.id > 0 && r.nome.length > 0);
   }
 
   private async listarEstrutura(

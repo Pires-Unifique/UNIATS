@@ -16,12 +16,20 @@ const EnvSchema = z.object({
 
   DATABASE_URL: z.string().url().startsWith('postgres'),
   REDIS_URL: z.string().url().startsWith('redis'),
+  // NÃO renomeie para 'collab' no ambiente atual: o prefixo é parte da chave de
+  // toda fila no Redis. Trocar abandona os jobs em voo (transcrição, embedding,
+  // mensagem) — eles ficam num namespace que nenhum worker escuta mais. Nasce
+  // com o nome certo no servidor novo.
   REDIS_QUEUE_PREFIX: z.string().min(1).default('uniats'),
 
   // Azure AD (login dos usuários internos).
   // MVP: autenticação local de dev — Azure AD opcional até o SSO ser ligado.
   AZURE_AD_TENANT_ID: z.string().min(1).optional(),
   AZURE_AD_CLIENT_ID: z.string().min(1).optional(),
+  // Application ID URI do app no Entra. Mantido `uniats` no rebrand: é
+  // identificador opaco (nenhum usuário vê) e trocá-lo invalida todo token já
+  // emitido → 401 geral até todos relogarem. Se um dia mudar, tem de ser junto
+  // com o Application ID URI no Entra E o NEXT_PUBLIC_AZURE_AD_API_SCOPE do front.
   AZURE_AD_AUDIENCE: z.string().min(1).default('api://uniats-api'),
   // Domínio(s) de e-mail aceitos no login SSO. Aceita LISTA (CSV) — o grupo usa
   // mais de um domínio verificado (ex.: unifique.com.br E redeunifique.com.br).

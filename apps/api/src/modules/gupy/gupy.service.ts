@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import type { Prisma } from '@uniats/db';
+import type { Prisma } from '@collab/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';
@@ -375,7 +375,7 @@ export class GupyService {
     }
 
     // Gatilho automático: ao entrar em CONTRATADO (passou do R&S → etapa de
-    // admissão na Gupy), abre a admissão no UniATS. Idempotente e sem exceção.
+    // admissão na Gupy), abre a admissão no Collab. Idempotente e sem exceção.
     if (candidatura.status === 'CONTRATADO') {
       try {
         const criou = await this.admissao.criarDeCandidaturaSeElegivel(

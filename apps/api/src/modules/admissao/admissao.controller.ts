@@ -18,7 +18,7 @@ import {
   StatusAdmissao,
   StatusDocumentoAdmissional,
   ResultadoExameAdmissional,
-} from '@uniats/db';
+} from '@collab/db';
 
 import { Areas } from '../auth/areas.decorator.js';
 import { AreasGuard } from '../auth/areas.guard.js';

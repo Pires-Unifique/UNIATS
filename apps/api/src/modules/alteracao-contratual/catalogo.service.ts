@@ -1,11 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 import type {
   CargoDTO,
   CentroCustoDTO,
   ColaboradorDTO,
   UnidadeDTO,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { SeniorProvider } from './providers/senior.provider.js';

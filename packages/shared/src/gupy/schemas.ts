@@ -261,6 +261,45 @@ export const EstruturaItemGupySchema = z
 export type EstruturaItemGupy = z.infer<typeof EstruturaItemGupySchema>;
 
 /**
+ * Modelo de vaga (job template) — GET /api/v1/job-templates.
+ * Já traz os IDs estruturais (department/role/branch) prontos e pode ser
+ * usado como `templateId` na criação da vaga. IDs vêm number|string (varia
+ * por tenant) — normalizados no client.
+ */
+export const JobTemplateGupySchema = z
+  .object({
+    id: idGupy,
+    name: z.string().optional().nullable(),
+    type: z.string().optional().nullable(),
+    departmentId: z.union([z.number(), z.string()]).optional().nullable(),
+    departmentName: z.string().optional().nullable(),
+    roleId: z.union([z.number(), z.string()]).optional().nullable(),
+    roleName: z.string().optional().nullable(),
+    branchId: z.union([z.number(), z.string()]).optional().nullable(),
+    branchName: z.string().optional().nullable(),
+    // Alguns tenants devolvem o conteúdo textual junto ao modelo.
+    description: z.string().optional().nullable(),
+    responsibilities: z.string().optional().nullable(),
+    prerequisites: z.string().optional().nullable(),
+  })
+  .passthrough();
+
+export type JobTemplateGupy = z.infer<typeof JobTemplateGupySchema>;
+
+/** Cargo (role) — GET /api/v1/roles. O `id` serve como `roleId` na criação. */
+export const RoleGupySchema = z
+  .object({
+    id: z.union([z.number(), z.string()]).optional().nullable(),
+    name: z.string().optional().nullable(),
+    description: z.string().optional().nullable(),
+    jobLevel: z.string().optional().nullable(),
+    externalCode: z.union([z.number(), z.string()]).optional().nullable(),
+  })
+  .passthrough();
+
+export type RoleGupy = z.infer<typeof RoleGupySchema>;
+
+/**
  * Paginação da API de estrutura organizacional (`/os/v1`). Ela usa a chave
  * `data` (e não `results` como a API de R&S). Normalizamos para `{ data }`.
  */

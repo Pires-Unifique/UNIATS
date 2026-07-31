@@ -1,7 +1,7 @@
 # =====================================================================
-# Web (Next.js) — UniATS  •  build context = raiz do monorepo
-# Build: docker build -f Dockerfile.web --target runtime -t uniats-web \
-#          --build-arg NEXT_PUBLIC_API_BASE_URL=https://api-uniats.unifique.com.br .
+# Web (Next.js) — Collab  •  build context = raiz do monorepo
+# Build: docker build -f Dockerfile.web --target runtime -t collab-web \
+#          --build-arg NEXT_PUBLIC_API_BASE_URL=https://api-collab.unifique.com.br .
 # =====================================================================
 
 FROM node:20-bookworm-slim AS base
@@ -21,7 +21,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 # ---- build --------------------------------------------------------------------------
 FROM deps AS build
 # NEXT_PUBLIC_* são embutidos no bundle do navegador EM BUILD TIME.
-ARG NEXT_PUBLIC_API_BASE_URL=https://api-uniats.unifique.com.br
+ARG NEXT_PUBLIC_API_BASE_URL=https://api-collab.unifique.com.br
 ARG NEXT_PUBLIC_APP_ENV=production
 # Azure AD / agenda Teams (delegado, SPA). Sem CLIENT_ID, o botão de buscar
 # horários fica desabilitado (graphEnabled() === false).
@@ -46,14 +46,14 @@ RUN sed -i '/^node-options/d' .npmrc 2>/dev/null || true
 # O rm PRECISA ficar no mesmo RUN do build: .next/cache (webpack) é cache de
 # rebuild incremental — inútil no runtime — e já estourou o disco do servidor
 # ao ser exportado como layer da imagem (~centenas de MB por deploy).
-RUN pnpm --filter @uniats/shared build \
- && pnpm --filter @uniats/web build \
+RUN pnpm --filter @collab/shared build \
+ && pnpm --filter @collab/web build \
  && rm -rf apps/web/.next/cache
 
 # ---- test (typecheck) — alvo usado só no CI -----------------------------------------
 # (lint removido: sem config de ESLint commitada; next lint exigiria setup interativo)
 FROM build AS test
-RUN pnpm --filter @uniats/web typecheck
+RUN pnpm --filter @collab/web typecheck
 
 # ---- runtime ------------------------------------------------------------------------
 FROM build AS runtime

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { WahaClient } from '../waha/waha.client.js';

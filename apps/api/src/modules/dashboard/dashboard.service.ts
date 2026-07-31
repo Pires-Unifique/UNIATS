@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@uniats/db';
+import { Prisma } from '@collab/db';
 import type {
   DashboardDTO,
   EntrevistaHojeDTO,
@@ -7,7 +7,7 @@ import type {
   FunilEtapaDTO,
   PendenciasDashboardDTO,
   VagaResumoDashboardDTO,
-} from '@uniats/shared';
+} from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {

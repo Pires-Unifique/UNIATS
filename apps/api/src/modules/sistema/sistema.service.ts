@@ -1,5 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import type { WahaQrDTO, WahaStatusDTO } from '@uniats/shared';
+import type { WahaQrDTO, WahaStatusDTO } from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { UsuarioAutenticado } from '../auth/auth.types.js';

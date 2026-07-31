@@ -45,6 +45,7 @@ export interface CriarVagaGupyPayload {
   departmentId: number;
   roleId: number;
   hiringDeadline: string; // YYYY-MM-DD
+  templateId?: number;
   branchId?: number;
   numVacancies?: number;
   publicationType?: string;

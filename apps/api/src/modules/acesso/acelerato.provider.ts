@@ -170,7 +170,7 @@ export class AceleratoProvider implements AcessoProvider {
       );
     if (input.linkPainel)
       linhas.push(
-        `<p><b>Conferir no UniATS:</b> <a href="${escaparHtml(
+        `<p><b>Conferir no Collab:</b> <a href="${escaparHtml(
           input.linkPainel,
         )}">${escaparHtml(input.linkPainel)}</a></p>`,
       );

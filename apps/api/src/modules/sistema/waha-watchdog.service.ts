@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
-import { TipoNotificacao } from '@uniats/db';
+import { TipoNotificacao } from '@collab/db';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { WahaClient } from '../waha/waha.client.js';

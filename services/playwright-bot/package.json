@@ -1,5 +1,5 @@
 {
-  "name": "uniats-playwright-bot",
+  "name": "collab-playwright-bot",
   "version": "0.1.0",
   "private": true,
   "description": "Bot de transcrição (fallback) — entra na reunião do Teams pelo navegador e captura as legendas ao vivo. Self-hosted, roda na rede interna.",

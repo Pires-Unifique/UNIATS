@@ -5,9 +5,9 @@ import type {
   StatusItemEncerramento,
   StatusOffboarding,
   TipoDesligamento,
-} from '@uniats/shared';
+} from '@collab/shared';
 
-// Rótulos e constantes de RUNTIME do módulo. Ficam no web (não em @uniats/shared)
+// Rótulos e constantes de RUNTIME do módulo. Ficam no web (não em @collab/shared)
 // porque o front importa só TIPOS do shared (`import type`, apagado no build);
 // importar valores de lá faria o webpack empacotar o source do pacote. Espelha
 // `@/lib/alteracao-contratual`.

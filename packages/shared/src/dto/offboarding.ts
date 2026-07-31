@@ -2,7 +2,7 @@
  * DTOs do módulo de OFFBOARDING (DHO).
  *
  * Espelham o shape devolvido pelos controllers REST (`/api/offboarding` e
- * subrotas). Como TODO o frontend lê via `@uniats/shared` (sem importar Prisma
+ * subrotas). Como TODO o frontend lê via `@collab/shared` (sem importar Prisma
  * no navegador), este é o contrato único entre back e front.
  *
  * Os enums de string abaixo espelham EXATAMENTE os enums do Prisma (packages/db).

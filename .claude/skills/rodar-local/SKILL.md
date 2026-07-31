@@ -59,14 +59,14 @@ Para migrar o banco que a API usa:
 ```powershell
 $linha = (Select-String -Path '.env' -Pattern '^DATABASE_URL=').Line
 $env:DATABASE_URL = $linha.Substring($linha.IndexOf('=') + 1).Trim().Trim('"')
-pnpm --filter @uniats/db run prisma migrate status    # o que está pendente
-pnpm --filter @uniats/db run prisma migrate deploy    # aplica
+pnpm --filter @collab/db run prisma migrate status    # o que está pendente
+pnpm --filter @collab/db run prisma migrate deploy    # aplica
 ```
 
 Use `run prisma …` (script do pacote). `pnpm --filter … exec prisma` às vezes falha com
 "Command prisma not found" mesmo tendo executado. **Nunca** `migrate reset` — apaga dados.
 
-Seeds, se precisar de base nova: `seed`, `seed:fake`, `seed:dho` (todos em `@uniats/db`).
+Seeds, se precisar de base nova: `seed`, `seed:fake`, `seed:dho` (todos em `@collab/db`).
 
 ## 4. Cache do Next corrompido (acontece)
 

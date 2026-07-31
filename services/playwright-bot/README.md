@@ -1,4 +1,4 @@
-# UniATS — Bot Playwright (fallback de transcrição)
+# Collab — Bot Playwright (fallback de transcrição)
 
 Serviço **standalone** (fora do workspace pnpm) que entra na reunião do Teams pelo
 navegador, liga as **legendas ao vivo** e captura `falante + texto`. No fim devolve

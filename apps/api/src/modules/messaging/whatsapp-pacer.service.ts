@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { WahaPacingConfigDTO } from '@uniats/shared';
+import type { WahaPacingConfigDTO } from '@collab/shared';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { PrismaService } from '../../prisma/prisma.service.js';

@@ -1,9 +1,9 @@
 # =====================================================================
-# Stack de PRODUÇÃO — UniATS (Oracle Linux 10, deploy na própria máquina)
+# Stack de PRODUÇÃO — Collab (Oracle Linux 10, deploy na própria máquina)
 # ---------------------------------------------------------------------
 # Sobe Postgres (pgvector) + Redis + MinIO + API + Web numa rede interna.
 # Só a API (:13001) e o Web (:13000) são publicados — e APENAS em 127.0.0.1,
-# pois o nginx do host (infra/nginx/uniats.conf) faz o TLS e o proxy.
+# pois o nginx do host (infra/nginx/collab.conf) faz o TLS e o proxy.
 #
 # Uso:
 #   docker compose -f infra/docker-compose.prod.yml up -d --build
@@ -11,7 +11,12 @@
 # Pré-requisito: infra/.env.production preenchido (ver .env.production.example).
 # =====================================================================
 
-name: uniats
+# Prefixo dos containers (collab-api-1, collab-web-1, ...). ATENÇÃO: este nome
+# também prefixa os volumes nomeados. Os volumes já existentes no servidor
+# nasceram como `uniats_*`, então cada um está PINADO no nome físico lá embaixo
+# (`name: uniats_...`) — sem isso, o rename faria o Docker criar volumes novos
+# e vazios: Postgres em branco, MinIO em branco e WAHA pedindo QR de novo.
+name: collab
 
 services:
   postgres:
@@ -65,7 +70,7 @@ services:
       context: ..
       dockerfile: Dockerfile.api
       target: runtime
-    image: uniats-api:latest
+    image: collab-api:latest
     restart: unless-stopped
     # Injeta todas as vars no processo (a app via ConfigService; o Prisma CLI lê
     # DATABASE_URL daqui na hora do `migrate deploy`).
@@ -90,7 +95,7 @@ services:
       dockerfile: Dockerfile.web
       target: runtime
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api-uniats.unifique.com.br}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api-collab.unifique.com.br}
         NEXT_PUBLIC_APP_ENV: production
         # Azure AD / agenda Teams — embutidas no build do bundle (NEXT_PUBLIC_*).
         NEXT_PUBLIC_AZURE_AD_TENANT_ID: ${NEXT_PUBLIC_AZURE_AD_TENANT_ID:-}
@@ -98,7 +103,7 @@ services:
         NEXT_PUBLIC_AZURE_AD_API_SCOPE: ${NEXT_PUBLIC_AZURE_AD_API_SCOPE:-}
         NEXT_PUBLIC_AZURE_AD_SSO: ${NEXT_PUBLIC_AZURE_AD_SSO:-}
         NEXT_PUBLIC_LOGIN_LOCAL: ${NEXT_PUBLIC_LOGIN_LOCAL:-}
-    image: uniats-web:latest
+    image: collab-web:latest
     restart: unless-stopped
     depends_on:
       - api
@@ -147,7 +152,7 @@ services:
       context: ..
       dockerfile: Dockerfile.playwrightbot
       target: runtime
-    image: uniats-playwright-bot:latest
+    image: collab-playwright-bot:latest
     restart: unless-stopped
     env_file:
       - ./.env.production
@@ -165,9 +170,18 @@ services:
       redis: { condition: service_healthy }
       api: { condition: service_started }
 
+# Nomes FÍSICOS preservados de propósito (era o projeto `uniats`). Não troque
+# para `collab_*` em sistema vivo: o Docker não renomeia volume, ele criaria
+# outro vazio e a stack subiria sem banco, sem arquivos e sem pareamento do
+# WhatsApp. Os nomes certos nascem de graça no servidor novo.
 volumes:
   pgdata:
+    name: uniats_pgdata
   redisdata:
+    name: uniats_redisdata
   miniodata:
+    name: uniats_miniodata
   wahasessions:
+    name: uniats_wahasessions
   whispercache:
+    name: uniats_whispercache

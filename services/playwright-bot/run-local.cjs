@@ -14,7 +14,7 @@ async function main() {
   const r = await capturarReuniao(
     {
       joinUrl,
-      displayName: process.env.NOME || 'Assistente de Transcrição (UniATS)',
+      displayName: process.env.NOME || 'Assistente de Transcrição (Collab)',
       headless: false, // VISÍVEL: você vê o bot entrar e admite do lobby
       navTimeoutMs: 60_000,
       lobbyTimeoutMs: Number(process.env.LOBBY_MIN || 5) * 60_000,

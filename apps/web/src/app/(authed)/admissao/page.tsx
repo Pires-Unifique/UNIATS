@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import type { AdmissaoListItemDTO, StatusAdmissao } from '@uniats/shared';
+import type { AdmissaoListItemDTO, StatusAdmissao } from '@collab/shared';
 
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
