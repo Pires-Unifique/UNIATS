@@ -165,11 +165,26 @@ export class PlaywrightTranscricaoProcessor extends WorkerHost {
     });
 
     // Claude → ATA (resumo + tópicos) sobre o texto JÁ censurado.
-    const ata = await this.claude.gerarAtaReuniao(textoEfetivo);
-    await this.prisma.transcricao.update({
-      where: { entrevista_id: entrevistaId },
-      data: { resumo: ata.ata.resumo, topicos: ata.ata.topicos },
+    //
+    // BEST-EFFORT, como no processor da fusão: a transcrição acima já está no banco
+    // e o que vem depois (FINALIZADA, fusão, análise, notificação) não depende do
+    // resumo. Deixar a ATA propagar dava o pior resultado possível — transcrição
+    // gravada, entrevista presa em EM_ANDAMENTO, fusão nunca agendada — e cada
+    // retry do BullMQ re-executava a censura inteira para morrer no mesmo ponto.
+    // A fusão regenera a ATA depois, a partir do texto fundido (resumo melhor).
+    const ata = await this.claude.gerarAtaReuniao(textoEfetivo).catch((err) => {
+      this.logger.warn(
+        `ATA falhou p/ entrevista ${entrevistaId} (não crítico, a fusão regenera): ` +
+          `${(err as Error).message}`,
+      );
+      return null;
     });
+    if (ata) {
+      await this.prisma.transcricao.update({
+        where: { entrevista_id: entrevistaId },
+        data: { resumo: ata.ata.resumo, topicos: ata.ata.topicos },
+      });
+    }
 
     await this.prisma.entrevista.update({
       where: { id: entrevistaId },

@@ -201,12 +201,23 @@ export class TranscricaoGraphProcessor extends WorkerHost {
       },
     });
 
-    // 6. Claude → ATA (resumo + tópicos) sobre o texto JÁ censurado
-    const ata = await this.claude.gerarAtaReuniao(textoSeguro);
-    await this.prisma.transcricao.update({
-      where: { entrevista_id: entrevistaId },
-      data: { resumo: ata.ata.resumo, topicos: ata.ata.topicos },
+    // 6. Claude → ATA (resumo + tópicos) sobre o texto JÁ censurado.
+    // BEST-EFFORT (igual ao Playwright e à fusão): o transcript já está persistido
+    // e os passos 7 e 8 não dependem do resumo — um resumo que falhou não pode
+    // impedir a entrevista de fechar nem a fusão de ser agendada.
+    const ata = await this.claude.gerarAtaReuniao(textoSeguro).catch((err) => {
+      this.logger.warn(
+        `ATA falhou p/ entrevista ${entrevistaId} (não crítico, a fusão regenera): ` +
+          `${(err as Error).message}`,
+      );
+      return null;
     });
+    if (ata) {
+      await this.prisma.transcricao.update({
+        where: { entrevista_id: entrevistaId },
+        data: { resumo: ata.ata.resumo, topicos: ata.ata.topicos },
+      });
+    }
 
     // 7. fecha a entrevista
     await this.prisma.entrevista.update({

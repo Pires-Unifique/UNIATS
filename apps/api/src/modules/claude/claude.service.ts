@@ -110,6 +110,10 @@ diga que não houve decisão nem encaminhamento.
 Priorize fatos e COBERTURA (o que foi e o que não foi dito) sobre floreio. Os tópicos
 ("topicos") são termos curtos dos assuntos efetivamente discutidos, sem duplicatas.
 
+TAMANHO: mire cerca de 4.000 caracteres no "resumo" e NUNCA passe de 8.000, mesmo em
+entrevistas longas. Se a conversa for extensa, condense os "Assuntos abordados" em vez
+de cortar as outras seções — a cobertura do que não foi abordado é o que mais importa.
+
 Sempre devolva a resposta usando a ferramenta "gerar_ata". Nunca devolva texto livre.\
 `;
 

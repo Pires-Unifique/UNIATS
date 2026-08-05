@@ -12,13 +12,26 @@ import { z } from 'zod';
  * Versionar ao mudar prompt/shape (igual ao parser de currículo) permite
  * reprocessar transcrições antigas no futuro.
  */
-export const ATA_PROMPT_VERSION = 'claude-ata-v2';
+export const ATA_PROMPT_VERSION = 'claude-ata-v3';
+
+/**
+ * Teto do resumo. É uma REDE DE SEGURANÇA, não o alvo: quem controla o tamanho é
+ * o orçamento declarado no SYSTEM_PROMPT_ATA (~4.000 chars), porque `maxLength` no
+ * input_schema da tool é apenas declarativo — o Claude não o trata como trava.
+ *
+ * Nem `strict: true` resolveria: constraints de string (minLength/maxLength) estão
+ * fora do que o modo estrito valida (ele garante a FORMA do schema, não tamanhos),
+ * e os SDKs chegam a removê-las do schema enviado.
+ *
+ * Estava em 3.000, o que a ATA de uma entrevista real de 1h (≈60k chars de
+ * transcript) estourava — e como o Zod valida a saída, o job inteiro caía.
+ */
+export const ATA_RESUMO_MAX_CHARS = 8000;
 
 export const AtaReuniaoSchema = z.object({
   // Resumo estruturado em seções (Contexto / Assuntos abordados / Relevante para a
-  // seleção / Desfecho), com quebras de linha. Limite ampliado p/ acomodar a
-  // estrutura e a citação explícita do que NÃO foi abordado.
-  resumo: z.string().min(1).max(3000),
+  // seleção / Desfecho), com quebras de linha.
+  resumo: z.string().min(1).max(ATA_RESUMO_MAX_CHARS),
   topicos: z.array(z.string().min(1)).max(20).default([]),
 });
 
@@ -33,7 +46,10 @@ export const ATA_TOOL_INPUT_SCHEMA = {
   properties: {
     resumo: {
       type: 'string',
-      maxLength: 3000,
+      // Declarativo — o Claude não trata isto como trava. Mantido em sincronia com
+      // o Zod para documentar a intenção; a trava real é o Zod, e o controle de
+      // fato é o orçamento em caracteres no system prompt.
+      maxLength: ATA_RESUMO_MAX_CHARS,
       description:
         'Resumo executivo ESTRUTURADO em seções rotuladas (texto puro, sem markdown), ' +
         'com uma linha em branco entre elas: "Contexto:" (participantes, caráter da ' +
