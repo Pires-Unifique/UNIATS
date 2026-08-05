@@ -25,7 +25,11 @@ import { QUEUE_NAMES } from '../../../queue/queue.module.js';
  */
 const PayloadSchema = z.object({ entrevistaId: z.string().uuid() });
 
-type Seg = { falante?: string | null; texto?: string | null };
+// `inicio_ms` é gravado pelas duas fontes (ver SegmentoSchema no callback do bot
+// e no processor do Playwright) e é o que permite à fusão janelar por tempo em
+// vez de mandar o transcript inteiro numa chamada só. Sem ele, a fusão cai em
+// janela única e volta a truncar em entrevista longa.
+type Seg = { falante?: string | null; texto?: string | null; inicio_ms?: number | null };
 
 @Processor(QUEUE_NAMES.FUSAO_TRANSCRICAO, {
   concurrency: Number(process.env.FUSAO_CONCURRENCY ?? 1),
@@ -62,10 +66,14 @@ export class FusaoTranscricaoProcessor extends WorkerHost {
 
     const teams = ((t.segmentos as Seg[] | null) ?? [])
       .filter((s) => s?.texto?.trim())
-      .map((s) => ({ falante: s.falante ?? 'Desconhecido', texto: String(s.texto) }));
+      .map((s) => ({
+        falante: s.falante ?? 'Desconhecido',
+        texto: String(s.texto),
+        inicio_ms: s.inicio_ms ?? null,
+      }));
     const whisper = ((t.whisper_segmentos as Seg[] | null) ?? [])
       .filter((s) => s?.texto?.trim())
-      .map((s) => ({ texto: String(s.texto) }));
+      .map((s) => ({ texto: String(s.texto), inicio_ms: s.inicio_ms ?? null }));
 
     if (teams.length === 0 || whisper.length === 0) {
       this.logger.log(

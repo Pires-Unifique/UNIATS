@@ -330,3 +330,267 @@ describe('ClaudeService.redigirSensivel (Camada 2 — censura LGPD)', () => {
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });
+
+// ---------------------------------------------------------------------
+// Loteamento — o que impedia entrevista de duração real de ser processada
+// ---------------------------------------------------------------------
+/** Texto do prompt enviado numa chamada. */
+function promptDa(chamada: number): string {
+  return createMock.mock.calls[chamada][0].messages[0].content[0].text as string;
+}
+
+/** Índices e conteúdos que o lote recebeu, lidos do bloco `[i] falante: texto`. */
+function turnosNoPrompt(texto: string): Array<{ i: number; texto: string }> {
+  return [...texto.matchAll(/^\[(\d+)\] [^:\n]*: (.*)$/gm)].map((m) => ({
+    i: Number(m[1]),
+    texto: m[2]!,
+  }));
+}
+
+describe('ClaudeService.redigirSensivel — loteamento', () => {
+  let service: ClaudeService;
+
+  // Ecoa cada turno recebido prefixado com '#'. Como responde em função do
+  // CONTEÚDO (e não da ordem das chamadas), o teste valida de verdade que cada
+  // lote enumera do zero e que o offset é somado na remontagem.
+  const ecoar = (): void => {
+    createMock.mockImplementation((args: any) => {
+      const turnos = turnosNoPrompt(args.messages[0].content[0].text).map((t) => ({
+        i: t.i,
+        texto: `#${t.texto}`,
+      }));
+      return Promise.resolve({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: 'redigir_sensivel', input: { turnos } }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    });
+  };
+
+  beforeEach(() => {
+    createMock.mockReset();
+    service = new ClaudeService(configMock());
+  });
+
+  it('divide por soma de chars e remonta na ordem, com índices locais por lote', async () => {
+    // 3 turnos de 5k chars: o alvo é 11k, então o terceiro não cabe no primeiro lote.
+    const turnos = [0, 1, 2].map((n) => ({
+      falante: 'A',
+      texto: `T${n}`.padEnd(5_000, 'x'),
+    }));
+    ecoar();
+
+    const out = await service.redigirSensivel(turnos);
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    // Cada lote enumera a partir de zero — é o que reduz erro de eco do índice.
+    expect(turnosNoPrompt(promptDa(0)).map((t) => t.i)).toEqual([0, 1]);
+    expect(turnosNoPrompt(promptDa(1)).map((t) => t.i)).toEqual([0]);
+    // E a remontagem global preserva ordem e alinhamento 1:1.
+    expect(out.textos).toHaveLength(3);
+    out.textos.forEach((texto, i) => {
+      expect(texto).toBe(`#${turnos[i]!.texto}`);
+    });
+  });
+
+  it('turno maior que o alvo vira lote sozinho, sem ser cortado ao meio', async () => {
+    const gigante = 'G'.padEnd(20_000, 'y');
+    ecoar();
+
+    const out = await service.redigirSensivel([
+      { falante: 'A', texto: 'curto antes' },
+      { falante: 'A', texto: gigante },
+      { falante: 'A', texto: 'curto depois' },
+    ]);
+
+    expect(createMock).toHaveBeenCalledTimes(3);
+    // Cortar o turno quebraria o alinhamento 1:1 por índice — ele vai inteiro.
+    expect(promptDa(1)).toContain(gigante);
+    expect(out.textos[1]).toBe(`#${gigante}`);
+    expect(out.textos).toHaveLength(3);
+  });
+
+  it('índice faltando em UM lote não desalinha os outros (piso da Camada 1)', async () => {
+    createMock.mockImplementation((args: any) => {
+      const turnos = turnosNoPrompt(args.messages[0].content[0].text)
+        .filter((t) => !t.texto.startsWith('ESQUECIDO')) // o modelo "pula" este
+        .map((t) => ({ i: t.i, texto: `#${t.texto}` }));
+      return Promise.resolve({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: 'redigir_sensivel', input: { turnos } }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    });
+
+    // 3 × 4k chars → lote 1 = [0,1], lote 2 = [2]. O omitido é o índice 1, no
+    // meio do primeiro lote: se o offset fosse aplicado errado, o turno 2 viria
+    // deslocado.
+    const entrada = [
+      'PRIMEIRO'.padEnd(4_000, 'x'),
+      'ESQUECIDO'.padEnd(4_000, 'y'),
+      'TERCEIRO'.padEnd(4_000, 'z'),
+    ];
+    const out = await service.redigirSensivel(
+      entrada.map((texto) => ({ falante: 'A', texto })),
+    );
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(out.textos[0]).toBe(`#${entrada[0]}`);
+    expect(out.textos[1]).toBe(entrada[1]); // mantém a entrada: não some nem vaza
+    expect(out.textos[2]).toBe(`#${entrada[2]}`);
+  });
+
+  it('soma os tokens de todos os lotes', async () => {
+    ecoar();
+    const out = await service.redigirSensivel(
+      [0, 1, 2].map((n) => ({ falante: 'A', texto: `T${n}`.padEnd(5_000, 'x') })),
+    );
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(out.tokensEntrada).toBe(20); // 2 lotes × 10
+    expect(out.tokensSaida).toBe(10); // 2 lotes × 5
+  });
+
+  it('um lote falhando derruba a chamada inteira (fail-closed)', async () => {
+    createMock.mockImplementation((args: any) => {
+      const texto = args.messages[0].content[0].text as string;
+      if (texto.includes('ENVENENADO')) {
+        const err: any = new Error('rate limit');
+        err.status = 429;
+        return Promise.reject(err);
+      }
+      // O lote saudável responde normalmente — o que derruba é só o outro.
+      const turnos = turnosNoPrompt(texto).map((t) => ({ i: t.i, texto: `#${t.texto}` }));
+      return Promise.resolve({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: 'redigir_sensivel', input: { turnos } }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    });
+
+    await expect(
+      service.redigirSensivel([
+        { falante: 'A', texto: 'ok'.padEnd(9_000, 'x') },
+        { falante: 'A', texto: 'ENVENENADO'.padEnd(9_000, 'x') },
+      ]),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('truncamento por max_tokens vira erro que diz "truncada", não erro de schema', async () => {
+    // Truncado, o tool_use chega sem a chave `turnos`; sem esta checagem o Zod
+    // reportaria "turnos: Required" e mandaria quem investiga para o schema.
+    createMock.mockResolvedValue({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'tool_use', name: 'redigir_sensivel', input: {} }],
+      usage: { input_tokens: 10, output_tokens: 8192 },
+    });
+
+    await expect(
+      service.redigirSensivel([{ falante: 'A', texto: 'oi' }]),
+    ).rejects.toThrow(/truncada por max_tokens/);
+  });
+});
+
+describe('ClaudeService.fundirTranscricoes — janelamento por tempo', () => {
+  let service: ClaudeService;
+
+  const ecoarFusao = (): void => {
+    createMock.mockImplementation((args: any) => {
+      const texto = args.messages[0].content[0].text as string;
+      const bloco = /<transcricao_a_teams>\n([\s\S]*?)\n<\/transcricao_a_teams>/.exec(texto);
+      const turnos = (bloco?.[1] ?? '')
+        .split('\n')
+        .filter((l) => l.trim())
+        .map((l) => ({ falante: 'A', texto: l.split(': ').slice(1).join(': ') }));
+      return Promise.resolve({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: 'fundir_transcricao', input: { turnos } }],
+        usage: { input_tokens: 7, output_tokens: 3 },
+      });
+    });
+  };
+
+  beforeEach(() => {
+    createMock.mockReset();
+    service = new ClaudeService(configMock());
+  });
+
+  it('janela por inicio_ms e concatena as janelas em ordem temporal', async () => {
+    ecoarFusao();
+    const out = await service.fundirTranscricoes({
+      teams: [
+        { falante: 'A', texto: 'inicio', inicio_ms: 0 },
+        { falante: 'A', texto: 'meio', inicio_ms: 230_000 },
+        { falante: 'A', texto: 'fim', inicio_ms: 600_000 },
+      ],
+      whisper: [
+        { texto: 'w-inicio', inicio_ms: 1_000 },
+        { texto: 'w-fim', inicio_ms: 601_000 },
+      ],
+    });
+
+    // Janelas de 4 min sobre 0–600s → a 1ª e a 3ª têm conteúdo, a 2ª é vazia e
+    // não vira chamada.
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(out.turnos.map((t) => t.texto)).toEqual(['inicio', 'meio', 'fim']);
+    expect(out.texto).toBe('A: inicio\nA: meio\nA: fim');
+    expect(out.tokensEntrada).toBe(14); // 2 janelas × 7
+    expect(out.tokensSaida).toBe(6);
+  });
+
+  it('mostra o trecho anterior como contexto marcado para NÃO reproduzir', async () => {
+    ecoarFusao();
+    // As janelas começam no PRIMEIRO inicio_ms, então é preciso um segmento em 0
+    // para que a fronteira de 4 min caia entre 235s e 245s.
+    await service.fundirTranscricoes({
+      teams: [
+        { falante: 'A', texto: 'abertura', inicio_ms: 0 },
+        { falante: 'A', texto: 'na fronteira', inicio_ms: 235_000 },
+        { falante: 'A', texto: 'depois', inicio_ms: 245_000 },
+      ],
+      whisper: [
+        { texto: 'w0', inicio_ms: 500 },
+        { texto: 'w1', inicio_ms: 235_500 },
+        { texto: 'w2', inicio_ms: 245_500 },
+      ],
+    });
+
+    const segunda = promptDa(1);
+    expect(segunda).toContain('<contexto_anterior>');
+    expect(segunda).toContain('na fronteira'); // 10s antes da fronteira
+    expect(segunda).toContain('NÃO o reproduza');
+    // O contexto não pode ir junto com os dados a reconciliar, senão duplica.
+    const dados = /<transcricao_a_teams>\n([\s\S]*?)\n<\/transcricao_a_teams>/.exec(segunda);
+    expect(dados?.[1]).not.toContain('na fronteira');
+  });
+
+  it('sem inicio_ms cai em janela única (compatibilidade)', async () => {
+    ecoarFusao();
+    const out = await service.fundirTranscricoes({
+      teams: [{ falante: 'A', texto: 'a' }],
+      whisper: [{ texto: 'b' }],
+    });
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(out.turnos).toHaveLength(1);
+  });
+
+  it('duas fontes vazias continuam sendo erro', async () => {
+    await expect(
+      service.fundirTranscricoes({ teams: [], whisper: [] }),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('truncamento por max_tokens vira erro que diz "truncada"', async () => {
+    createMock.mockResolvedValue({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'tool_use', name: 'fundir_transcricao', input: {} }],
+      usage: { input_tokens: 10, output_tokens: 8192 },
+    });
+    await expect(
+      service.fundirTranscricoes({
+        teams: [{ falante: 'A', texto: 'a', inicio_ms: 0 }],
+        whisper: [{ texto: 'b', inicio_ms: 0 }],
+      }),
+    ).rejects.toThrow(/truncada por max_tokens/);
+  });
+});
