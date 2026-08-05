@@ -31,6 +31,7 @@ import {
   ListarVagasParams,
   MoverCandidaturaParams,
 } from './gupy.types.js';
+import { limparHtml } from './mappers/gupy.mapper.js';
 
 export class GupyApiError extends Error {
   constructor(
@@ -372,12 +373,18 @@ export class GupyClient {
         name: params.name,
         page: params.page ?? 1,
         perPage: params.maxPageSize ?? 50,
+        // fields=all é o que traz description/responsibilities/prerequisites.
+        fields: 'all',
       },
       PaginacaoEstruturaGupySchema(JobTemplateGupySchema),
     );
     const numOuNull = (v: unknown): number | null => {
       const n = v != null ? Number(v) : NaN;
       return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const texto = (v?: string | null): string | null => {
+      const s = limparHtml(v);
+      return s.length > 0 ? s : null;
     };
     return resp.data
       .map((t) => ({
@@ -390,9 +397,25 @@ export class GupyClient {
         roleName: t.roleName ?? null,
         branchId: numOuNull(t.branchId),
         branchName: t.branchName ?? null,
-        descricao: t.description ?? null,
+        descricao: texto(t.description),
+        responsabilidades: texto(t.responsibilities),
+        requisitos: texto(t.prerequisites),
       }))
       .filter((t) => Number.isFinite(t.id) && t.id > 0);
+  }
+
+  /**
+   * Detalhe de um modelo de vaga — GET /api/v1/job-templates/:id.
+   * A listagem não traz o texto; o detalhe costuma carregar
+   * description/responsibilities/prerequisites. Retorno cru (passthrough) para
+   * inspeção — refinamos o schema depois de confirmar o shape do tenant.
+   */
+  async obterJobTemplate(id: number): Promise<Record<string, unknown>> {
+    return this.get(
+      `/job-templates/${id}`,
+      { fields: 'all' },
+      z.object({}).passthrough(),
+    ) as Promise<Record<string, unknown>>;
   }
 
   /**

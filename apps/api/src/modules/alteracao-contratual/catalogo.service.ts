@@ -8,6 +8,7 @@ import type {
 } from '@collab/shared';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { GupyClient } from '../gupy/gupy.client.js';
 import { SeniorProvider } from './providers/senior.provider.js';
 
 /** Linha do CSV de cargos (SharePoint). */
@@ -34,6 +35,7 @@ export class CatalogoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly senior: SeniorProvider,
+    private readonly gupy: GupyClient,
   ) {}
 
   // ---------------- CARGOS ----------------
@@ -146,6 +148,85 @@ export class CatalogoService {
       `Importação de cargos: ${criados} criados, ${atualizados} atualizados.`,
     );
     return { criados, atualizados };
+  }
+
+  /**
+   * Importa cargos a partir dos MODELOS DE VAGA da Gupy
+   * (GET /api/v1/job-templates?fields=all), que trazem a descrição completa
+   * (descrição + responsabilidades + requisitos, já sem HTML).
+   *
+   * Chave de idempotência: `GUPY-<roleId>` — assim ENRIQUECE os cargos vindos
+   * do import de roles (mesmo código) preenchendo a descrição, em vez de
+   * duplicar. Modelos sem roleId caem em `GUPY-TPL-<templateId>`.
+   *
+   * Preserva edições: se o líder já ajustou a descrição, a re-importação NÃO
+   * sobrescreve. Cada roleId recebe a descrição do PRIMEIRO modelo com texto.
+   */
+  async importarCargosGupy(): Promise<{
+    criados: number;
+    atualizados: number;
+    total: number;
+  }> {
+    let criados = 0;
+    let atualizados = 0;
+    let total = 0;
+    const PER_PAGE = 100;
+    for (let page = 1; page <= 20; page++) {
+      const modelos = await this.gupy.listarJobTemplates({
+        page,
+        maxPageSize: PER_PAGE,
+      });
+      if (modelos.length === 0) break;
+      for (const m of modelos) {
+        const titulo = (m.roleName ?? m.nome ?? '').trim();
+        if (!titulo) continue;
+        total++;
+        const codigo = m.roleId ? `GUPY-${m.roleId}` : `GUPY-TPL-${m.id}`;
+        const descricaoGupy = this.montarDescricaoModelo(m);
+        const existente = await this.prisma.cargo.findUnique({
+          where: { codigo },
+        });
+        if (existente) {
+          const jaEditado = !!existente.descricao?.trim();
+          await this.prisma.cargo.update({
+            where: { id: existente.id },
+            data: {
+              // preenche a descrição só se ainda estiver vazia (preserva edições).
+              descricao: jaEditado ? existente.descricao : descricaoGupy,
+              excluido_em: null,
+            },
+          });
+          atualizados++;
+        } else {
+          await this.prisma.cargo.create({
+            data: { codigo, titulo, descricao: descricaoGupy, origem: 'gupy' },
+          });
+          criados++;
+        }
+      }
+      if (modelos.length < PER_PAGE) break;
+    }
+    this.logger.log(
+      `Importação de cargos (Gupy job-templates): ${criados} criados, ${atualizados} atualizados (${total} modelos).`,
+    );
+    return { criados, atualizados, total };
+  }
+
+  /** Junta descrição + responsabilidades + requisitos do modelo em um texto. */
+  private montarDescricaoModelo(m: {
+    descricao?: string | null;
+    responsabilidades?: string | null;
+    requisitos?: string | null;
+  }): string | null {
+    const partes: string[] = [];
+    if (m.descricao?.trim()) partes.push(m.descricao.trim());
+    if (m.responsabilidades?.trim()) {
+      partes.push(`Responsabilidades:\n${m.responsabilidades.trim()}`);
+    }
+    if (m.requisitos?.trim()) {
+      partes.push(`Requisitos:\n${m.requisitos.trim()}`);
+    }
+    return partes.length ? partes.join('\n\n') : null;
   }
 
   /** Define as lotações permitidas de um cargo (substitui as existentes). */

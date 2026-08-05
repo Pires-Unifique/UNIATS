@@ -76,7 +76,10 @@ export interface JobTemplateOpcaoDTO {
   roleName?: string | null;
   branchId?: number | null;
   branchName?: string | null;
+  /** Texto já limpo de HTML (vem com ?fields=all). */
   descricao?: string | null;
+  responsabilidades?: string | null;
+  requisitos?: string | null;
 }
 
 /** Tipos de vaga aceitos pela Gupy (subset usual). */

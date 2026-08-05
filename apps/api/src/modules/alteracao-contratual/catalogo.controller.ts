@@ -91,6 +91,13 @@ export class CatalogoController {
     return this.service.importarCargosCsv(body.cargos);
   }
 
+  /** Importa cargos a partir dos roles da Gupy (descrição pré-preenchida). */
+  @Post('cargos/importar-gupy')
+  @Areas('dho', 'recrutamento')
+  async importarCargosGupy() {
+    return this.service.importarCargosGupy();
+  }
+
   @Post('cargos/:id/lotacoes')
   @Areas('dho')
   async definirLotacoes(

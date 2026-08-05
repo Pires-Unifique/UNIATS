@@ -33,6 +33,8 @@ export default function CargosPage() {
   const [editando, setEditando] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
   const [salvando, setSalvando] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -128,12 +130,51 @@ export default function CargosPage() {
     }
   }
 
+  async function importarDaGupy() {
+    setErro(null);
+    setAviso(null);
+    setImportando(true);
+    try {
+      const r = await api<{ criados: number; atualizados: number; total: number }>(
+        '/api/alteracao-contratual/catalogo/cargos/importar-gupy',
+        { method: 'POST' },
+      );
+      setAviso(
+        `Importação da Gupy concluída: ${r.criados} novo(s), ${r.atualizados} atualizado(s) (${r.total} cargo(s) lidos). A descrição fica editável abaixo.`,
+      );
+      await carregar();
+    } catch (err) {
+      setErro(
+        err instanceof ApiError ? err.message : 'Falha ao importar da Gupy.',
+      );
+    } finally {
+      setImportando(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
         titulo="Cargos"
         subtitulo="Cadastre os cargos do catálogo. A descrição aqui é a mesma que aparece ao publicar uma vaga."
+        acoes={
+          <button
+            type="button"
+            className="btn-soft"
+            disabled={importando}
+            onClick={() => void importarDaGupy()}
+            title="Importa os cargos e descrições cadastrados na Gupy"
+          >
+            {importando ? 'Importando da Gupy…' : 'Importar da Gupy'}
+          </button>
+        }
       />
+
+      {aviso && (
+        <div className="badge-green mb-4 w-full justify-start px-3 py-2">
+          {aviso}
+        </div>
+      )}
 
       {erro && (
         <div className="badge-red mb-4 w-full justify-start px-3 py-2">{erro}</div>

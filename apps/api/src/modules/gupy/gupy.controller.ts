@@ -121,6 +121,15 @@ export class GupyController {
     return this.client.listarRoles({ name: q?.trim() || undefined });
   }
 
+  /** Detalhe de um modelo de vaga (traz o texto da descrição). */
+  @Get('job-templates/:id')
+  async obterJobTemplate(@Param('id') id: string) {
+    if (!/^\d+$/.test(id)) {
+      throw new BadRequestException('id deve ser numérico');
+    }
+    return this.client.obterJobTemplate(Number(id));
+  }
+
   // ---- Sincronização (ações de escrita) ----
 
   /**

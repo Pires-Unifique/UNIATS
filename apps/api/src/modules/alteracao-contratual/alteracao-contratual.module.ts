@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { AuthModule } from '../auth/auth.module.js';
+import { GupyModule } from '../gupy/gupy.module.js';
 import { AlteracaoContratualController } from './alteracao-contratual.controller.js';
 import { AlteracaoContratualWebhookController } from './alteracao-contratual-webhook.controller.js';
 import { CatalogoController } from './catalogo.controller.js';
@@ -17,7 +18,7 @@ import { ExecucaoSchedulerService } from './services/execucao-scheduler.service.
  * Conectores (Senior/Autentique) plugáveis por env — ver providers.
  */
 @Module({
-  imports: [AuthModule, ConfigModule],
+  imports: [AuthModule, ConfigModule, GupyModule],
   controllers: [
     AlteracaoContratualController,
     CatalogoController,
