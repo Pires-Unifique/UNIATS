@@ -38,3 +38,7 @@ infra/.env.production
 
 # Override local do docker compose (KMS do MinIO em dev) — "não versionar"
 infra/docker-compose.override.yml
+
+# Python (scripts auxiliares)
+__pycache__/
+*.pyc
