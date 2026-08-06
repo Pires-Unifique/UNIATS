@@ -331,6 +331,102 @@ describe('ClaudeService.redigirSensivel (Camada 2 — censura LGPD)', () => {
   });
 });
 
+describe('ClaudeService.analisarRespostasEntrevista — campos opcionais nulos', () => {
+  let service: ClaudeService;
+
+  beforeEach(() => {
+    createMock.mockReset();
+    service = new ClaudeService(configMock());
+  });
+
+  const perguntas = [
+    { ref: 'P1', pergunta: 'Qual sua experiência?' },
+    { ref: 'P2', pergunta: 'Qual sua pretensão?' },
+  ];
+
+  it('aceita null nos campos opcionais em vez de derrubar a análise inteira', async () => {
+    // O tool schema manda OMITIR a chave quando não se aplica, mas o modelo às
+    // vezes manda null. Com `.optional()` isso reprovava o array inteiro — as
+    // outras perguntas, já analisadas corretamente, iam junto.
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'analisar_respostas',
+          input: {
+            respostas: [
+              {
+                ref: 'P1',
+                status: 'abordada',
+                tema_abordado: true,
+                falante: 'Wander',
+                sintese: 'Dez anos em provedor.',
+                citacao: 'trabalhei dez anos',
+              },
+              {
+                ref: 'P2',
+                status: 'nao_abordada',
+                tema_abordado: false,
+                falante: null,
+                sintese: null,
+                citacao: null,
+              },
+            ],
+          },
+        },
+      ],
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+
+    const out = await service.analisarRespostasEntrevista('transcript', perguntas);
+
+    expect(out.respostas).toHaveLength(2);
+    expect(out.respostas[0]!.sintese).toBe('Dez anos em provedor.');
+    expect(out.respostas[1]!.sintese).toBeNull();
+    expect(out.respostas[1]!.status).toBe('nao_abordada');
+  });
+
+  it('continua aceitando as chaves simplesmente omitidas', async () => {
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'analisar_respostas',
+          input: {
+            respostas: [{ ref: 'P1', status: 'nao_abordada', tema_abordado: false }],
+          },
+        },
+      ],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const out = await service.analisarRespostasEntrevista('transcript', perguntas);
+
+    expect(out.respostas).toHaveLength(1);
+    expect(out.respostas[0]!.sintese).toBeUndefined();
+  });
+
+  it('ainda rejeita saída de fato inválida (status fora do enum)', async () => {
+    createMock.mockResolvedValue({
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'analisar_respostas',
+          input: { respostas: [{ ref: 'P1', status: 'talvez' }] },
+        },
+      ],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    await expect(
+      service.analisarRespostasEntrevista('transcript', perguntas),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+  });
+});
+
 // ---------------------------------------------------------------------
 // Loteamento — o que impedia entrevista de duração real de ser processada
 // ---------------------------------------------------------------------

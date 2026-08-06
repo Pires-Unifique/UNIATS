@@ -12,15 +12,29 @@ import { z } from 'zod';
  */
 export const RESPOSTAS_PROMPT_VERSION = 'claude-respostas-v3';
 
+/**
+ * Campos opcionais são `.nullish()`, não `.optional()`.
+ *
+ * As descrições do tool schema mandam OMITIR a chave quando não se aplica, mas o
+ * modelo às vezes manda `null` — e `.optional()` aceita só `undefined`, então um
+ * único `"sintese": null` reprovava o objeto inteiro no `safeParse` e derrubava a
+ * análise das 8 perguntas depois de ~2 min de processamento. Aconteceu em produção.
+ *
+ * Não dá para contornar por retry: a chamada usa `temperature: 0`, então o mesmo
+ * transcript com o mesmo roteiro tende a reproduzir exatamente a mesma saída.
+ *
+ * O consumidor já lidava com nulo (`r?.sintese?.trim() || null` em
+ * RespostasEntrevistaService) — era só o parser que barrava.
+ */
 export const RespostaExtraidaSchema = z.object({
   ref: z.string().min(1).max(10),
   /** O CANDIDATO respondeu? */
   status: z.enum(['abordada', 'parcial', 'nao_abordada']),
   /** O tema apareceu na conversa, por QUALQUER participante? */
-  tema_abordado: z.boolean().optional(),
-  falante: z.string().max(120).optional(),
-  sintese: z.string().max(1500).optional(),
-  citacao: z.string().max(2000).optional(),
+  tema_abordado: z.boolean().nullish(),
+  falante: z.string().max(120).nullish(),
+  sintese: z.string().max(1500).nullish(),
+  citacao: z.string().max(2000).nullish(),
 });
 
 export const RespostasExtraidasSchema = z.object({
