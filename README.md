@@ -40,8 +40,8 @@ entrevista no Teams e transcreve a conversa. Minimização e LGPD por construç�
 ```
 
 O fluxo real está detalhado nas seções 6.x. Modelo de dados em
-`packages/db/prisma/schema.prisma`. Critérios da avaliação por IA em
-[`docs/ranking-criterios.md`](docs/ranking-criterios.md).
+`packages/db/prisma/schema.prisma` — o **MER completo está na seção 10**. Critérios da
+avaliação por IA em [`docs/ranking-criterios.md`](docs/ranking-criterios.md).
 
 ---
 
@@ -933,7 +933,763 @@ Pendências conhecidas, para quem for pegar o projeto:
 
 ---
 
-## 10. Suporte
+## 10. MER — Modelo Entidade-Relacionamento
+
+Fonte de verdade: [`packages/db/prisma/schema.prisma`](packages/db/prisma/schema.prisma).
+Os diagramas abaixo mostram **entidades, chaves e cardinalidades**; a lista completa de
+colunas fica no schema. Se editar o schema, atualize esta seção junto.
+
+**Convenções do modelo**
+
+- Tabelas em **português, `snake_case`** (via `@@map`); modelos Prisma em PascalCase.
+- PK sempre `id uuid` (`@default(uuid())`), exceto `configuracoes_sistema` (PK = `chave`).
+- `criado_em` / `atualizado_em` em praticamente todas as tabelas; **soft delete** via
+  `excluido_em` onde há PII ou histórico a preservar.
+- `gupy_id` (BigInt, único) é a **chave natural** das entidades espelhadas da Gupy —
+  é o que dá idempotência ao sync.
+- **UUID frouxo**: várias colunas de autoria/revisão (`revisado_por`, `avaliador_id`,
+  `solicitante_id`, `aprovado_*_por_id`, `criado_por_id`…) guardam `usuarios.id` **sem FK**.
+  É proposital — o histórico sobrevive à remoção do usuário. Nos diagramas aparecem como
+  linha tracejada (`..`).
+- `embeddings` é **polimórfica**: ou `vaga_id`, ou `curriculo_id` é preenchido (nunca os dois).
+- A coluna `embeddings.vetor` é `vector(1024)` (pgvector) — tipo `Unsupported` no Prisma,
+  e o índice HNSW é criado por migration SQL bruta (ver §6.2).
+
+**Notação (mermaid ER, lado a lado da linha):** `||` = exatamente um · `|o` / `o|` = zero
+ou um · `o{` = zero ou muitos. A linha `--` é FK real; `..` é referência frouxa (sem FK).
+Ou seja, `usuarios |o--o{ vagas` lê-se "a vaga pode ou não ter esse usuário" — é o jeito
+de mostrar que a coluna é **nullable**.
+
+**Domínios**
+
+| Domínio | Tabelas |
+|---|---|
+| Recrutamento (núcleo) | `usuarios`, `vagas`, `candidatos`, `candidaturas`, `curriculos_processados`, `embeddings`, `scores` |
+| Mensageria | `templates_mensagem`, `mensagens`, `enquetes_horario`, `webhooks_recebidos` |
+| Entrevistas | `entrevistas`, `transcricoes`, `analises_voz`, `perguntas_entrevista`, `perguntas_padrao`, `respostas_entrevista`, `avaliacoes_entrevista` |
+| Sistema & auditoria | `notificacoes`, `registro_auditoria`, `configuracoes_sistema`, `chaves_api` |
+| Admissão (oculto na fase 1) | `admissoes`, `documentos_admissionais`, `exames_admissionais`, `eventos_admissao`, `solicitacoes_acesso` |
+| Cadastros DHO | `cargos`, `cargos_lotacoes`, `unidades`, `centros_custo`, `colaboradores`, `procuradores` |
+| Alteração contratual (oculto) | `solicitacoes_alteracao_contratual`, `itens_alteracao_contratual`, `assinaturas_alteracao_contratual`, `eventos_alteracao_contratual`, `execucoes_alteracao_contratual` |
+| Offboarding (oculto) | `solicitacoes_offboarding`, `assinaturas_offboarding`, `itens_encerramento_offboarding`, `eventos_offboarding`, `convites_offboarding` |
+
+---
+
+### 10.1. Núcleo — vaga, candidato, candidatura, currículo, score
+
+O eixo do produto. `candidaturas` é a tabela associativa entre `vagas` e `candidatos`
+(N:N com atributos), e é dela que pendura tudo o que a IA produz.
+
+```mermaid
+erDiagram
+    usuarios |o--o{ vagas : "recrutador_id"
+    usuarios |o--o{ vagas : "gestor_id"
+    vagas ||--o{ candidaturas : "recebe"
+    candidatos ||--o{ candidaturas : "aplica"
+    candidaturas ||--o| curriculos_processados : "1:0..1"
+    candidatos ||--o{ curriculos_processados : "possui"
+    vagas |o--o{ embeddings : "texto canonico"
+    curriculos_processados |o--o{ embeddings : "texto do CV"
+    candidaturas ||--o{ scores : "avaliacoes"
+    usuarios |o..o{ scores : "revisado_por - sem FK"
+
+    usuarios {
+        uuid id PK
+        string azure_oid UK "Object ID do Entra"
+        string email UK
+        string nome
+        enum papel "legado - nao decide acesso"
+        array areas "admin, recrutamento, dho..."
+        bool ativo "false bloqueia login"
+        datetime ultimo_login_em
+    }
+
+    vagas {
+        uuid id PK
+        bigint gupy_id UK
+        string codigo "jobCode"
+        string titulo "indice GIN trigram"
+        text descricao
+        enum status "status_vaga"
+        datetime data_publicacao
+        uuid recrutador_id FK
+        uuid gestor_id FK
+        string gestor_email "espelho p/ auto-vinculo"
+        string recrutador_email
+        json requisitos_json "campos do lider"
+        text requisitos_texto "consolidado p/ embedding"
+        datetime gupy_sincronizado_em
+        datetime excluido_em "soft delete"
+    }
+
+    candidatos {
+        uuid id PK
+        bigint gupy_id UK
+        string nome_completo "indice GIN trigram"
+        string email
+        string telefone
+        string cpf_hash "SHA-256, nunca em claro"
+        datetime consentimento_lgpd_em
+        datetime consentimento_gravacao_em
+        datetime excluido_em "soft delete"
+    }
+
+    candidaturas {
+        uuid id PK
+        bigint gupy_id UK
+        uuid vaga_id FK "unique com candidato_id"
+        uuid candidato_id FK
+        string etapa_gupy "etapa no funil"
+        enum status "status_candidatura"
+        string motivo_desclassif
+        datetime inscrito_em
+        datetime movido_em
+    }
+
+    curriculos_processados {
+        uuid id PK
+        uuid candidatura_id FK "unique - 1:1"
+        uuid candidato_id FK
+        string arquivo_url "storage"
+        string arquivo_sha256 "chave idempotente"
+        text texto_bruto
+        text texto_normalizado "fonte do embedding"
+        json experiencias
+        json formacoes
+        array competencias
+        float anos_experiencia
+        string parser_versao
+    }
+
+    embeddings {
+        uuid id PK
+        uuid vaga_id FK "ou curriculo_id - polimorfica"
+        uuid curriculo_id FK
+        text trecho
+        vector vetor "vector(1024) - indice HNSW"
+        string modelo "voyage-3"
+    }
+
+    scores {
+        uuid id PK
+        uuid candidatura_id FK
+        enum tipo "tipo_score"
+        float valor "0..100"
+        text justificativa
+        json evidencias "citacoes da fonte"
+        string modelo
+        string prompt_versao
+        uuid revisado_por "revisao humana - Art. 20"
+        datetime revisado_em
+    }
+```
+
+---
+
+### 10.2. Mensageria — templates, envios e enquete de horários
+
+```mermaid
+erDiagram
+    usuarios |o--o{ templates_mensagem : "criado_por"
+    usuarios |o--o{ templates_mensagem : "atualizado_por"
+    candidatos ||--o{ mensagens : "destinatario"
+    candidaturas |o--o{ mensagens : "contexto opcional"
+    candidatos ||--o{ enquetes_horario : "vota"
+    candidaturas ||--o{ enquetes_horario : "propoe horarios"
+    enquetes_horario |o--o| entrevistas : "entrevista_id unique"
+
+    templates_mensagem {
+        uuid id PK
+        string codigo UK "slug estavel"
+        string nome
+        string versao "incrementa a cada edicao"
+        bool ativo "soft-disable"
+        text whatsapp_corpo
+        string email_assunto
+        text email_texto
+        text email_html
+        uuid criado_por FK
+        uuid atualizado_por FK
+    }
+
+    mensagens {
+        uuid id PK
+        uuid candidato_id FK
+        uuid candidatura_id FK "opcional"
+        enum canal "canal_mensagem"
+        enum direcao "direcao_mensagem"
+        string template_codigo "snapshot codigo@versao"
+        text corpo
+        string destino "telefone ou e-mail"
+        string provider "waha, sendgrid"
+        string provider_msg_id
+        enum status "status_mensagem"
+        datetime enviado_em
+        datetime entregue_em
+        datetime lido_em
+        datetime respondido_em
+    }
+
+    enquetes_horario {
+        uuid id PK
+        uuid candidatura_id FK
+        uuid candidato_id FK
+        string provider_msg_id "liga o voto a enquete"
+        string pergunta
+        json opcoes "rotulo, inicio, fim"
+        json holds "pre-reservas na agenda"
+        string status "AGUARDANDO, RESPONDIDA, CANCELADA"
+        string opcao_escolhida
+        datetime inicio_escolhido
+        uuid entrevista_id FK "unique - idempotencia"
+    }
+
+    webhooks_recebidos {
+        uuid id PK
+        string provider "gupy, waha, sendgrid, autentique"
+        string evento
+        string external_id "unique com provider"
+        json payload
+        bool assinatura_ok
+        bool processado
+        int tentativas
+        text ultimo_erro
+    }
+```
+
+> `webhooks_recebidos` não tem FK para ninguém de propósito: é log de entrada bruto, e a
+> unique `(provider, external_id)` é o que garante idempotência do reprocessamento.
+
+---
+
+### 10.3. Entrevistas — agenda, transcrição, perguntas e avaliação
+
+```mermaid
+erDiagram
+    candidaturas ||--o{ entrevistas : "agenda"
+    candidatos ||--o{ entrevistas : "participa"
+    usuarios |o--o{ entrevistas : "entrevistador_id"
+    entrevistas ||--o| transcricoes : "1:0..1"
+    entrevistas ||--o| analises_voz : "1:0..1"
+    vagas ||--o{ perguntas_entrevista : "roteiro da vaga"
+    entrevistas |o--o{ perguntas_entrevista : "roteiro da sessao"
+    entrevistas ||--o{ respostas_entrevista : "analise IA"
+    perguntas_entrevista |o--o{ respostas_entrevista : "origem da pergunta"
+    perguntas_padrao |o--o{ respostas_entrevista : "origem da pergunta"
+    entrevistas ||--o{ avaliacoes_entrevista : "scorecard"
+    perguntas_entrevista |o--o{ avaliacoes_entrevista : "ancora opcional"
+
+    entrevistas {
+        uuid id PK
+        uuid candidatura_id FK
+        uuid candidato_id FK
+        uuid entrevistador_id FK
+        datetime agendada_para
+        int duracao_estimada_min
+        string graph_event_id "evento no Outlook"
+        string teams_join_url
+        string graph_online_meeting_id "resolvido na criacao"
+        string graph_organizador_email "conta dona do transcript"
+        enum status "status_entrevista"
+        string audio_url "storage cifrado - nunca exposto"
+        datetime audio_expira_em
+        text parecer_final
+        enum recomendacao_painel
+    }
+
+    transcricoes {
+        uuid id PK
+        uuid entrevista_id FK "unique - 1:1"
+        string provider "graph ou playwright"
+        string idioma
+        text texto_completo "ja censurado"
+        json segmentos "diarizado - Teams"
+        json whisper_segmentos "2o motor - pt forcado"
+        text texto_fundido "melhor versao - o que a tela exibe"
+        json segmentos_fundidos
+        text resumo "ATA"
+        array topicos
+        datetime expira_em "retencao 12 meses"
+    }
+
+    analises_voz {
+        uuid id PK
+        uuid entrevista_id FK "unique - 1:1"
+        string provider
+        string sentimento_global
+        float confianca_media
+        json segmentos
+        text observacoes_llm
+    }
+
+    perguntas_entrevista {
+        uuid id PK
+        uuid vaga_id FK
+        uuid entrevista_id FK "opcional"
+        int ordem
+        text pergunta
+        text objetivo
+        string competencia
+        string dificuldade
+        enum origem "IA ou HUMANO"
+        string modelo
+        string prompt_versao
+    }
+
+    perguntas_padrao {
+        uuid id PK
+        text pergunta "vale p/ TODA entrevista"
+        text objetivo
+        string competencia
+        string categoria
+        bool ativo
+        int ordem
+    }
+
+    respostas_entrevista {
+        uuid id PK
+        uuid entrevista_id FK
+        uuid pergunta_id FK "da vaga - opcional"
+        uuid pergunta_padrao_id FK "do banco padrao - opcional"
+        text pergunta_texto "snapshot"
+        enum status "status_resposta"
+        bool tema_abordado
+        string falante
+        text sintese
+        text citacao "trecho literal - anti-alucinacao"
+        string modelo
+    }
+
+    avaliacoes_entrevista {
+        uuid id PK
+        uuid entrevista_id FK
+        uuid pergunta_id FK "opcional"
+        uuid avaliador_id "usuarios.id sem FK"
+        string avaliador_nome "snapshot"
+        string competencia "unique com entrevista e avaliador"
+        int nota "escala 1..5"
+        int peso
+        text evidencia
+        enum origem "HUMANO ou IA_SUGERIDO"
+    }
+```
+
+> `respostas_entrevista` guarda **snapshot** do texto da pergunta: editar ou apagar uma
+> `perguntas_padrao` não reescreve o histórico das entrevistas passadas.
+
+---
+
+### 10.4. Sistema e auditoria
+
+```mermaid
+erDiagram
+    usuarios ||--o{ notificacoes : "destinatario"
+    usuarios |o--o{ registro_auditoria : "autor"
+
+    notificacoes {
+        uuid id PK
+        uuid usuario_id FK
+        enum tipo "tipo_notificacao"
+        string titulo
+        text mensagem
+        string link "rota interna do app"
+        uuid referencia_id "unique com usuario e tipo"
+        datetime lida_em
+    }
+
+    registro_auditoria {
+        uuid id PK
+        uuid usuario_id FK
+        string acao "criar, atualizar, ver_dado_sensivel"
+        string entidade
+        uuid entidade_id
+        json diff "before/after"
+        string ip
+        string user_agent
+    }
+
+    configuracoes_sistema {
+        string chave PK
+        json valor "sobrepoe o .env quando existe"
+        uuid atualizado_por_id "sem FK"
+    }
+
+    chaves_api {
+        uuid id PK
+        string nome
+        string prefixo "identificacao sem revelar"
+        string hash UK "SHA-256 da chave completa"
+        array escopos "mesmas areas do usuario"
+        datetime expira_em
+        datetime ultimo_uso_em
+        datetime revogado_em
+        uuid criado_por_id "sem FK"
+    }
+```
+
+> `registro_auditoria` é **append-only** (LGPD Art. 37). A unique
+> `(usuario_id, tipo, referencia_id)` em `notificacoes` é o que impede o retry do BullMQ
+> de duplicar o aviso do sino.
+
+---
+
+### 10.5. Admissão
+
+> Módulo **oculto na fase 1** (ver `apps/web/src/lib/modulos.ts`); as tabelas existem.
+> Nasce de uma candidatura com status `CONTRATADO`.
+
+```mermaid
+erDiagram
+    candidaturas ||--o| admissoes : "1:0..1"
+    candidatos ||--o{ admissoes : "pessoa"
+    vagas ||--o{ admissoes : "vaga de origem"
+    usuarios |o--o{ admissoes : "responsavel_id"
+    admissoes ||--o{ documentos_admissionais : "checklist"
+    admissoes ||--o| exames_admissionais : "ASO 1:0..1"
+    admissoes ||--o{ eventos_admissao : "timeline"
+    admissoes ||--o| solicitacoes_acesso : "chamado de acesso 1:0..1"
+
+    admissoes {
+        uuid id PK
+        uuid candidatura_id FK "unique - 1:1"
+        uuid candidato_id FK
+        uuid vaga_id FK
+        uuid responsavel_id FK
+        enum status "status_admissao"
+        string cargo
+        decimal salario
+        string tipo_contratacao "CLT, PJ, ESTAGIO"
+        datetime data_admissao
+        string esocial_recibo "evento S-2200"
+        string matricula "no ERP de RH"
+        datetime excluido_em
+    }
+
+    documentos_admissionais {
+        uuid id PK
+        uuid admissao_id FK "unique com tipo"
+        enum tipo "tipo_documento_admissional"
+        enum status "status_documento_admissional"
+        bool obrigatorio
+        string arquivo_url
+        string arquivo_sha256
+        datetime validade
+        json dados_extraidos_json "OCR do RG via Claude visao"
+        string ocr_versao
+        uuid analisado_por "sem FK"
+    }
+
+    exames_admissionais {
+        uuid id PK
+        uuid admissao_id FK "unique - 1:1"
+        string clinica
+        datetime agendado_para
+        datetime realizado_em
+        enum resultado "resultado_exame_admissional"
+        text restricoes
+        string aso_url
+    }
+
+    eventos_admissao {
+        uuid id PK
+        uuid admissao_id FK
+        enum de_status
+        enum para_status
+        uuid autor_id "sem FK"
+        string autor_nome
+        text observacao
+    }
+
+    solicitacoes_acesso {
+        uuid id PK
+        uuid admissao_id FK "unique - idempotencia do chamado"
+        uuid documento_id "RG que originou - sem FK"
+        string provider "acelerato"
+        enum status "status_solicitacao_acesso"
+        string nome_enviado
+        string ref_externa "ticket externo"
+        string url_externa
+    }
+```
+
+---
+
+### 10.6. Cadastros DHO e alteração contratual
+
+> Módulo **oculto na fase 1** — exceto `cargos`, que a tela `/cargos` e a publicação de
+> vaga usam. `unidades`, `centros_custo` e `colaboradores` são **espelho de views do
+> Senior**; `colaboradores` **não tem salário de propósito** (o solicitante informa
+> anterior e novo).
+
+```mermaid
+erDiagram
+    cargos ||--o{ cargos_lotacoes : "onde pode existir"
+    unidades |o--o{ cargos_lotacoes : "restricao"
+    centros_custo |o--o{ cargos_lotacoes : "restricao"
+    unidades |o--o{ colaboradores : "lotacao"
+    centros_custo |o--o{ colaboradores : "lotacao"
+    colaboradores |o--o{ solicitacoes_alteracao_contratual : "alvo"
+    solicitacoes_alteracao_contratual ||--o{ itens_alteracao_contratual : "1..N por tipo"
+    cargos |o--o{ itens_alteracao_contratual : "cargo_novo_id"
+    solicitacoes_alteracao_contratual ||--o{ assinaturas_alteracao_contratual : "gestor + DHO"
+    solicitacoes_alteracao_contratual ||--o{ eventos_alteracao_contratual : "timeline"
+    solicitacoes_alteracao_contratual ||--o| execucoes_alteracao_contratual : "aplicacao no Senior"
+
+    cargos {
+        uuid id PK
+        string codigo UK
+        string titulo "indice GIN trigram"
+        string senioridade
+        text descricao
+        bool ativo
+        string origem "csv ou manual"
+        datetime excluido_em
+    }
+
+    cargos_lotacoes {
+        uuid id PK
+        uuid cargo_id FK
+        uuid unidade_id FK "opcional"
+        uuid centro_custo_id FK "opcional"
+    }
+
+    unidades {
+        uuid id PK
+        string externo_id UK "chave na fonte Senior"
+        string codigo
+        string nome
+        string cidade
+        bool ativo
+        datetime sincronizado_em
+    }
+
+    centros_custo {
+        uuid id PK
+        string senior_id UK
+        string codigo
+        string nome
+        bool ativo
+        datetime sincronizado_em
+    }
+
+    colaboradores {
+        uuid id PK
+        string matricula UK "chave estavel no Senior"
+        string senior_id UK
+        string nome
+        string email
+        string cpf_hash
+        uuid unidade_id FK
+        uuid centro_custo_id FK
+        string cargo_atual
+        string lider_matricula
+        bool ativo
+    }
+
+    solicitacoes_alteracao_contratual {
+        uuid id PK
+        uuid solicitante_id "o lider - sem FK"
+        string solicitante_nome
+        uuid colaborador_id FK
+        string colaborador_matricula "snapshot congelado"
+        string cargo_atual "snapshot"
+        string unidade_atual "snapshot"
+        text razoes
+        datetime data_aplicacao "dia exato da execucao"
+        enum status "status_alteracao_contratual"
+        string autentique_documento_id
+        datetime assinado_em
+        uuid aprovado_por_id "DHO - sem FK"
+        datetime excluido_em
+    }
+
+    itens_alteracao_contratual {
+        uuid id PK
+        uuid solicitacao_id FK "unique com tipo"
+        enum tipo "tipo_alteracao_contratual"
+        string valor_anterior "de"
+        string valor_novo "para"
+        uuid cargo_novo_id FK
+        uuid unidade_nova_id "sem FK - snapshot"
+        uuid centro_custo_novo_id "sem FK - snapshot"
+        decimal salario_anterior "informado, nao lido do Senior"
+        decimal salario_novo
+        string novo_lider_matricula
+    }
+
+    assinaturas_alteracao_contratual {
+        uuid id PK
+        uuid solicitacao_id FK "unique com papel"
+        enum papel "GESTOR ou DHO"
+        string nome "snapshot"
+        string email
+        enum status "status_assinatura"
+        string autentique_signatario_id
+        datetime assinado_em
+    }
+
+    eventos_alteracao_contratual {
+        uuid id PK
+        uuid solicitacao_id FK
+        enum de_status
+        enum para_status
+        uuid autor_id "sem FK"
+        text observacao
+    }
+
+    execucoes_alteracao_contratual {
+        uuid id PK
+        uuid solicitacao_id FK "unique - 1:1"
+        datetime agendada_para "dispara o job"
+        datetime executada_em
+        bool sucesso
+        int tentativas
+        json payload_enviado "o que foi ao Senior"
+        json resposta
+        text erro
+    }
+```
+
+---
+
+### 10.7. Offboarding
+
+> Módulo **oculto na fase 1**, exceto a página pública de autodesligamento (por token).
+> Origem `EMPREGADOR` passa por duas aprovações (gestor + DHO); origem `COLABORADOR` vai
+> direto para as assinaturas.
+
+```mermaid
+erDiagram
+    colaboradores |o--o{ solicitacoes_offboarding : "desligado"
+    solicitacoes_offboarding ||--o{ assinaturas_offboarding : "colaborador + empresa"
+    procuradores |o--o{ assinaturas_offboarding : "via fisica"
+    solicitacoes_offboarding ||--o{ itens_encerramento_offboarding : "integracoes + checklist"
+    solicitacoes_offboarding ||--o{ eventos_offboarding : "timeline"
+    convites_offboarding |o..o| solicitacoes_offboarding : "cria ao usar - sem FK"
+
+    solicitacoes_offboarding {
+        uuid id PK
+        enum origem "origem_offboarding"
+        uuid solicitante_id "sem FK"
+        string solicitante_nome
+        uuid colaborador_id FK
+        string colaborador_matricula "snapshot"
+        enum tipo_desligamento
+        bool cumpre_aviso_previo
+        int aviso_previo_dias
+        text motivo
+        string email_pessoal "do Senior - verificar"
+        enum forma_assinatura "DIGITAL ou FISICA"
+        json senior_snapshot "snapshot demissional"
+        enum status "status_offboarding"
+        datetime aprovado_gestor_em
+        datetime aprovado_dho_em
+        string autentique_documento_id
+        string documento_assinado_url "via fisica"
+        datetime assinaturas_validadas_em
+        datetime excluido_em
+    }
+
+    assinaturas_offboarding {
+        uuid id PK
+        uuid solicitacao_id FK "unique com papel"
+        enum papel "papel_assinante_offboarding"
+        string nome "snapshot"
+        string email
+        enum status "status_assinatura"
+        string representante_origem "dho ou procurador"
+        uuid procurador_id FK
+        datetime assinado_em
+    }
+
+    procuradores {
+        uuid id PK
+        string nome "indice GIN trigram"
+        string email
+        string documento
+        string cargo
+        bool ativo
+        datetime excluido_em
+    }
+
+    itens_encerramento_offboarding {
+        uuid id PK
+        uuid solicitacao_id FK "unique com chave"
+        string chave "slug estavel - ACESSO_TI"
+        enum categoria "INTEGRACAO ou CHECKLIST"
+        string titulo
+        enum tipo_resposta "AUTOMATICO, BOOLEANO, TEXTO"
+        enum status "status_item_encerramento"
+        bool resposta_bool
+        text resposta_texto
+        json payload "resultado simulado"
+    }
+
+    eventos_offboarding {
+        uuid id PK
+        uuid solicitacao_id FK
+        enum de_status
+        enum para_status
+        uuid autor_id "sem FK"
+        text observacao
+    }
+
+    convites_offboarding {
+        uuid id PK
+        string token UK "segredo da URL - uso unico"
+        uuid colaborador_id "sem FK"
+        string colaborador_matricula
+        string colaborador_nome
+        datetime expira_em
+        datetime usado_em
+        datetime cancelado_em
+        uuid solicitacao_id "criada ao usar - sem FK"
+    }
+```
+
+---
+
+### 10.8. Enums
+
+| Enum (tipo no Postgres) | Valores |
+|---|---|
+| `papel_usuario` | ADMIN, RECRUTADOR, GESTOR, VISUALIZADOR |
+| `status_vaga` | RASCUNHO, PUBLICADA, PAUSADA, ENCERRADA, CANCELADA, APROVADA |
+| `status_candidatura` | EM_ANALISE, TRIAGEM_IA, APROVADO_TRIAGEM, ENTREVISTA_AGENDADA, ENTREVISTA_REALIZADA, APROVADO, REPROVADO, CONTRATADO, DESISTENTE |
+| `tipo_score` | SIMILARIDADE_VETORIAL, RANKING_CV, ENTREVISTA, TOM_DE_VOZ, CONSOLIDADO |
+| `canal_mensagem` | WHATSAPP, EMAIL, SMS |
+| `direcao_mensagem` | ENTRADA, SAIDA |
+| `status_mensagem` | PENDENTE, ENVIADO, ENTREGUE, LIDO, RESPONDIDO, FALHADO, CANCELADO |
+| `status_entrevista` | AGENDADA, EM_ANDAMENTO, FINALIZADA, CANCELADA, NAO_COMPARECEU |
+| `recomendacao_painel` | CONTRATAR, CONTRATAR_COM_RESSALVAS, NAO_CONTRATAR, INCONCLUSIVO |
+| `origem_pergunta` | IA, HUMANO |
+| `status_resposta` | ABORDADA, PARCIAL, NAO_ABORDADA |
+| `origem_avaliacao` | HUMANO, IA_SUGERIDO |
+| `tipo_notificacao` | HORARIO_CONFIRMADO, ANALISE_PRONTA, WHATSAPP_INSTAVEL |
+| `status_admissao` | AGUARDANDO_ACEITE, PROPOSTA_ACEITA, COLETA_DOCUMENTOS, DOCUMENTOS_EM_ANALISE, EXAME_MEDICO, ASSINATURA_CONTRATO, ENVIO_ESOCIAL, INTEGRACAO, CONCLUIDA, CANCELADA |
+| `tipo_documento_admissional` | RG, CPF, CTPS, TITULO_ELEITOR, PIS_NIS, COMPROVANTE_RESIDENCIA, COMPROVANTE_ESCOLARIDADE, CERTIDAO_NASCIMENTO_CASAMENTO, RESERVISTA, DADOS_BANCARIOS, FOTO_3X4, DEPENDENTES, OUTRO |
+| `status_documento_admissional` | PENDENTE, ENVIADO, EM_ANALISE, APROVADO, REPROVADO |
+| `resultado_exame_admissional` | PENDENTE, APTO, APTO_COM_RESTRICOES, INAPTO |
+| `status_solicitacao_acesso` | PENDENTE, ENVIADA, FALHADA |
+| `tipo_alteracao_contratual` | CARGO, SALARIO, CENTRO_CUSTO, UNIDADE, LIDER |
+| `status_alteracao_contratual` | RASCUNHO, AGUARDANDO_APROVACAO_DHO, AGUARDANDO_ASSINATURAS, ASSINADO, AGENDADA, EXECUTADA, FALHA_EXECUCAO, CANCELADA |
+| `papel_assinante` | GESTOR, DHO |
+| `status_assinatura` | PENDENTE, ENVIADA, ASSINADA, RECUSADA |
+| `origem_offboarding` | COLABORADOR, EMPREGADOR |
+| `tipo_desligamento` | PEDIDO_COLABORADOR, SEM_JUSTA_CAUSA, TERMINO_EXPERIENCIA_DISTRATO, JUSTA_CAUSA |
+| `forma_assinatura` | DIGITAL, FISICA |
+| `status_offboarding` | RASCUNHO, AGUARDANDO_APROVACAO_GESTOR, AGUARDANDO_APROVACAO_DHO, AGUARDANDO_ASSINATURAS, ASSINADO, EM_ENCERRAMENTO, CONCLUIDO, RECUSADO, CANCELADO |
+| `papel_assinante_offboarding` | COLABORADOR, REPRESENTANTE_EMPRESA |
+| `categoria_item_encerramento` | INTEGRACAO, CHECKLIST |
+| `status_item_encerramento` | PENDENTE, CONCLUIDO, NAO_APLICAVEL, FALHA |
+| `tipo_resposta_item` | AUTOMATICO, BOOLEANO, TEXTO |
+
+> `enquetes_horario.status` **não** é enum — é `String` com os valores
+> `AGUARDANDO` / `RESPONDIDA` / `CANCELADA`.
+
+---
+
+## 11. Suporte
 
 - Issues internas → board Asana "Triagem Gupy".
 - Dúvidas de produto → DHO (data protection officer).
