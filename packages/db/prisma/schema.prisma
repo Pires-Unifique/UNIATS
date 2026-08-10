@@ -129,6 +129,9 @@ enum StatusVaga {
   // Aprovada na Gupy (fluxo interno concluído) mas ainda não publicada.
   // Fica por último: ALTER TYPE ADD VALUE anexa ao fim do tipo no Postgres.
   APROVADA
+  // Aguardando aprovação interna na Gupy (waiting_approval) — antes caía em
+  // RASCUNHO e não dava para filtrar separado.
+  EM_APROVACAO
 
   @@map("status_vaga")
 }

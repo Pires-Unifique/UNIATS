@@ -581,6 +581,7 @@ export default function CandidatosVagaPage({
             </div>
           ) : (
             <div className="card overflow-hidden">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-grafite-50 text-grafite-600">
               <tr>
@@ -678,6 +679,7 @@ export default function CandidatosVagaPage({
               ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 

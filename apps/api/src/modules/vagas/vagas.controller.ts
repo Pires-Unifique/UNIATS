@@ -24,6 +24,7 @@ const UUID_REGEX =
 // Valor fora da lista viraria erro 500 do Prisma — barramos com 400 antes.
 const STATUS_VAGA_VALIDOS = new Set([
   'RASCUNHO',
+  'EM_APROVACAO',
   'APROVADA',
   'PUBLICADA',
   'PAUSADA',
@@ -120,13 +121,22 @@ export class VagasController {
     }
     const where: Record<string, unknown> = { excluido_em: null };
     // PADRÃO: só PUBLICADAS. Outros status (ou todos) são escolha EXPLÍCITA do
-    // usuário via filtro — 'TODOS' desliga o filtro de status.
+    // usuário via filtro — 'TODOS' desliga o filtro de status. Aceita mais de
+    // um status separado por vírgula (ex.: PUBLICADA,APROVADA,EM_APROVACAO).
     if (status !== 'TODOS') {
-      const s = status || 'PUBLICADA';
-      if (!STATUS_VAGA_VALIDOS.has(s)) {
-        throw new BadRequestException(`status inválido: ${s}`);
+      const lista = (status || 'PUBLICADA')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (lista.length === 0) {
+        throw new BadRequestException('status inválido: vazio');
       }
-      where.status = s;
+      for (const s of lista) {
+        if (!STATUS_VAGA_VALIDOS.has(s)) {
+          throw new BadRequestException(`status inválido: ${s}`);
+        }
+      }
+      where.status = lista.length === 1 ? lista[0] : { in: lista };
     }
     // Busca livre casa título OU código interno da vaga (jobCode da Gupy).
     if (q) {

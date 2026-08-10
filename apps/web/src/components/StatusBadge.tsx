@@ -4,6 +4,7 @@ const mapa: Record<string, string> = {
   // Vagas
   PUBLICADA: 'badge-green',
   APROVADA: 'badge-blue',
+  EM_APROVACAO: 'badge-yellow',
   RASCUNHO: 'badge-gray',
   PAUSADA: 'badge-yellow',
   ENCERRADA: 'badge-gray',
@@ -52,7 +53,16 @@ const mapa: Record<string, string> = {
   INAPTO: 'badge-red',
 };
 
+// Rótulos com acentuação que o nome do enum não carrega.
+const rotulos: Record<string, string> = {
+  EM_APROVACAO: 'em aprovação',
+};
+
 export function StatusBadge({ status }: { status: string }) {
   const cls = mapa[status] ?? 'badge-gray';
-  return <span className={clsx(cls)}>{status.replace(/_/g, ' ').toLowerCase()}</span>;
+  return (
+    <span className={clsx(cls)}>
+      {rotulos[status] ?? status.replace(/_/g, ' ').toLowerCase()}
+    </span>
+  );
 }

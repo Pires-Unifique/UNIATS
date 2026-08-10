@@ -11,8 +11,8 @@ import {
 
 const STATUS_VAGA: Record<string, StatusVaga> = {
   draft: 'RASCUNHO',
-  // Aguardando aprovação interna na Gupy — ainda editável, tratamos como rascunho.
-  waiting_approval: 'RASCUNHO',
+  // Aguardando aprovação interna na Gupy — status próprio, filtrável na tela.
+  waiting_approval: 'EM_APROVACAO',
   approved: 'APROVADA',
   published: 'PUBLICADA',
   paused: 'PAUSADA',

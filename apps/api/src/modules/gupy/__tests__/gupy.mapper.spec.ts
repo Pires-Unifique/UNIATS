@@ -29,7 +29,7 @@ import {
 describe('mapearStatusVaga', () => {
   it.each([
     ['draft', 'RASCUNHO'],
-    ['waiting_approval', 'RASCUNHO'],
+    ['waiting_approval', 'EM_APROVACAO'],
     ['approved', 'APROVADA'],
     ['published', 'PUBLICADA'],
     ['PUBLISHED', 'PUBLICADA'],

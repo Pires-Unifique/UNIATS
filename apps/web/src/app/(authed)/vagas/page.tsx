@@ -61,6 +61,17 @@ function opcoesPessoas(
   );
 }
 
+/** Opções do filtro de status — permite selecionar VÁRIAS ao mesmo tempo. */
+const STATUS_OPCOES: Array<{ valor: string; rotulo: string }> = [
+  { valor: 'PUBLICADA', rotulo: 'Publicadas' },
+  { valor: 'APROVADA', rotulo: 'Aprovadas' },
+  { valor: 'EM_APROVACAO', rotulo: 'Em aprovação' },
+  { valor: 'RASCUNHO', rotulo: 'Rascunhos' },
+  { valor: 'PAUSADA', rotulo: 'Pausadas' },
+  { valor: 'ENCERRADA', rotulo: 'Encerradas' },
+  { valor: 'CANCELADA', rotulo: 'Canceladas' },
+];
+
 /** Valida o valor de ?pendencia= (deep-link do painel inicial). */
 const PENDENCIAS_VALIDAS = [
   'sem_candidatura',
@@ -127,7 +138,9 @@ function VagasPageInner() {
   const [vagas, setVagas] = useState<VagaResumo[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
-  const [statusFiltro, setStatusFiltro] = useState<string>('PUBLICADA');
+  // Multi-seleção: [] = todos os status. Padrão: só publicadas.
+  const [statusFiltro, setStatusFiltro] = useState<string[]>(['PUBLICADA']);
+  const [menuStatus, setMenuStatus] = useState(false);
   // Filtros por pessoa — client-side sobre a lista carregada (≤200 vagas),
   // pela chave e-mail/nome. '' = todos. Ficam atrás do botão "Filtros" para
   // não poluir a barra de busca.
@@ -144,7 +157,7 @@ function VagasPageInner() {
   useEffect(() => {
     if (pendenciaUrl) {
       setPendenciaFiltro(pendenciaUrl);
-      setStatusFiltro('PUBLICADA');
+      setStatusFiltro(['PUBLICADA']);
       setFiltrosAbertos(true);
     }
   }, [pendenciaUrl]);
@@ -165,8 +178,9 @@ function VagasPageInner() {
         {
           query: {
             // Sempre explícito: o padrão do servidor é SÓ publicadas; ver
-            // todos os status é escolha deliberada ('TODOS').
-            status: statusFiltro,
+            // todos os status é escolha deliberada ('TODOS' = nada marcado).
+            // Multi-seleção vai como CSV (PUBLICADA,APROVADA,...).
+            status: statusFiltro.length ? statusFiltro.join(',') : 'TODOS',
             q: busca || undefined,
             pendencia: pendenciaFiltro || undefined,
             limite: 200,
@@ -313,19 +327,71 @@ function VagasPageInner() {
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
         />
-        <select
-          className="border border-grafite-200 rounded-md px-3 py-2 text-sm bg-white"
-          value={statusFiltro}
-          onChange={(e) => setStatusFiltro(e.target.value)}
-        >
-          <option value="TODOS">Todos status</option>
-          <option value="PUBLICADA">Publicadas</option>
-          <option value="APROVADA">Aprovadas</option>
-          <option value="RASCUNHO">Rascunhos</option>
-          <option value="PAUSADA">Pausadas</option>
-          <option value="ENCERRADA">Encerradas</option>
-          <option value="CANCELADA">Canceladas</option>
-        </select>
+        {/* Status: multi-seleção via dropdown de checkboxes */}
+        <div className="relative">
+          <button
+            type="button"
+            className="btn-soft whitespace-nowrap"
+            onClick={() => setMenuStatus((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={menuStatus}
+          >
+            {statusFiltro.length === 0
+              ? 'Todos status'
+              : statusFiltro.length === 1
+                ? (STATUS_OPCOES.find((o) => o.valor === statusFiltro[0])
+                    ?.rotulo ?? statusFiltro[0])
+                : `${statusFiltro.length} status`}
+            <span aria-hidden className="ml-1">
+              ▾
+            </span>
+          </button>
+          {menuStatus && (
+            <>
+              {/* Backdrop para fechar ao clicar fora */}
+              <button
+                type="button"
+                aria-hidden
+                tabIndex={-1}
+                className="fixed inset-0 z-10 cursor-default"
+                onClick={() => setMenuStatus(false)}
+              />
+              <div
+                role="menu"
+                className="card absolute left-0 top-full z-20 mt-1 w-56 p-2"
+              >
+                {STATUS_OPCOES.map((o) => (
+                  <label
+                    key={o.valor}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-grafite-800 hover:bg-grafite-50"
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-unifique-600"
+                      checked={statusFiltro.includes(o.valor)}
+                      onChange={() =>
+                        setStatusFiltro((atual) =>
+                          atual.includes(o.valor)
+                            ? atual.filter((s) => s !== o.valor)
+                            : [...atual, o.valor],
+                        )
+                      }
+                    />
+                    {o.rotulo}
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  className="mt-1 w-full rounded-md border-t border-grafite-100 px-2 pb-1 pt-2 text-left text-xs text-unifique-700 hover:underline"
+                  onClick={() => setStatusFiltro([])}
+                  title="Desmarca tudo — mostra vagas de qualquer status."
+                >
+                  Todos os status (limpar seleção)
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <button
           type="button"
           className="btn-soft whitespace-nowrap"
@@ -424,7 +490,7 @@ function VagasPageInner() {
               onChange={(e) => {
                 setPendenciaFiltro(e.target.value);
                 // Pendência é definida sobre vagas NO AR (mesma regra do início).
-                if (e.target.value) setStatusFiltro('PUBLICADA');
+                if (e.target.value) setStatusFiltro(['PUBLICADA']);
               }}
               title="Mesmas pendências do card 'Precisa de você' da página inicial."
             >
@@ -482,6 +548,10 @@ function VagasPageInner() {
         />
       ) : (
         <div className="card overflow-hidden">
+          {/* overflow-x-auto: com as colunas de gestor/recrutador a tabela pode
+              passar da largura do card — rola horizontal em vez de CORTAR a
+              última coluna (o botão "Ver detalhes" ficava sem a borda direita). */}
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-grafite-50 text-grafite-600">
               <tr>
@@ -492,7 +562,11 @@ function VagasPageInner() {
                 <Th>Recrutador</Th>
                 <Th>Status</Th>
                 <Th>Publicada</Th>
-                <Th className="text-right">Candidaturas</Th>
+                <Th className="text-right">
+                  <abbr title="Candidaturas" className="no-underline">
+                    Cand.
+                  </abbr>
+                </Th>
                 <Th></Th>
               </tr>
             </thead>
@@ -524,15 +598,16 @@ function VagasPageInner() {
                   <Td className="text-right">
                     <Link
                       href={`/vagas/${v.id}/ranking`}
-                      className="btn-soft text-xs"
+                      className="btn-soft text-xs px-2.5 py-1.5 whitespace-nowrap"
                     >
-                      Ver detalhes →
+                      Detalhes →
                     </Link>
                   </Td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
@@ -544,7 +619,7 @@ function PessoaCell({ pessoa }: { pessoa: Pessoa | null }) {
   if (!pessoa) return <span className="text-grafite-400">—</span>;
   return (
     <span
-      className="block max-w-[11rem] truncate text-xs text-grafite-600"
+      className="block max-w-[9rem] truncate text-xs text-grafite-600"
       title={pessoa.email ? `${pessoa.nome} · ${pessoa.email}` : pessoa.nome}
     >
       {pessoa.nome}
@@ -554,11 +629,11 @@ function PessoaCell({ pessoa }: { pessoa: Pessoa | null }) {
 
 function Th({ children, className }: { children?: React.ReactNode; className?: string }) {
   return (
-    <th className={`text-left font-medium px-4 py-2 text-xs uppercase tracking-wide ${className ?? ''}`}>
+    <th className={`text-left font-medium px-3 py-2 text-xs uppercase tracking-wide ${className ?? ''}`}>
       {children}
     </th>
   );
 }
 function Td({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <td className={`px-4 py-3 ${className ?? ''}`}>{children}</td>;
+  return <td className={`px-3 py-3 ${className ?? ''}`}>{children}</td>;
 }

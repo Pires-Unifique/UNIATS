@@ -106,6 +106,23 @@ describe('VagasController.listar — filtro de status', () => {
       controller.listar(usuario(['recrutamento']), 'INVALIDO'),
     ).rejects.toThrow('status inválido');
   });
+
+  it('vários status separados por vírgula viram IN (multi-seleção)', async () => {
+    const { controller, prisma } = montar();
+    await controller.listar(
+      usuario(['recrutamento']),
+      'PUBLICADA,APROVADA,EM_APROVACAO',
+    );
+    const arg = prisma.vaga.findMany.mock.calls[0][0] as any;
+    expect(arg.where.status).toEqual({
+      in: ['PUBLICADA', 'APROVADA', 'EM_APROVACAO'],
+    });
+
+    // Um inválido no meio da lista derruba a request inteira (400).
+    await expect(
+      controller.listar(usuario(['recrutamento']), 'PUBLICADA,XX'),
+    ).rejects.toThrow('status inválido');
+  });
 });
 
 describe('VagasController.obter — escopo', () => {

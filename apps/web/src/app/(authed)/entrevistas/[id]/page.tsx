@@ -44,6 +44,82 @@ function TextoSeguro({ texto }: { texto: string | null | undefined }) {
   );
 }
 
+// ---------------- Seções recolhíveis ----------------
+
+/**
+ * Seções que o usuário pode recolher para limpar a tela. 'par' recolhe
+ * Roteiro + Respostas JUNTOS (são um par lado a lado no grid); 'resumo' é o
+ * bloco azul de resumo dentro da Transcrição. A preferência fica salva no
+ * navegador e vale para todas as entrevistas.
+ */
+type SecaoId = 'par' | 'anotacoes' | 'transcricao' | 'resumo';
+const STORAGE_SECOES = 'collab.entrevista.secoes-recolhidas';
+
+function Chevron({ aberto, mini }: { aberto: boolean; mini?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden
+      className={`${mini ? 'h-3.5 w-3.5' : 'h-4 w-4'} shrink-0 transition-transform motion-reduce:transition-none ${
+        aberto ? '' : '-rotate-90'
+      } ${mini ? 'text-unifique-700 dark:text-unifique-300' : 'text-grafite-400'}`}
+    >
+      <path
+        d="M4 6l4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Cabeçalho clicável de card recolhível: título à esquerda; à direita, um
+ * resuminho do conteúdo (só quando recolhido) e a setinha. As ações do card
+ * moram no corpo (toolbar), nunca aqui — o cabeçalho não aperta em nenhuma
+ * largura.
+ */
+function SecaoHead({
+  titulo,
+  badge,
+  chip,
+  aberto,
+  onToggle,
+}: {
+  titulo: string;
+  badge?: React.ReactNode;
+  chip?: string | null;
+  aberto: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={aberto}
+      className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-grafite-50 ${
+        aberto ? 'border-b border-grafite-100' : ''
+      }`}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <h2 className="whitespace-nowrap font-medium text-grafite-900">
+          {titulo}
+        </h2>
+        {badge}
+      </span>
+      <span className="flex min-w-0 items-center gap-3">
+        {!aberto && chip && (
+          <span className="truncate text-xs text-grafite-400">{chip}</span>
+        )}
+        <Chevron aberto={aberto} />
+      </span>
+    </button>
+  );
+}
+
 interface TranscricaoSegmento {
   inicio_ms?: number | null;
   fim_ms?: number | null;
@@ -133,6 +209,58 @@ export default function EntrevistaPage({
   const [anotacoes, setAnotacoes] = useState('');
   const [salvandoNota, setSalvandoNota] = useState(false);
   const [notaStatus, setNotaStatus] = useState<string | null>(null);
+  // Seções recolhidas — preferência do usuário, salva no navegador.
+  const [recolhido, setRecolhido] = useState<Record<SecaoId, boolean>>({
+    par: false,
+    anotacoes: false,
+    transcricao: false,
+    resumo: false,
+  });
+
+  // localStorage só existe no cliente — ler no mount evita mismatch de hidratação.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_SECOES);
+      if (raw) {
+        setRecolhido((atual) => ({ ...atual, ...JSON.parse(raw) }));
+      }
+    } catch {
+      /* preferência corrompida — segue com o padrão (tudo aberto) */
+    }
+  }, []);
+
+  function salvarRecolhido(prox: Record<SecaoId, boolean>) {
+    try {
+      localStorage.setItem(STORAGE_SECOES, JSON.stringify(prox));
+    } catch {
+      /* modo privado/quota — preferência só não persiste */
+    }
+  }
+
+  function alternarSecao(idSecao: SecaoId) {
+    setRecolhido((atual) => {
+      const prox = { ...atual, [idSecao]: !atual[idSecao] };
+      salvarRecolhido(prox);
+      return prox;
+    });
+  }
+
+  const principaisRecolhidas =
+    recolhido.par && recolhido.anotacoes && recolhido.transcricao;
+
+  function alternarTudo() {
+    setRecolhido((atual) => {
+      const fechar = !(atual.par && atual.anotacoes && atual.transcricao);
+      const prox = {
+        ...atual,
+        par: fechar,
+        anotacoes: fechar,
+        transcricao: fechar,
+      };
+      salvarRecolhido(prox);
+      return prox;
+    });
+  }
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -293,6 +421,26 @@ export default function EntrevistaPage({
   }
   if (!e) return null;
 
+  // Resuminhos exibidos no cabeçalho quando a seção está recolhida.
+  const qtdManuais = perguntas.filter((p) => p.origem === 'HUMANO').length;
+  const chipRoteiro =
+    perguntas.length === 0
+      ? 'sem perguntas'
+      : `${perguntas.length} pergunta(s)${qtdManuais > 0 ? ` · ${qtdManuais} manual(is)` : ''}`;
+  const qtdRespondidas = respostas.filter(
+    (r) => r.status !== 'NAO_ABORDADA',
+  ).length;
+  const chipRespostas =
+    respostas.length > 0
+      ? `${qtdRespondidas} de ${respostas.length} respondida(s)`
+      : e.transcricao
+        ? 'sem análise ainda'
+        : 'aguardando transcrição';
+  const chipAnotacoes = anotacoes.trim() ? 'com anotações' : 'sem anotações';
+  const chipTranscricao = e.transcricao
+    ? `${e.transcricao.idioma}${e.transcricao.revisado ? ' · ✨ revisada' : ''}`
+    : 'ainda não disponível';
+
   return (
     <div>
       <PageHeader
@@ -316,6 +464,14 @@ export default function EntrevistaPage({
                 Abrir Meet
               </a>
             )}
+            <button
+              type="button"
+              className="btn-soft"
+              onClick={alternarTudo}
+              title="Recolhe/expande todas as seções da página de uma vez."
+            >
+              {principaisRecolhidas ? '⌄ Expandir tudo' : '⌃ Recolher tudo'}
+            </button>
           </>
         }
       />
@@ -328,33 +484,38 @@ export default function EntrevistaPage({
           empilha em telas menores que xl. */}
       <div className="grid grid-cols-1 xl:grid-cols-[2fr_3fr] gap-4 items-stretch">
         {/* Roteiro de perguntas (geradas por IA + cadastradas pelo time) */}
-        <section className="card p-5 flex flex-col xl:max-h-[640px]">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-medium text-grafite-900">
-              Roteiro de perguntas
-            </h2>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="btn-soft text-xs"
-                onClick={() => setMostrarFormPergunta((v) => !v)}
-              >
-                {mostrarFormPergunta ? 'Fechar' : '+ Adicionar'}
-              </button>
-              <button
-                type="button"
-                className="btn-soft text-xs"
-                disabled={gerandoPerguntas}
-                title="Substitui apenas as perguntas geradas por IA — as cadastradas manualmente ficam."
-                onClick={() => void gerarPerguntas()}
-              >
-                {gerandoPerguntas
-                  ? 'Gerando…'
-                  : perguntas.length === 0
-                    ? 'Gerar com IA'
-                    : 'Gerar novamente'}
-              </button>
-            </div>
+        <section
+          className={`card flex flex-col overflow-hidden ${recolhido.par ? '' : 'xl:max-h-[640px]'}`}
+        >
+          <SecaoHead
+            titulo="Roteiro de perguntas"
+            chip={chipRoteiro}
+            aberto={!recolhido.par}
+            onToggle={() => alternarSecao('par')}
+          />
+          {!recolhido.par && (
+          <div className="flex min-h-0 flex-1 flex-col px-5 pb-5">
+          <div className="flex items-center justify-end gap-2 pb-3 pt-3">
+            <button
+              type="button"
+              className="btn-soft text-xs"
+              onClick={() => setMostrarFormPergunta((v) => !v)}
+            >
+              {mostrarFormPergunta ? 'Fechar' : '+ Adicionar'}
+            </button>
+            <button
+              type="button"
+              className="btn-soft text-xs"
+              disabled={gerandoPerguntas}
+              title="Substitui apenas as perguntas geradas por IA — as cadastradas manualmente ficam."
+              onClick={() => void gerarPerguntas()}
+            >
+              {gerandoPerguntas
+                ? 'Gerando…'
+                : perguntas.length === 0
+                  ? 'Gerar com IA'
+                  : 'Gerar novamente'}
+            </button>
           </div>
 
           {mostrarFormPergunta && (
@@ -466,22 +627,31 @@ export default function EntrevistaPage({
             </ol>
             </div>
           )}
+          </div>
+          )}
         </section>
 
         {/* Respostas do candidato (análise IA do transcript × roteiro) */}
-        <section className="card p-5 flex flex-col xl:max-h-[640px]">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <h2 className="font-medium text-grafite-900">
-                Respostas do candidato
-              </h2>
+        <section
+          className={`card flex flex-col overflow-hidden ${recolhido.par ? '' : 'xl:max-h-[640px]'}`}
+        >
+          <SecaoHead
+            titulo="Respostas do candidato"
+            badge={
               <span
                 className="badge-blue"
                 title="Sugestão gerada por IA a partir da transcrição — confira sempre pelo trecho citado."
               >
                 ✨ IA
               </span>
-            </div>
+            }
+            chip={chipRespostas}
+            aberto={!recolhido.par}
+            onToggle={() => alternarSecao('par')}
+          />
+          {!recolhido.par && (
+          <div className="flex min-h-0 flex-1 flex-col px-5 pb-5">
+          <div className="flex items-center justify-end pb-3 pt-3">
             <button
               type="button"
               className="btn-soft text-xs"
@@ -510,19 +680,21 @@ export default function EntrevistaPage({
           ) : (
             <RespostasLista respostas={respostas} />
           )}
+          </div>
+          )}
         </section>
       </div>
 
       {/* Anotações do recrutador (bloco de notas da entrevista) */}
-      <section className="card p-5 mt-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-medium text-grafite-900">
-            Anotações da entrevista
-          </h2>
-          {notaStatus && (
-            <span className="text-xs text-grafite-400">{notaStatus}</span>
-          )}
-        </div>
+      <section className="card mt-4 overflow-hidden">
+        <SecaoHead
+          titulo="Anotações da entrevista"
+          chip={chipAnotacoes}
+          aberto={!recolhido.anotacoes}
+          onToggle={() => alternarSecao('anotacoes')}
+        />
+        {!recolhido.anotacoes && (
+        <div className="px-5 pb-5 pt-4">
         <textarea
           className="w-full min-h-[140px] resize-y rounded-md border border-grafite-200 p-3 text-sm text-grafite-800 focus:border-unifique-500 focus:outline-none focus:ring-1 focus:ring-unifique-500"
           placeholder="Anote aqui os pontos da entrevista: respostas que se destacaram, dúvidas, pontos de atenção, próximos passos…"
@@ -537,20 +709,34 @@ export default function EntrevistaPage({
           <p className="text-xs text-grafite-400">
             Salva automaticamente ao clicar fora do campo.
           </p>
-          <button
-            type="button"
-            className="btn-soft text-xs"
-            disabled={salvandoNota}
-            onClick={() => void salvarAnotacoes()}
-          >
-            {salvandoNota ? 'Salvando…' : 'Salvar'}
-          </button>
+          <div className="flex items-center gap-2">
+            {notaStatus && (
+              <span className="text-xs text-grafite-400">{notaStatus}</span>
+            )}
+            <button
+              type="button"
+              className="btn-soft text-xs"
+              disabled={salvandoNota}
+              onClick={() => void salvarAnotacoes()}
+            >
+              {salvandoNota ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
         </div>
+        </div>
+        )}
       </section>
 
       {/* Transcrição */}
-      <section className="card p-5 mt-4">
-        <h2 className="font-medium text-grafite-900 mb-3">Transcrição</h2>
+      <section className="card mt-4 overflow-hidden">
+        <SecaoHead
+          titulo="Transcrição"
+          chip={chipTranscricao}
+          aberto={!recolhido.transcricao}
+          onToggle={() => alternarSecao('transcricao')}
+        />
+        {!recolhido.transcricao && (
+        <div className="px-5 pb-5 pt-4">
         {!e.transcricao ? (
           <p className="text-sm text-grafite-400">
             Transcrição ainda não disponível.
@@ -578,28 +764,40 @@ export default function EntrevistaPage({
               </p>
             )}
 
-            {/* Resumo — destaque */}
+            {/* Resumo — destaque, com recolher próprio (dá pra ler só as falas) */}
             {e.transcricao.resumo && (
               <div className="mb-4 flex gap-3 rounded-lg bg-unifique-50 dark:bg-unifique-500/10 p-4">
                 <div className="w-1 shrink-0 rounded bg-unifique-500 dark:bg-unifique-400" aria-hidden />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span aria-hidden>📝</span>
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-unifique-700 dark:text-unifique-300">
-                      Resumo da entrevista
-                    </h3>
-                  </div>
-                  <p className="text-base text-grafite-800 leading-relaxed whitespace-pre-line">
-                    <TextoSeguro texto={e.transcricao.resumo} />
-                  </p>
-                  {e.transcricao.topicos?.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {e.transcricao.topicos.map((t, i) => (
-                        <span key={i} className="badge-blue">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => alternarSecao('resumo')}
+                    aria-expanded={!recolhido.resumo}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span aria-hidden>📝</span>
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-unifique-700 dark:text-unifique-300">
+                        Resumo da entrevista
+                      </h3>
+                    </span>
+                    <Chevron aberto={!recolhido.resumo} mini />
+                  </button>
+                  {!recolhido.resumo && (
+                    <>
+                      <p className="mt-1.5 text-base text-grafite-800 leading-relaxed whitespace-pre-line">
+                        <TextoSeguro texto={e.transcricao.resumo} />
+                      </p>
+                      {e.transcricao.topicos?.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {e.transcricao.topicos.map((t, i) => (
+                            <span key={i} className="badge-blue">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -618,6 +816,8 @@ export default function EntrevistaPage({
               </pre>
             </details>
           </div>
+        )}
+        </div>
         )}
       </section>
     </div>
