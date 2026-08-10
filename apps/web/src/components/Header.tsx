@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { useAuth } from '@/lib/auth';
@@ -10,6 +11,10 @@ import { SinoNotificacoes } from '@/components/SinoNotificacoes';
 // O primeiro prefixo que casar com a rota atual vence; edite/estenda aqui ao
 // adicionar módulos novos.
 const TITULOS_MODULO: Array<{ prefixos: string[]; texto: string }> = [
+  {
+    prefixos: ['/ajuda'],
+    texto: 'Collab — Ajuda',
+  },
   {
     prefixos: ['/admissao'],
     texto: 'Collab — Admissão',
@@ -38,6 +43,16 @@ export function Header() {
     <header className="h-14 bg-white border-b border-grafite-100 flex items-center justify-between px-6">
       <div className="text-sm text-grafite-400">{tituloModulo(path)}</div>
       <div className="flex items-center gap-3">
+        {/* Entrada sempre disponível para a ajuda — o "?" das telas leva ao
+            artigo específico; este leva ao índice. */}
+        <Link
+          href="/ajuda"
+          className="btn-ghost text-base px-2 py-1"
+          title="Ajuda — como usar o Collab"
+          aria-label="Abrir a ajuda"
+        >
+          <span aria-hidden>❓</span>
+        </Link>
         <button
           type="button"
           onClick={toggle}

@@ -12,7 +12,15 @@ import { Logo } from './Logo';
 // `areas`: área(s) que liberam o item. `undefined` = qualquer usuário
 // autenticado (a própria API escopa os dados — ex.: o gestor só vê a vaga dele
 // em "Vagas"/"Agenda"). 'admin' enxerga tudo (tratado no filtro).
-type Item = { href: Route; label: string; icon: string; areas?: Area[] };
+// `sempre`: escapa de todo filtro, inclusive do corte de 'gestao_acessos'. Só
+// para item que não é processo — hoje, a Ajuda.
+type Item = {
+  href: Route;
+  label: string;
+  icon: string;
+  areas?: Area[];
+  sempre?: boolean;
+};
 
 // `modulo`: fase do produto em que a seção entra (ver lib/modulos.ts). Seção de
 // módulo desligado não aparece para ninguém — nem para admin.
@@ -69,6 +77,13 @@ const secoes: Array<{
       { href: '/configuracoes/chaves-api' as Route, label: 'Chaves de API', icon: '🔑', areas: ['admin'] },
     ],
   },
+  {
+    // Ajuda é para todo mundo, inclusive quem só administra acessos.
+    titulo: 'Ajuda',
+    itens: [
+      { href: '/ajuda' as Route, label: 'Como usar o Collab', icon: '❓', sempre: true },
+    ],
+  },
 ];
 
 /**
@@ -81,7 +96,9 @@ function podeVer(
   itemAreas: Area[] | undefined,
   areas: Area[],
   apenasGestaoAcessos: boolean,
+  sempre?: boolean,
 ): boolean {
+  if (sempre) return true;
   if (!itemAreas || itemAreas.length === 0) return !apenasGestaoAcessos;
   if (areas.includes('admin')) return true;
   return itemAreas.some((a) => areas.includes(a));
@@ -96,7 +113,7 @@ export function Sidebar() {
     .map((secao) => ({
       ...secao,
       itens: secao.itens.filter((it) =>
-        podeVer(it.areas, areas, apenasGestaoAcessos),
+        podeVer(it.areas, areas, apenasGestaoAcessos, it.sempre),
       ),
     }))
     .filter((secao) => secao.itens.length > 0);

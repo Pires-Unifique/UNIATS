@@ -11,6 +11,7 @@ import type {
   VagaResumoDashboardDTO,
 } from '@collab/shared';
 
+import { AjudaBotao } from '@/components/ajuda/AjudaBotao';
 import { StatusBadge } from '@/components/StatusBadge';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -77,10 +78,15 @@ export default function InicioPage() {
     <div>
       <div className="flex items-end justify-between flex-wrap gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-grafite-900">
-            {saudacao()}
-            {primeiroNome ? `, ${primeiroNome}` : ''} 👋
-          </h1>
+          {/* Esta tela não usa PageHeader (tem saudação própria), então o "?"
+              entra na mão — mesmo componente, mesmo comportamento. */}
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-grafite-900">
+              {saudacao()}
+              {primeiroNome ? `, ${primeiroNome}` : ''} 👋
+            </h1>
+            <AjudaBotao />
+          </div>
           <p className="text-sm text-grafite-400 mt-0.5">
             {dataHoje.charAt(0).toUpperCase() + dataHoje.slice(1)}
             {dados && !escopoMeu
