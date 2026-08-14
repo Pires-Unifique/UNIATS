@@ -41,6 +41,8 @@ interface CandidaturaItem {
   estado: string | null;
   status: string;
   etapaGupy: string | null;
+  /** BANCO_TALENTOS = puxado pelo recrutador; não se inscreveu nesta vaga. */
+  origem: 'GUPY' | 'BANCO_TALENTOS';
   motivoDesclassif: string | null;
   inscritoEm: string | null;
   anosExperiencia: number | null;
@@ -53,6 +55,36 @@ interface CandidaturasResponse {
   vaga: { id: string; titulo: string; gupyId: string };
   total: number;
   itens: CandidaturaItem[];
+  /** Contagem por etapa do funil (ativos), vinda do banco — alimenta as sub-abas. */
+  resumoEtapas: Array<{ etapa: string | null; total: number }>;
+}
+
+/** Candidato do banco de talentos sugerido pela busca vetorial. */
+interface TalentoSugerido {
+  candidatoId: string;
+  candidaturaPoolId: string;
+  candidatoNome: string;
+  email: string | null;
+  telefone: string | null;
+  cidade: string | null;
+  estado: string | null;
+  vagaPoolTitulo: string;
+  inscritoEm: string | null;
+  anosExperiencia: number | null;
+  resumo: string | null;
+  similaridade: number;
+}
+
+interface TalentosResponse {
+  vaga: { id: string; titulo: string };
+  /** true = a vaga ainda não tem embedding; rode a classificação antes. */
+  vagaSemVetor: boolean;
+  totalPool: number;
+  /** Piso de aderência aplicado (alto de propósito). */
+  minSimilaridade: number;
+  /** Aderência do melhor que ficou ABAIXO do piso — null se todos passaram. */
+  melhorDescartado: number | null;
+  itens: TalentoSugerido[];
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -67,16 +99,22 @@ const STATUS_LABEL: Record<string, string> = {
   DESISTENTE: 'Desistente',
 };
 
-type AbaId = 'candidatos' | 'reprovados' | 'desistentes';
+type AbaId = 'candidatos' | 'reprovados' | 'desistentes' | 'talentos';
 
 const ABAS: Array<{ id: AbaId; label: string }> = [
   { id: 'candidatos', label: 'Candidatos' },
   { id: 'reprovados', label: 'Reprovados' },
   { id: 'desistentes', label: 'Desistentes' },
+  { id: 'talentos', label: 'Indicados pela IA' },
 ];
 
 // Status considerados "descartados" — separados nas abas Reprovados/Desistentes.
 const STATUS_DESCARTADOS = ['REPROVADO', 'DESISTENTE'];
+
+// Sub-aba de etapa: 'todos' = sem filtro; SEM_ETAPA casa com etapa_gupy NULL
+// (mesmo sentinela aceito pelo backend em ?etapa=).
+const TODAS_ETAPAS = '__todas__';
+const SEM_ETAPA = '__sem_etapa__';
 
 export default function CandidatosVagaPage({
   params,
@@ -99,6 +137,19 @@ export default function CandidatosVagaPage({
   const [aviso, setAviso] = useState<string | null>(null);
   // Aba ativa da lista de candidaturas.
   const [aba, setAba] = useState<AbaId>('candidatos');
+  // Sub-aba de ETAPA do funil (só na aba "Candidatos"). O filtro é aplicado no
+  // SERVIDOR — em vaga grande a página de 200 não contém todas as etapas, então
+  // filtrar no cliente esconderia candidatos.
+  const [etapaSel, setEtapaSel] = useState<string>(TODAS_ETAPAS);
+  // Ordem das etapas conforme a esteira da vaga na Gupy (best-effort). Sem ela,
+  // as sub-abas sairiam em ordem de contagem, não de funil.
+  const [ordemEtapas, setOrdemEtapas] = useState<string[]>([]);
+  // Banco de talentos (aba "Indicados pela IA") — busca vetorial, sem IA generativa.
+  const [talentos, setTalentos] = useState<TalentosResponse | null>(null);
+  const [carregandoTalentos, setCarregandoTalentos] = useState(false);
+  const [erroTalentos, setErroTalentos] = useState<string | null>(null);
+  // candidatoId sendo puxado do banco (desabilita só o botão daquela linha).
+  const [puxando, setPuxando] = useState<string | null>(null);
   // Menu suspenso (setinha) do botão de classificação completa.
   const [menuClassificar, setMenuClassificar] = useState(false);
 
@@ -132,7 +183,7 @@ export default function CandidatosVagaPage({
   // Candidaturas: busca no servidor por nome (varre todos, não só os exibidos).
   // Carrega a PRIMEIRA página; "Carregar mais" anexa as seguintes (offset).
   const carregarCandidaturas = useCallback(
-    async (q: string) => {
+    async (q: string, etapa: string) => {
       setCarregando(true);
       setErro(null);
       try {
@@ -146,6 +197,7 @@ export default function CandidatosVagaPage({
               // Carrega todos (inclui descartados) — a separação por aba
               // (Candidatos / Reprovados / Desistentes) é feita no cliente.
               incluirReprovados: 'true',
+              etapa: etapa === TODAS_ETAPAS ? undefined : etapa,
             },
           },
         );
@@ -174,6 +226,7 @@ export default function CandidatosVagaPage({
             offset: data.itens.length,
             q: busca.trim() || undefined,
             incluirReprovados: 'true',
+            etapa: etapaSel === TODAS_ETAPAS ? undefined : etapaSel,
           },
         },
       );
@@ -193,11 +246,95 @@ export default function CandidatosVagaPage({
     void carregarVaga();
   }, [carregarVaga]);
 
-  // Debounce da busca (e carga inicial quando busca = '').
+  // Debounce da busca (e carga inicial quando busca = ''). Trocar de sub-aba de
+  // etapa também recarrega — o filtro é do servidor.
   useEffect(() => {
-    const t = setTimeout(() => void carregarCandidaturas(busca), 300);
+    const t = setTimeout(() => void carregarCandidaturas(busca, etapaSel), 300);
     return () => clearTimeout(t);
-  }, [busca, carregarCandidaturas]);
+  }, [busca, etapaSel, carregarCandidaturas]);
+
+  // Ordem das etapas na esteira da Gupy (best-effort — se a Gupy falhar, as
+  // sub-abas caem para a ordem por volume, que o resumo já devolve).
+  useEffect(() => {
+    if (!vaga?.gupy_id) return;
+    let cancelado = false;
+    void (async () => {
+      try {
+        const etapas = await api<Array<{ id: number; name: string }>>(
+          `/api/gupy/vagas/${vaga.gupy_id}/etapas`,
+        );
+        if (!cancelado) setOrdemEtapas(etapas.map((e) => e.name));
+      } catch {
+        /* sem ordem da Gupy — segue com a ordem do resumo */
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [vaga?.gupy_id]);
+
+  // Talentos sugeridos: carrega sob demanda, ao abrir a aba.
+  // `min` permite afrouxar o piso pontualmente ("ver os mais próximos mesmo
+  // assim") sem mudar a configuração da instalação.
+  const carregarTalentos = useCallback(async (min?: number) => {
+    setCarregandoTalentos(true);
+    setErroTalentos(null);
+    try {
+      const resp = await api<TalentosResponse>(
+        `/api/vagas/${vagaId}/talentos-sugeridos`,
+        { query: { limite: 20, minSimilaridade: min } },
+      );
+      setTalentos(resp);
+    } catch (err) {
+      setTalentos(null);
+      setErroTalentos(
+        err instanceof ApiError
+          ? err.message
+          : 'Não conseguimos consultar o banco de talentos agora.',
+      );
+    } finally {
+      setCarregandoTalentos(false);
+    }
+  }, [vagaId]);
+
+  useEffect(() => {
+    if (aba === 'talentos' && talentos === null && !carregandoTalentos) {
+      void carregarTalentos();
+    }
+  }, [aba, talentos, carregandoTalentos, carregarTalentos]);
+
+  /**
+   * Puxa alguém do banco de talentos para a vaga: cria a candidatura marcada
+   * como indicação e recarrega as duas listas (a pessoa sai dos indicados e
+   * aparece em Candidatos com o selo).
+   */
+  async function puxarTalento(candidatoId: string, nome: string) {
+    setPuxando(candidatoId);
+    setErro(null);
+    setAviso(null);
+    try {
+      const r = await api<{ candidaturaId: string; jaExistia: boolean }>(
+        `/api/vagas/${vagaId}/talentos/${candidatoId}/puxar`,
+        { method: 'POST' },
+      );
+      setAviso(
+        r.jaExistia
+          ? `${nome} já estava na lista de candidatos desta vaga.`
+          : `${nome} foi trazido(a) do banco de talentos. Aparece em "Candidatos" ` +
+            'com o selo "banco de talentos" e já pode ser avaliado(a) pela IA.',
+      );
+      await Promise.all([
+        carregarCandidaturas(busca, etapaSel),
+        carregarTalentos(),
+      ]);
+      setAba('candidatos');
+    } catch (err) {
+      if (err instanceof ApiError) setErro(err.message);
+      else setErro('Não conseguimos trazer essa pessoa para a vaga. Tente de novo.');
+    } finally {
+      setPuxando(null);
+    }
+  }
 
   async function sincronizar() {
     if (!data?.vaga.gupyId) return;
@@ -210,7 +347,7 @@ export default function CandidatosVagaPage({
         { method: 'POST' },
       );
       setAviso(`${r.total} candidato(s) trazido(s) da Gupy.`);
-      await Promise.all([carregarCandidaturas(busca), carregarVaga()]);
+      await Promise.all([carregarCandidaturas(busca, etapaSel), carregarVaga()]);
     } catch (err) {
       if (err instanceof ApiError) setErro(err.message);
       else setErro('Não conseguimos trazer os candidatos da Gupy. Tente de novo.');
@@ -282,7 +419,7 @@ export default function CandidatosVagaPage({
         if (!r.emAndamento) break;
         setAviso('Passo 2 de 2: avaliando com IA… isso leva alguns instantes.');
       }
-      await carregarCandidaturas(busca);
+      await carregarCandidaturas(busca, etapaSel);
       setPendentesLLM(r.pendentesLLM);
       if (r.ultimoErro) {
         setAviso(null);
@@ -341,7 +478,7 @@ export default function CandidatosVagaPage({
           erros: number;
           ultimoErro: string | null;
         }>(`/api/vagas/${vagaId}/classificar/status`);
-        await carregarCandidaturas(busca);
+        await carregarCandidaturas(busca, etapaSel);
         if (!st.emAndamento) {
           // Houve falhas na avaliação (Claude indisponível, chave/modelo/TLS):
           // mostramos o motivo em vez de fingir sucesso — senão o operador só vê
@@ -373,14 +510,41 @@ export default function CandidatosVagaPage({
 
   const temCandidatos = (data?.itens.length ?? 0) > 0;
 
-  // Separa as candidaturas carregadas (todas) por aba, no cliente.
+  // Separa as candidaturas carregadas por aba de STATUS, no cliente (a de
+  // ETAPA, essa sim, é filtrada no servidor).
   const itensTodos = data?.itens ?? [];
-  const grupos: Record<AbaId, CandidaturaItem[]> = {
+  const grupos: Record<
+    'candidatos' | 'reprovados' | 'desistentes',
+    CandidaturaItem[]
+  > = {
     candidatos: itensTodos.filter((i) => !STATUS_DESCARTADOS.includes(i.status)),
     reprovados: itensTodos.filter((i) => i.status === 'REPROVADO'),
     desistentes: itensTodos.filter((i) => i.status === 'DESISTENTE'),
   };
-  const itensAba = grupos[aba];
+  const itensAba = aba === 'talentos' ? [] : grupos[aba];
+
+  // Sub-abas de etapa: "Todos" + as etapas que têm gente, na ORDEM DO FUNIL da
+  // Gupy. Etapas que a Gupy não conhece (renomeadas, vaga antiga) vão depois, e
+  // "Sem etapa" fecha a lista.
+  const resumo = data?.resumoEtapas ?? [];
+  const totalAtivos = resumo.reduce((acc, r) => acc + r.total, 0);
+  const nomeadas = resumo.filter(
+    (r): r is { etapa: string; total: number } => r.etapa != null,
+  );
+  const naOrdemGupy = ordemEtapas
+    .map((nome) => nomeadas.find((r) => r.etapa === nome))
+    .filter((r): r is { etapa: string; total: number } => Boolean(r));
+  const forasDaEsteira = nomeadas.filter((r) => !ordemEtapas.includes(r.etapa));
+  const semEtapa = resumo.find((r) => r.etapa == null);
+  const subAbas: Array<{ id: string; label: string; total: number }> = [
+    { id: TODAS_ETAPAS, label: 'Todos', total: totalAtivos },
+    ...[...naOrdemGupy, ...forasDaEsteira].map((r) => ({
+      id: r.etapa,
+      label: r.etapa,
+      total: r.total,
+    })),
+    ...(semEtapa ? [{ id: SEM_ETAPA, label: 'Sem etapa', total: semEtapa.total }] : []),
+  ];
 
   // Já houve ao menos uma avaliação? (algum candidato já tem nota.) Nesse caso o
   // botão principal vira "Continuar avaliação" — avalia os próximos sem nota,
@@ -398,7 +562,13 @@ export default function CandidatosVagaPage({
           data
             ? busca.trim()
               ? `${data.total} candidato(s) encontrado(s) para “${busca.trim()}”.`
-              : `${data.total} candidato(s) nesta vaga.`
+              : etapaSel === TODAS_ETAPAS
+                ? `${data.total} candidato(s) nesta vaga.`
+                : // Com filtro de etapa, `total` é o da etapa — dizer "nesta vaga"
+                  // faria parecer que a vaga encolheu.
+                  `${data.total} candidato(s) na etapa ${
+                    etapaSel === SEM_ETAPA ? '“sem etapa”' : `“${etapaSel}”`
+                  } — de ${totalAtivos} ativo(s) na vaga.`
             : ''
         }
         acoes={
@@ -533,51 +703,104 @@ export default function CandidatosVagaPage({
 
       {data === null && carregando ? (
         <div className="text-sm text-grafite-400 p-4">Carregando…</div>
-      ) : !data || data.itens.length === 0 ? (
+      ) : !data ? (
         <EmptyState
-          titulo={
-            busca.trim() ? 'Nenhum candidato encontrado' : 'Nenhum candidato ainda'
-          }
-          descricao={
-            busca.trim()
-              ? `Nenhum candidato corresponde a “${busca.trim()}”. Tente outro nome, e-mail ou cidade.`
-              : "Clique em 'Buscar candidatos da Gupy' para trazer os candidatos desta vaga."
-          }
+          titulo="Nenhum candidato ainda"
+          descricao="Clique em 'Buscar candidatos da Gupy' para trazer os candidatos desta vaga."
         />
       ) : (
         <>
-          {/* Abas: separa candidatos ativos dos reprovados e desistentes */}
+          {/* Abas: status (Candidatos/Reprovados/Desistentes) + banco de talentos */}
           <div className="mb-3 flex gap-1 border-b border-grafite-100">
             {ABAS.map((t) => {
               const ativa = aba === t.id;
+              const talentosAba = t.id === 'talentos';
               return (
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setAba(t.id)}
+                  onClick={() => {
+                    setAba(t.id);
+                    // Filtro de etapa só faz sentido no funil desta vaga.
+                    if (t.id !== 'candidatos') setEtapaSel(TODAS_ETAPAS);
+                  }}
                   className={
                     '-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ' +
                     (ativa
-                      ? 'border-unifique-600 text-unifique-700 dark:border-unifique-400 dark:text-unifique-400'
+                      ? talentosAba
+                        ? 'border-violet-500 text-violet-700 dark:border-violet-400 dark:text-violet-300'
+                        : 'border-unifique-600 text-unifique-700 dark:border-unifique-400 dark:text-unifique-400'
                       : 'border-transparent text-grafite-400 hover:text-grafite-600')
                   }
+                  title={
+                    talentosAba
+                      ? 'Pessoas do banco de talentos parecidas com esta vaga. Não são candidatas — é uma indicação.'
+                      : undefined
+                  }
                 >
+                  {talentosAba && <span aria-hidden className="mr-1">✨</span>}
                   {t.label}
                   <span className="ml-1.5 text-xs tabular-nums text-grafite-400">
-                    {grupos[t.id].length}
+                    {t.id === 'talentos'
+                      ? (talentos?.itens.length ?? '')
+                      : grupos[t.id].length}
                   </span>
                 </button>
               );
             })}
           </div>
 
-          {itensAba.length === 0 ? (
+          {/* Sub-abas por ETAPA do funil (o DHO trabalha assim na Gupy).
+              "Todos" mantém a comparação de notas entre etapas. */}
+          {aba === 'candidatos' && subAbas.length > 1 && (
+            <div className="mb-3 flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs uppercase tracking-wide text-grafite-400">
+                Etapa
+              </span>
+              {subAbas.map((s) => {
+                const ativa = etapaSel === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setEtapaSel(s.id)}
+                    className={
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
+                      (ativa
+                        ? 'border-unifique-600 bg-unifique-50 text-unifique-700 dark:bg-unifique-500/15 dark:border-unifique-500/40 dark:text-unifique-300'
+                        : 'border-grafite-200 text-grafite-600 hover:bg-grafite-50')
+                    }
+                  >
+                    {s.label}
+                    <span className="ml-1.5 tabular-nums text-grafite-400">
+                      {s.total}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {aba === 'talentos' ? (
+            <PainelTalentos
+              dados={talentos}
+              carregando={carregandoTalentos}
+              erro={erroTalentos}
+              onRecarregar={(min) => void carregarTalentos(min)}
+              onPuxar={puxarTalento}
+              puxando={puxando}
+            />
+          ) : itensAba.length === 0 ? (
             <div className="card p-6 text-sm text-grafite-400">
-              {aba === 'candidatos'
-                ? 'Nenhum candidato ativo nesta vaga.'
-                : aba === 'reprovados'
-                  ? 'Nenhum candidato reprovado.'
-                  : 'Nenhum candidato desistente.'}
+              {busca.trim()
+                ? `Nenhum candidato corresponde a “${busca.trim()}”.`
+                : aba === 'candidatos'
+                  ? etapaSel === TODAS_ETAPAS
+                    ? 'Nenhum candidato ativo nesta vaga.'
+                    : 'Nenhum candidato nesta etapa.'
+                  : aba === 'reprovados'
+                    ? 'Nenhum candidato reprovado.'
+                    : 'Nenhum candidato desistente.'}
             </div>
           ) : (
             <div className="card overflow-hidden">
@@ -633,8 +856,18 @@ export default function CandidatosVagaPage({
                     )}
                   </Td>
                   <Td>
-                    <div className="font-medium text-grafite-900">
-                      {it.candidatoNome}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium text-grafite-900">
+                        {it.candidatoNome}
+                      </span>
+                      {it.origem === 'BANCO_TALENTOS' && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-300"
+                          title="Não se inscreveu nesta vaga — foi trazido(a) do banco de talentos pelo recrutamento."
+                        >
+                          <span aria-hidden>✨</span> banco de talentos
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-grafite-400">
                       {STATUS_LABEL[it.status] ?? it.status}
@@ -684,7 +917,7 @@ export default function CandidatosVagaPage({
           )}
 
           {/* Paginação: vagas com mais candidatos que uma página (ex.: 1000+) */}
-          {data.itens.length < data.total && (
+          {aba !== 'talentos' && data.itens.length < data.total && (
             <div className="mt-3 flex items-center justify-center gap-3">
               <span className="text-xs text-grafite-400">
                 Mostrando {data.itens.length} de {data.total} candidato(s)
@@ -701,6 +934,241 @@ export default function CandidatosVagaPage({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Aba "Indicados pela IA": pessoas do BANCO DE TALENTOS parecidas com a vaga.
+ *
+ * Separada de propósito das abas de candidatura: quem está aqui NÃO se
+ * candidatou a esta vaga — é indicação, não inscrição. Por isso o painel tem
+ * moldura própria (violeta), aviso explícito e nenhuma coluna de etapa/status,
+ * que só fazem sentido para quem está no funil.
+ *
+ * A ordenação é por similaridade vetorial pura (pgvector) — sem IA generativa,
+ * sem custo por consulta. A barra é RELATIVA ao primeiro da lista: o número
+ * absoluto de similaridade não tem significado isolado, só a posição relativa.
+ */
+function PainelTalentos({
+  dados,
+  carregando,
+  erro,
+  onRecarregar,
+  onPuxar,
+  puxando,
+}: {
+  dados: TalentosResponse | null;
+  carregando: boolean;
+  erro: string | null;
+  onRecarregar: (min?: number) => void;
+  onPuxar: (candidatoId: string, nome: string) => void;
+  puxando: string | null;
+}) {
+  if (carregando && !dados) {
+    return (
+      <div className="card p-6 text-sm text-grafite-400">
+        Procurando talentos parecidos com esta vaga…
+      </div>
+    );
+  }
+  if (erro) {
+    return (
+      <div className="card p-6">
+        <p className="text-sm text-red-600">{erro}</p>
+        <button
+          type="button"
+          className="btn-soft mt-3 text-xs"
+          onClick={() => onRecarregar()}
+        >
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+  if (!dados) return null;
+
+  if (dados.vagaSemVetor) {
+    return (
+      <div className="card p-6">
+        <p className="text-sm text-grafite-600">
+          Esta vaga ainda não foi lida pela IA, então não dá para compará-la com o
+          banco de talentos.
+        </p>
+        <p className="mt-2 text-sm text-grafite-400">
+          Rode a <strong>Classificação completa</strong> uma vez — ela gera a
+          leitura da vaga que esta busca usa. Depois volte aqui.
+        </p>
+      </div>
+    );
+  }
+
+  const melhor = dados.itens[0]?.similaridade ?? 0;
+
+  return (
+    <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 p-1 dark:border-violet-500/30 dark:bg-violet-500/5">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+        <div className="max-w-3xl">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-violet-800 dark:text-violet-300">
+            <span aria-hidden>✨</span> Indicados pela IA — banco de talentos
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-grafite-600">
+            Estas pessoas <strong>não se candidataram a esta vaga</strong>. Elas se
+            inscreveram no <strong>banco de talentos</strong> e ficaram acima do
+            piso de aderência de <strong>{dados.minSimilaridade}</strong> — quem
+            se inscreveu na vaga tem preferência, então aqui só sobe quem for
+            muito compatível. Normalmente esta lista vem vazia.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-soft text-xs"
+          disabled={carregando}
+          onClick={() => onRecarregar()}
+        >
+          {carregando ? 'Atualizando…' : 'Atualizar'}
+        </button>
+      </div>
+
+      {dados.itens.length === 0 ? (
+        <div className="card p-6">
+          {dados.totalPool === 0 ? (
+            <p className="text-sm text-grafite-400">
+              O banco de talentos ainda não tem ninguém com currículo lido pela IA.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-grafite-600">
+                Ninguém do banco de talentos atingiu o piso de{' '}
+                <strong>{dados.minSimilaridade}</strong> de aderência para esta
+                vaga.
+                {dados.melhorDescartado != null && (
+                  <>
+                    {' '}
+                    O mais próximo chegou a{' '}
+                    <strong>{Math.round(dados.melhorDescartado)}</strong>.
+                  </>
+                )}
+              </p>
+              <p className="mt-2 text-xs text-grafite-400">
+                Isso é o esperado na maioria das vagas — a preferência é de quem
+                se inscreveu. Siga pelos candidatos da vaga.
+              </p>
+              {dados.melhorDescartado != null && (
+                <button
+                  type="button"
+                  className="btn-soft mt-3 text-xs"
+                  disabled={carregando}
+                  onClick={() => onRecarregar(0)}
+                  title="Mostra os mais próximos mesmo abaixo do piso — só para conferência, não é indicação."
+                >
+                  Ver os mais próximos mesmo assim
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-grafite-50 text-grafite-600">
+                <tr>
+                  <Th>#</Th>
+                  <Th>Aderência</Th>
+                  <Th>Pessoa</Th>
+                  <Th>Contato</Th>
+                  <Th>Local</Th>
+                  <Th>Exp.</Th>
+                  <Th>Origem</Th>
+                  <Th></Th>
+                </tr>
+              </thead>
+              <tbody>
+                {dados.itens.map((t, idx) => (
+                  <tr
+                    key={t.candidatoId}
+                    className="border-t border-grafite-100 hover:bg-grafite-50"
+                  >
+                    <Td className="tabular-nums text-grafite-400">{idx + 1}</Td>
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums text-sm font-semibold text-violet-700 dark:text-violet-300">
+                          {Math.round(t.similaridade)}
+                        </span>
+                        <span
+                          className="h-1.5 w-16 overflow-hidden rounded-full bg-grafite-100"
+                          title="Proximidade em relação ao primeiro da lista."
+                        >
+                          <span
+                            className="block h-full rounded-full bg-violet-500"
+                            style={{
+                              width: `${melhor > 0 ? Math.round((t.similaridade / melhor) * 100) : 0}%`,
+                            }}
+                          />
+                        </span>
+                      </div>
+                    </Td>
+                    <Td>
+                      <div className="font-medium text-grafite-900">
+                        {t.candidatoNome}
+                      </div>
+                      {t.resumo && (
+                        <div className="max-w-md text-xs text-grafite-400">
+                          {t.resumo.length > 110
+                            ? `${t.resumo.slice(0, 110)}…`
+                            : t.resumo}
+                        </div>
+                      )}
+                    </Td>
+                    <Td className="text-xs text-grafite-600">
+                      <div>{t.email ?? '—'}</div>
+                      <div>{t.telefone ?? ''}</div>
+                    </Td>
+                    <Td className="text-grafite-600">
+                      {[t.cidade, t.estado].filter(Boolean).join(' / ') || '—'}
+                    </Td>
+                    <Td className="tabular-nums text-grafite-600">
+                      {t.anosExperiencia != null ? `${t.anosExperiencia} a` : '—'}
+                    </Td>
+                    <Td className="text-xs text-grafite-600">
+                      <div>{t.vagaPoolTitulo}</div>
+                      <div className="text-grafite-400">
+                        {formatarData(t.inscritoEm)}
+                      </div>
+                    </Td>
+                    <Td className="text-right whitespace-nowrap">
+                      <Link
+                        href={`/candidaturas/${t.candidaturaPoolId}`}
+                        className="btn-soft mr-1.5 text-xs"
+                      >
+                        Ver perfil
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn-primary text-xs"
+                        disabled={puxando != null}
+                        onClick={() => onPuxar(t.candidatoId, t.candidatoNome)}
+                        title="Traz esta pessoa para a lista de candidatos da vaga, marcada como vinda do banco de talentos."
+                      >
+                        {puxando === t.candidatoId
+                          ? 'Puxando…'
+                          : 'Puxar para a vaga'}
+                      </button>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <p className="px-4 py-2 text-xs text-grafite-400">
+        {dados.itens.length} pessoa(s) acima do piso, de {dados.totalPool} no
+        banco de talentos. “Puxar para a vaga” cria a candidatura aqui no Collab
+        com o selo de indicação — não faz inscrição na Gupy.
+      </p>
     </div>
   );
 }

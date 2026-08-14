@@ -177,11 +177,17 @@ model Candidato {
 // ---------------------------------------------------------------------
 model Candidatura {
   id                String              @id @default(uuid()) @db.Uuid
-  gupy_id           BigInt              @unique
+  // NULL quando a candidatura nasceu aqui (candidato puxado do banco de
+  // talentos, sem inscrição correspondente na Gupy). O UNIQUE do Postgres
+  // aceita vários NULLs, então não há colisão entre elas.
+  gupy_id           BigInt?             @unique
   vaga_id           String              @db.Uuid
   candidato_id      String              @db.Uuid
   etapa_gupy        String?                                 // nome da etapa atual no funil
   status            StatusCandidatura   @default(EM_ANALISE)
+  origem            OrigemCandidatura   @default(GUPY)
+  puxado_por        String?             @db.Uuid            // usuário que puxou do banco
+  puxado_em         DateTime?
   motivo_desclassif String?
   inscrito_em       DateTime?
   movido_em         DateTime?
@@ -201,7 +207,17 @@ model Candidatura {
   @@unique([vaga_id, candidato_id])
   @@index([status])
   @@index([etapa_gupy])
+  @@index([vaga_id, origem])
   @@map("candidaturas")
+}
+
+/// De onde veio a candidatura: inscrição na Gupy (padrão) ou indicação do
+/// banco de talentos puxada pelo recrutador dentro do Collab.
+enum OrigemCandidatura {
+  GUPY
+  BANCO_TALENTOS
+
+  @@map("origem_candidatura")
 }
 
 enum StatusCandidatura {

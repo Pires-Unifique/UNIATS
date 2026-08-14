@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   Controller,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +21,30 @@ import { traduzirTipoContrato } from '../gupy/mappers/gupy.mapper.js';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Sentinela do filtro `etapa` para "candidaturas sem etapa no funil da Gupy".
+ * `etapa=` vazio significa "todas", então NULL precisa de um valor próprio.
+ */
+const SEM_ETAPA = '__sem_etapa__';
+
+/** Tipo de vaga (Gupy `type`) que representa o BANCO DE TALENTOS. */
+const TIPO_BANCO_TALENTOS = 'talent_pool';
+
+/**
+ * Piso de similaridade para alguém do banco de talentos aparecer como indicado.
+ *
+ * A regra de negócio é "quem se inscreveu NA VAGA tem preferência; do banco só
+ * sobe quem for excepcional" — então isto é um piso ALTO de propósito, e a aba
+ * vir vazia é o comportamento esperado na maioria das vagas.
+ *
+ * Calibragem: a escala exibida é ((1 + cosseno) / 2) × 100. Com os embeddings
+ * da Voyage neste projeto o cosseno observado gira em torno de 0,47 ± 0,06, o
+ * que dá ~73 ± 3 na escala. 80 fica a ~2 desvios acima da média — raro, que é
+ * a intenção. Ajustável por env para apertar/afrouxar depois de ver a
+ * distribuição real numa vaga de verdade.
+ */
+const SIMILARIDADE_MINIMA_PADRAO = 80;
 
 // Valores aceitos no filtro de status da listagem (enum StatusVaga do Prisma).
 // Valor fora da lista viraria erro 500 do Prisma — barramos com 400 antes.
@@ -326,6 +352,7 @@ export class VagasController {
     @Query('offset') offsetStr?: string,
     @Query('q') q?: string,
     @Query('incluirReprovados') incluirReprovados?: string,
+    @Query('etapa') etapa?: string,
   ) {
     if (!UUID_REGEX.test(id)) {
       throw new BadRequestException('id inválido.');
@@ -372,6 +399,24 @@ export class VagasController {
       };
     }
 
+    // Filtro por ETAPA do funil da Gupy (aba "Triagem", "Entrevista", …).
+    // O DHO trabalha por etapa (é assim que a Gupy mostra), então a listagem
+    // filtra no BANCO — client-side quebraria em vaga grande, onde a página de
+    // 200 não contém todas as etapas. `SEM_ETAPA` cobre candidaturas ainda sem
+    // `etapa_gupy` (sincronizadas antes de entrar no funil).
+    const etapaFiltro = etapa?.trim();
+    if (etapaFiltro) {
+      if (etapaFiltro.length > 120) {
+        throw new BadRequestException('etapa inválida.');
+      }
+      where.etapa_gupy = etapaFiltro === SEM_ETAPA ? null : etapaFiltro;
+    }
+    const condEtapa = !etapaFiltro
+      ? Prisma.empty
+      : etapaFiltro === SEM_ETAPA
+        ? Prisma.sql`AND c.etapa_gupy IS NULL`
+        : Prisma.sql`AND c.etapa_gupy = ${etapaFiltro}`;
+
     // Página de IDs ordenada NO BANCO: quem tem nota vem primeiro (maior nota
     // no topo), depois os sem nota por inscrição mais recente. Sem isso, vaga
     // com mais candidatos que o `limite` escondia justamente os avaliados — a
@@ -385,7 +430,7 @@ export class VagasController {
     const condBusca = busca
       ? Prisma.sql`AND (ca.nome_completo ILIKE ${'%' + busca + '%'} OR ca.email ILIKE ${'%' + busca + '%'} OR ca.cidade ILIKE ${'%' + busca + '%'})`
       : Prisma.empty;
-    const [total, pagina] = await Promise.all([
+    const [total, pagina, resumoRows] = await Promise.all([
       this.prisma.candidatura.count({
         where: where as Prisma.CandidaturaWhereInput,
       }),
@@ -406,10 +451,25 @@ export class VagasController {
         WHERE c.vaga_id = ${id}::uuid
           ${condReprovados}
           ${condBusca}
+          ${condEtapa}
         ORDER BY COALESCE(sc.valor, sr.valor) DESC NULLS LAST,
                  c.inscrito_em DESC NULLS LAST,
                  c.criado_em DESC
         LIMIT ${limite} OFFSET ${offset}
+      `),
+      // Contagem por etapa do funil. Deliberadamente SEM o filtro de etapa
+      // (senão a sub-aba selecionada zeraria as outras) e SEM reprovados/
+      // desistentes (as sub-abas de etapa vivem dentro de "Candidatos", que é
+      // o conjunto ativo). É o total real da vaga, não o da página.
+      this.prisma.$queryRaw<Array<{ etapa: string | null; total: bigint }>>(Prisma.sql`
+        SELECT c.etapa_gupy AS etapa, count(*) AS total
+        FROM candidaturas c
+        JOIN candidatos ca ON ca.id = c.candidato_id
+        WHERE c.vaga_id = ${id}::uuid
+          AND c.status NOT IN ('REPROVADO', 'DESISTENTE')
+          ${condBusca}
+        GROUP BY c.etapa_gupy
+        ORDER BY count(*) DESC
       `),
     ]);
     const ids = pagina.map((r) => r.id);
@@ -420,6 +480,7 @@ export class VagasController {
         id: true,
         status: true,
         etapa_gupy: true,
+        origem: true,
         motivo_desclassif: true,
         inscrito_em: true,
         candidato: {
@@ -463,6 +524,9 @@ export class VagasController {
         estado: c.candidato.estado,
         status: c.status,
         etapaGupy: c.etapa_gupy,
+        // 'BANCO_TALENTOS' = pessoa puxada pelo recrutador, NÃO se inscreveu
+        // nesta vaga. A tela marca com selo para não confundir com candidato.
+        origem: c.origem,
         motivoDesclassif: c.motivo_desclassif,
         inscritoEm: c.inscrito_em,
         anosExperiencia: c.curriculo?.anos_experiencia ?? null,
@@ -477,6 +541,360 @@ export class VagasController {
       vaga: { id: vaga.id, titulo: vaga.titulo, gupyId: vaga.gupy_id.toString() },
       total,
       itens,
+      resumoEtapas: resumoRows.map((r) => ({
+        etapa: r.etapa,
+        total: Number(r.total),
+      })),
     };
+  }
+
+  /**
+   * TALENTOS SUGERIDOS — candidatos do BANCO DE TALENTOS (vagas Gupy do tipo
+   * `talent_pool`) mais próximos desta vaga por similaridade vetorial.
+   *
+   * É busca vetorial PURA (pgvector + índice HNSW): não chama Voyage nem Claude,
+   * portanto não consome token nem crédito. Reusa os embeddings já gravados pelo
+   * fluxo de ranking — se a vaga ainda não tem vetor, devolve lista vazia com
+   * `vagaSemVetor: true` para a UI orientar a rodar a classificação antes.
+   *
+   * LGPD: a base é APENAS quem se inscreveu no banco de talentos — ou seja, quem
+   * deu opt-in explícito para ser considerado em outras vagas. Candidatos de
+   * vagas comuns NÃO entram aqui: o currículo deles foi enviado para uma
+   * finalidade específica e reaproveitá-lo seria desvio de finalidade.
+   */
+  @Get(':id/talentos-sugeridos')
+  async talentosSugeridos(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+    @Query('limite') limiteStr?: string,
+    @Query('minSimilaridade') minStr?: string,
+  ) {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('id inválido.');
+    }
+    // A sugestão traz gente de FORA desta vaga. O gestor só enxerga a própria
+    // vaga (escopoPorArea), então liberar aqui furaria esse escopo — a triagem
+    // do banco de talentos é do recrutador/DHO.
+    if (
+      !usuario.areas.includes('admin') &&
+      !usuario.areas.includes('recrutamento')
+    ) {
+      throw new ForbiddenException(
+        'Apenas recrutamento pode consultar o banco de talentos.',
+      );
+    }
+
+    let limite = 20;
+    if (limiteStr) {
+      const n = Number(limiteStr);
+      if (!Number.isInteger(n) || n < 1 || n > 100) {
+        throw new BadRequestException('limite deve estar entre 1 e 100.');
+      }
+      limite = n;
+    }
+
+    // Piso: env define o padrão da instalação; a query pode baixá-lo pontualmente
+    // (a UI oferece "ver os mais próximos mesmo assim" quando não passa ninguém).
+    let minSimilaridade = this.config.get<number>(
+      'TALENTOS_SIMILARIDADE_MINIMA',
+      SIMILARIDADE_MINIMA_PADRAO,
+    );
+    if (minStr !== undefined) {
+      const n = Number(minStr);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        throw new BadRequestException(
+          'minSimilaridade deve estar entre 0 e 100.',
+        );
+      }
+      minSimilaridade = n;
+    }
+    // Similaridade = (1 - dist/2) × 100  ⇒  dist = 2 × (1 - sim/100).
+    const distanciaMaxima = 2 * (1 - minSimilaridade / 100);
+
+    const vaga = await this.prisma.vaga.findFirst({
+      where: { id },
+      select: { id: true, titulo: true },
+    });
+    if (!vaga) throw new NotFoundException(`Vaga ${id} não existe.`);
+
+    const [vetorVaga] = await this.prisma.$queryRaw<Array<{ n: bigint }>>(
+      Prisma.sql`SELECT count(*) AS n FROM embeddings WHERE vaga_id = ${id}::uuid`,
+    );
+    if (Number(vetorVaga?.n ?? 0) === 0) {
+      return {
+        vaga,
+        vagaSemVetor: true,
+        totalPool: 0,
+        minSimilaridade,
+        melhorDescartado: null,
+        itens: [],
+      };
+    }
+
+    // Um candidato pode ter mais de uma inscrição no banco de talentos (pool
+    // antigo + novo). `DISTINCT ON (ca.id)` mantém só a mais próxima da vaga,
+    // senão a mesma pessoa apareceria repetida na lista.
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        candidato_id: string;
+        candidatura_pool_id: string;
+        nome_completo: string;
+        email: string | null;
+        telefone: string | null;
+        cidade: string | null;
+        estado: string | null;
+        vaga_pool_titulo: string;
+        inscrito_em: Date | null;
+        anos_experiencia: number | null;
+        resumo: string | null;
+        distancia: number;
+      }>
+    >(Prisma.sql`
+      WITH ev AS (
+        SELECT vetor FROM embeddings
+        WHERE vaga_id = ${id}::uuid
+        ORDER BY criado_em DESC LIMIT 1
+      )
+      SELECT * FROM (
+        SELECT DISTINCT ON (ca.id)
+          ca.id                AS candidato_id,
+          c2.id                AS candidatura_pool_id,
+          ca.nome_completo,
+          ca.email,
+          ca.telefone,
+          ca.cidade,
+          ca.estado,
+          v2.titulo            AS vaga_pool_titulo,
+          c2.inscrito_em,
+          cp.anos_experiencia,
+          cp.resumo,
+          (ec.vetor <=> (SELECT vetor FROM ev))::float8 AS distancia
+        FROM candidaturas c2
+        JOIN vagas v2
+          ON v2.id = c2.vaga_id
+         AND v2.tipo_contrato = ${TIPO_BANCO_TALENTOS}
+         AND v2.excluido_em IS NULL
+         AND v2.id <> ${id}::uuid
+        JOIN candidatos ca
+          ON ca.id = c2.candidato_id
+         AND ca.excluido_em IS NULL
+        JOIN curriculos_processados cp ON cp.candidatura_id = c2.id
+        JOIN LATERAL (
+          SELECT e.vetor FROM embeddings e
+          WHERE e.curriculo_id = cp.id
+          ORDER BY e.criado_em DESC LIMIT 1
+        ) ec ON TRUE
+        WHERE EXISTS (SELECT 1 FROM ev)
+          -- Já é candidato desta vaga → não é "sugestão", já está na lista.
+          AND NOT EXISTS (
+            SELECT 1 FROM candidaturas c3
+            WHERE c3.vaga_id = ${id}::uuid AND c3.candidato_id = ca.id
+          )
+          -- Quem já foi descartado/contratado no próprio pool sai da sugestão.
+          AND c2.status NOT IN ('REPROVADO', 'DESISTENTE', 'CONTRATADO')
+        ORDER BY ca.id, distancia ASC
+      ) t
+      ORDER BY t.distancia ASC
+      LIMIT ${limite}
+    `);
+
+    // Tamanho do banco de talentos elegível (para a UI dizer "20 de 137").
+    const [pool] = await this.prisma.$queryRaw<Array<{ n: bigint }>>(Prisma.sql`
+      SELECT count(DISTINCT ca.id) AS n
+      FROM candidaturas c2
+      JOIN vagas v2
+        ON v2.id = c2.vaga_id
+       AND v2.tipo_contrato = ${TIPO_BANCO_TALENTOS}
+       AND v2.excluido_em IS NULL
+       AND v2.id <> ${id}::uuid
+      JOIN candidatos ca ON ca.id = c2.candidato_id AND ca.excluido_em IS NULL
+      JOIN curriculos_processados cp ON cp.candidatura_id = c2.id
+      WHERE EXISTS (SELECT 1 FROM embeddings e WHERE e.curriculo_id = cp.id)
+        AND c2.status NOT IN ('REPROVADO', 'DESISTENTE', 'CONTRATADO')
+    `);
+
+    const paraItem = (r: (typeof rows)[number]) => ({
+      candidatoId: r.candidato_id,
+      candidaturaPoolId: r.candidatura_pool_id,
+      candidatoNome: r.nome_completo,
+      email: r.email,
+      telefone: r.telefone,
+      cidade: r.cidade,
+      estado: r.estado,
+      vagaPoolTitulo: r.vaga_pool_titulo,
+      inscritoEm: r.inscrito_em,
+      anosExperiencia: r.anos_experiencia,
+      resumo: r.resumo,
+      // Mesma conversão do ranking: distância cosseno [0,2] → 0..100.
+      similaridade: Math.max(
+        0,
+        Math.min(100, (1 - Number(r.distancia) / 2) * 100),
+      ),
+    });
+
+    // O corte é aplicado AQUI e não no SQL de propósito: as linhas já vêm
+    // ordenadas por distância, então basta partir a lista no piso — e o primeiro
+    // que ficou de fora vira `melhorDescartado`, que a UI usa para explicar
+    // "o mais próximo do banco chegou a 76, abaixo do piso de 80". Sem isso, a
+    // aba vazia não diz se o banco está vazio ou se ninguém passou no corte.
+    const aprovados = rows.filter((r) => Number(r.distancia) <= distanciaMaxima);
+    const primeiroDeFora = rows.find(
+      (r) => Number(r.distancia) > distanciaMaxima,
+    );
+
+    return {
+      vaga,
+      vagaSemVetor: false,
+      totalPool: Number(pool?.n ?? 0),
+      minSimilaridade,
+      melhorDescartado: primeiroDeFora
+        ? paraItem(primeiroDeFora).similaridade
+        : null,
+      itens: aprovados.map(paraItem),
+    };
+  }
+
+  /**
+   * PUXAR alguém do banco de talentos para ESTA vaga.
+   *
+   * Cria uma candidatura local (`origem = BANCO_TALENTOS`, sem `gupy_id`) para
+   * que a pessoa entre no fluxo normal — nota da IA, etapas, entrevista — sem
+   * deixar de ser identificável como indicação, não inscrição.
+   *
+   * Copia o currículo processado e o embedding da candidatura do banco em vez de
+   * reprocessar: é o MESMO texto, então recalcular gastaria Voyage/Claude para
+   * chegar ao mesmo vetor. Assim a pessoa já nasce rankeável a custo zero.
+   *
+   * Idempotente: se a pessoa já é candidata da vaga, devolve a candidatura
+   * existente em vez de estourar no unique (vaga_id, candidato_id).
+   */
+  @Post(':id/talentos/:candidatoId/puxar')
+  async puxarTalento(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id') id: string,
+    @Param('candidatoId') candidatoId: string,
+  ) {
+    if (!UUID_REGEX.test(id) || !UUID_REGEX.test(candidatoId)) {
+      throw new BadRequestException('id inválido.');
+    }
+    if (
+      !usuario.areas.includes('admin') &&
+      !usuario.areas.includes('recrutamento')
+    ) {
+      throw new ForbiddenException(
+        'Apenas recrutamento pode puxar alguém do banco de talentos.',
+      );
+    }
+
+    const vaga = await this.prisma.vaga.findFirst({
+      where: { id },
+      select: { id: true, titulo: true },
+    });
+    if (!vaga) throw new NotFoundException(`Vaga ${id} não existe.`);
+
+    const jaExiste = await this.prisma.candidatura.findUnique({
+      where: { vaga_id_candidato_id: { vaga_id: id, candidato_id: candidatoId } },
+      select: { id: true, origem: true },
+    });
+    if (jaExiste) {
+      return {
+        candidaturaId: jaExiste.id,
+        origem: jaExiste.origem,
+        jaExistia: true,
+      };
+    }
+
+    // A candidatura de ORIGEM precisa ser mesmo do banco de talentos — sem isso
+    // este endpoint viraria uma porta para copiar candidato de vaga comum, que
+    // é justamente o que a minimização LGPD proíbe.
+    const origemPool = await this.prisma.candidatura.findFirst({
+      where: {
+        candidato_id: candidatoId,
+        vaga: { tipo_contrato: TIPO_BANCO_TALENTOS, excluido_em: null },
+        candidato: { excluido_em: null },
+        curriculo: { isNot: null },
+      },
+      orderBy: { inscrito_em: 'desc' },
+      select: {
+        id: true,
+        curriculo: {
+          select: {
+            id: true,
+            arquivo_url: true,
+            arquivo_sha256: true,
+            texto_bruto: true,
+            texto_normalizado: true,
+            resumo: true,
+            experiencias: true,
+            formacoes: true,
+            competencias: true,
+            idiomas: true,
+            certificacoes: true,
+            anos_experiencia: true,
+            parser_versao: true,
+          },
+        },
+      },
+    });
+    if (!origemPool?.curriculo) {
+      throw new NotFoundException(
+        'Candidato não está no banco de talentos (ou está sem currículo processado).',
+      );
+    }
+    const cv = origemPool.curriculo;
+
+    const criada = await this.prisma.$transaction(async (tx) => {
+      const candidatura = await tx.candidatura.create({
+        data: {
+          gupy_id: null,
+          vaga_id: id,
+          candidato_id: candidatoId,
+          origem: 'BANCO_TALENTOS',
+          status: 'EM_ANALISE',
+          // Sem etapa: a pessoa não está no funil da Gupy. A tela mostra isso
+          // na sub-aba "Sem etapa" até alguém movê-la.
+          etapa_gupy: null,
+          inscrito_em: new Date(),
+          puxado_por: usuario.id,
+          puxado_em: new Date(),
+        },
+        select: { id: true },
+      });
+
+      const novoCv = await tx.curriculoProcessado.create({
+        data: {
+          candidatura_id: candidatura.id,
+          candidato_id: candidatoId,
+          arquivo_url: cv.arquivo_url,
+          arquivo_sha256: cv.arquivo_sha256,
+          texto_bruto: cv.texto_bruto,
+          texto_normalizado: cv.texto_normalizado,
+          resumo: cv.resumo,
+          experiencias: cv.experiencias ?? Prisma.DbNull,
+          formacoes: cv.formacoes ?? Prisma.DbNull,
+          competencias: cv.competencias,
+          idiomas: cv.idiomas ?? Prisma.DbNull,
+          certificacoes: cv.certificacoes ?? Prisma.DbNull,
+          anos_experiencia: cv.anos_experiencia,
+          parser_versao: cv.parser_versao,
+        },
+        select: { id: true },
+      });
+
+      // Copia o vetor (mesmo texto ⇒ mesmo embedding). `vetor` é coluna
+      // Unsupported no Prisma, então a cópia é em SQL bruto.
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO embeddings (id, curriculo_id, trecho, vetor, modelo, modelo_versao, criado_em)
+        SELECT gen_random_uuid(), ${novoCv.id}::uuid, e.trecho, e.vetor, e.modelo, e.modelo_versao, now()
+        FROM embeddings e
+        WHERE e.curriculo_id = ${cv.id}::uuid
+        ORDER BY e.criado_em DESC
+        LIMIT 1
+      `);
+
+      return candidatura;
+    });
+
+    return { candidaturaId: criada.id, origem: 'BANCO_TALENTOS', jaExistia: false };
   }
 }

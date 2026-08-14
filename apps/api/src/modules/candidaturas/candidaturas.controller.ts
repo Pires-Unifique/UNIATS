@@ -141,7 +141,9 @@ export class CandidaturasController {
     const { arquivo_url, ...curriculoResto } = c.curriculo ?? {};
     return {
       ...c,
-      gupy_id: c.gupy_id.toString(),
+      // NULL em candidatura puxada do banco de talentos (não existe na Gupy) —
+      // a tela usa isso para esconder as ações que dependem da esteira de lá.
+      gupy_id: c.gupy_id?.toString() ?? null,
       vaga: { ...c.vaga, gupy_id: c.vaga.gupy_id.toString() },
       curriculo: c.curriculo
         ? { ...curriculoResto, tem_arquivo: Boolean(arquivo_url) }
