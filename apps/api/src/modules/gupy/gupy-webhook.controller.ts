@@ -14,7 +14,11 @@ import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { Request } from 'express';
+// `import type`: só o TIPO é usado aqui. Com import de valor, o JS emitido
+// carrega um `require('express')` — e o express não é dependência declarada de
+// @collab/api (vem por baixo do platform-express), então o teste não resolvia
+// fora da imagem, que usa shamefully-hoist. Mesma forma dos guards.
+import type { Request } from 'express';
 
 import {
   WebhookGupyEvento,

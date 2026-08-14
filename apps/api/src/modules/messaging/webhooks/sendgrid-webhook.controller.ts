@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createPublicKey, createVerify } from 'node:crypto';
-import { Request } from 'express';
+import type { Request } from 'express';
 
 import { assertDentroDaJanela } from '../../../common/anti-replay.js';
 import { MessagingService } from '../messaging.service.js';
