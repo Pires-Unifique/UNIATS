@@ -282,6 +282,12 @@ const EnvSchema = z.object({
   // retroativamente. É o botão para acertar o prazo com a cyber sem migration.
   RETENCAO_CV_DIAS: z.coerce.number().int().positive().default(730),
   RETENCAO_CANDIDATO_DIAS: z.coerce.number().int().positive().default(730),
+  // 'simulado' faz a varredura relatar quantos seriam alcançados sem apagar
+  // nada — ensaio para conferir o filtro. Padrão é 'real': política de retenção
+  // tem de estar em vigor, não esperando alguém ligar. Use o ensaio ao ENCURTAR
+  // o prazo, quando a varredura passa a alcançar volume de uma vez.
+  // NÃO afeta o pedido do titular (Art. 18), que executa sempre.
+  RETENCAO_MODO: z.enum(['simulado', 'real']).default('real'),
   // Censura LGPD — Camada 2 (semântica via Claude). 'false' deixa só o piso da
   // regex (Camada 1). Não recomendado desligar em produção.
   REDACAO_SEMANTICA_ENABLED: z.enum(['true', 'false']).default('true'),

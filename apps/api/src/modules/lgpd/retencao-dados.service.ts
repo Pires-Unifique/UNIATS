@@ -51,6 +51,22 @@ export class RetencaoDadosService {
   ) {}
 
   /**
+   * `RETENCAO_MODO=simulado` faz a varredura consultar e relatar sem apagar —
+   * um ensaio para conferir o alcance do filtro contra a base real.
+   *
+   * O padrão é REAL, e não simulado: a política precisa estar em vigor, não
+   * esperando alguém lembrar de ligá-la. O ensaio é a exceção, para o dia em
+   * que o prazo for encurtado — aí sim a varredura passa a alcançar volume de
+   * uma vez, e vale ver a conta antes de destruir.
+   *
+   * NÃO vale para o pedido do titular (Art. 18): `apagarCandidato` executa
+   * sempre. Simular a resposta a um direito exercido seria negá-lo em silêncio.
+   */
+  private modoReal(): boolean {
+    return this.config.get<string>('RETENCAO_MODO') !== 'simulado';
+  }
+
+  /**
    * 03:20 — depois do cron de áudio/transcrição (03:00), de propósito: se as
    * duas varreduras disputassem as mesmas entrevistas, uma veria a linha que a
    * outra acabou de mexer. Aqui elas não se cruzam.
@@ -60,8 +76,19 @@ export class RetencaoDadosService {
     try {
       const cv = await this.purgarCurriculosExpirados();
       const cand = await this.apagarCandidatosInativos();
-      this.logger.log(
-        `Retenção de dados aplicada: curriculos=${cv.purgados} candidatos=${cand.apagados}`,
+
+      if (this.modoReal()) {
+        this.logger.log(
+          `Retenção de dados aplicada: curriculos=${cv.purgados} candidatos=${cand.apagados}`,
+        );
+        return;
+      }
+      // Alerta, não info: o operador precisa perceber que a política está
+      // inerte. Um log discreto aqui viraria "achei que estava rodando".
+      this.logger.warn(
+        `Retenção de dados em modo SIMULADO — nada foi apagado. ` +
+          `Elegíveis nesta janela: curriculos=${cv.purgados} candidatos=${cand.apagados}. ` +
+          'Defina RETENCAO_MODO=real para aplicar.',
       );
     } catch (err) {
       this.logger.error(
@@ -86,7 +113,11 @@ export class RetencaoDadosService {
    * sustentava. Some o arquivo no storage, somem os embeddings (é o mesmo texto
    * em forma vetorial — PII derivado) e zeram os campos estruturados.
    */
-  async purgarCurriculosExpirados(): Promise<{ purgados: number }> {
+  async purgarCurriculosExpirados(): Promise<{
+    /** Em modo simulado, é a contagem de ELEGÍVEIS — nada foi apagado. */
+    purgados: number;
+    simulado: boolean;
+  }> {
     const corte = this.corte('RETENCAO_CV_DIAS', 730);
 
     const vencidos = await this.prisma.curriculoProcessado.findMany({
@@ -98,6 +129,12 @@ export class RetencaoDadosService {
       select: { id: true, candidato_id: true, arquivo_url: true },
       take: LOTE,
     });
+
+    // Simulado: a consulta acima já é o relatório. Devolve a contagem de
+    // elegíveis sem tocar em storage nem em banco.
+    if (!this.modoReal()) {
+      return { purgados: vencidos.length, simulado: true };
+    }
 
     let purgados = 0;
     for (const cv of vencidos) {
@@ -116,7 +153,7 @@ export class RetencaoDadosService {
         );
       }
     }
-    return { purgados };
+    return { purgados, simulado: false };
   }
 
   /**
@@ -170,7 +207,11 @@ export class RetencaoDadosService {
    * entrar na varredura — alguém com processo em aberto seria apagado. `none` é
    * explícito e não depende dessa leitura.
    */
-  async apagarCandidatosInativos(): Promise<{ apagados: number }> {
+  async apagarCandidatosInativos(): Promise<{
+    /** Em modo simulado, é a contagem de ELEGÍVEIS — nada foi apagado. */
+    apagados: number;
+    simulado: boolean;
+  }> {
     const corte = this.corte('RETENCAO_CANDIDATO_DIAS', 730);
 
     const inativos = await this.prisma.candidato.findMany({
@@ -198,6 +239,10 @@ export class RetencaoDadosService {
       take: LOTE,
     });
 
+    if (!this.modoReal()) {
+      return { apagados: inativos.length, simulado: true };
+    }
+
     let apagados = 0;
     for (const c of inativos) {
       try {
@@ -209,7 +254,7 @@ export class RetencaoDadosService {
         );
       }
     }
-    return { apagados };
+    return { apagados, simulado: false };
   }
 
   // ---------------------------------------------------------------------

@@ -5,7 +5,8 @@ import { StorageService } from '../../storage/storage.service.js';
 import { MARCADOR_PURGADO } from '../retencao.constants.js';
 import { RetencaoDadosService } from '../retencao-dados.service.js';
 
-function montar(envs: Record<string, number> = {}) {
+function montar(envs: Record<string, number | string> = {}) {
+  const config = { RETENCAO_MODO: 'real', ...envs };
   const prisma: any = {
     curriculoProcessado: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -23,13 +24,13 @@ function montar(envs: Record<string, number> = {}) {
     registroAuditoria: { create: jest.fn().mockResolvedValue({}) },
   };
   const storage: any = { deleteObject: jest.fn().mockResolvedValue(undefined) };
-  const config: any = { get: jest.fn((k: string) => envs[k]) };
+  const configService: any = { get: jest.fn((k: string) => config[k]) };
   const service = new RetencaoDadosService(
     prisma as PrismaService,
     storage as StorageService,
-    config as ConfigService,
+    configService as ConfigService,
   );
-  return { service, prisma, storage, config };
+  return { service, prisma, storage, config: configService };
 }
 
 describe('RetencaoDadosService.purgarCurriculosExpirados', () => {
@@ -230,5 +231,67 @@ describe('RetencaoDadosService.apagarCandidatosInativos', () => {
     const diasAtras =
       (Date.now() - recente.criado_em.gt.getTime()) / (24 * 60 * 60 * 1000);
     expect(diasAtras).toBeCloseTo(30, 1);
+  });
+});
+
+/**
+ * O ensaio serve para conferir o filtro antes de encurtar um prazo. Se ele
+ * apagar alguma coisa, perde o sentido — e o dado não volta.
+ */
+describe('RetencaoDadosService — modo simulado', () => {
+  it('sem a variável definida, o modo é REAL — a política não fica esperando alguém ligar', async () => {
+    const { service, prisma } = montar({ RETENCAO_MODO: undefined as never });
+    prisma.curriculoProcessado.findMany.mockResolvedValue([
+      { id: 'cv-1', candidato_id: 'c-1', arquivo_url: null },
+    ]);
+
+    const r = await service.purgarCurriculosExpirados();
+
+    expect(r.simulado).toBe(false);
+    expect(prisma.curriculoProcessado.update).toHaveBeenCalled();
+  });
+
+  it('conta os currículos elegíveis sem tocar em storage nem em banco', async () => {
+    const { service, prisma, storage } = montar({ RETENCAO_MODO: 'simulado' });
+    prisma.curriculoProcessado.findMany.mockResolvedValue([
+      { id: 'cv-1', candidato_id: 'c-1', arquivo_url: 'cv/1.pdf' },
+      { id: 'cv-2', candidato_id: 'c-2', arquivo_url: null },
+    ]);
+
+    const r = await service.purgarCurriculosExpirados();
+
+    expect(r).toEqual({ purgados: 2, simulado: true });
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    expect(prisma.embedding.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.curriculoProcessado.update).not.toHaveBeenCalled();
+    expect(prisma.registroAuditoria.create).not.toHaveBeenCalled();
+  });
+
+  it('conta os candidatos elegíveis sem apagar', async () => {
+    const { service, prisma, storage } = montar({ RETENCAO_MODO: 'simulado' });
+    prisma.candidato.findMany.mockResolvedValue([{ id: 'c-1' }, { id: 'c-2' }]);
+
+    const r = await service.apagarCandidatosInativos();
+
+    expect(r).toEqual({ apagados: 2, simulado: true });
+    expect(prisma.candidato.update).not.toHaveBeenCalled();
+    expect(prisma.mensagem.deleteMany).not.toHaveBeenCalled();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('o pedido do titular (Art. 18) IGNORA o modo e apaga de verdade', async () => {
+    // Simular a resposta a um direito exercido seria negá-lo em silêncio.
+    const { service, prisma } = montar({ RETENCAO_MODO: 'simulado' });
+    prisma.candidato.findUnique.mockResolvedValue({
+      id: 'c-1',
+      excluido_em: null,
+      curriculos: [],
+      entrevistas: [],
+    });
+
+    await service.apagarCandidato('c-1', { motivo: 'pedido do titular' });
+
+    expect(prisma.candidato.update).toHaveBeenCalled();
+    expect(prisma.registroAuditoria.create).toHaveBeenCalled();
   });
 });

@@ -936,7 +936,16 @@ nos logs que o campo sempre chega, senão a ingestão do WhatsApp para em silên
 A diferença é deliberada. Com o corte calculado, mudar `RETENCAO_CV_DIAS` ou
 `RETENCAO_CANDIDATO_DIAS` muda a política já na madrugada seguinte — e alcança o que
 está no banco, sem migration nem backfill. É o botão para acertar o prazo com a área de
-segurança. O preço é que baixar o valor de uma vez apaga em massa na primeira execução.
+segurança.
+
+**Ensaio antes de encurtar o prazo.** `RETENCAO_MODO=simulado` faz a varredura consultar
+e relatar quantos seriam alcançados, sem apagar nada. O padrão é `real` — política de
+retenção precisa estar em vigor, não esperando alguém ligar. O ensaio existe para o dia
+em que o prazo for **encurtado**: aí a varredura alcança de uma vez tudo que ficou entre
+o prazo antigo e o novo, e vale ver a conta antes. Em modo simulado o log sai como
+**warning**, de propósito — política inerte não pode passar batido. O pedido de exclusão
+do titular (Art. 18) ignora o flag e executa sempre: simular a resposta a um direito
+exercido seria negá-lo em silêncio.
 
 O currículo perde texto, campos estruturados, arquivo no storage e **embeddings** (o
 vetor é o mesmo texto em outra forma — mantê-lo deixaria o candidato pesquisável por
