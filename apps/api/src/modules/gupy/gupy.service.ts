@@ -53,6 +53,57 @@ export class GupyService {
   }
 
   /**
+   * TOMBSTONE LGPD — candidato apagado NUNCA volta.
+   *
+   * `paraUpsertCandidato` usa `update: base`, ou seja, todo sync reescreve nome,
+   * e-mail, telefone e LinkedIn a partir do payload da Gupy. Sem esta trava, um
+   * candidato anonimizado (por retenção ou a pedido do titular, Art. 18) seria
+   * repopulado na próxima passada do cron — a exclusão duraria no máximo 6h e a
+   * conformidade seria só aparente.
+   *
+   * A Gupy continua sendo a fonte, e o registro continua lá: o que fazemos é
+   * recusar reimportá-lo. `excluido_em` é a lápide, e ela é definitiva enquanto
+   * não for removida à mão no banco.
+   */
+  /**
+   * Quando alguém PUXADO do banco de talentos depois se inscreve de verdade na
+   * mesma vaga pela Gupy, existem duas identidades para a mesma pessoa: a
+   * candidatura local (gupy_id NULL) e a inscrição que acaba de chegar.
+   *
+   * O upsert do sync casa por `gupy_id`, então tentaria CRIAR uma segunda linha
+   * e bateria no unique (vaga_id, candidato_id) — quebrando o sync da vaga
+   * inteira. Aqui a candidatura local ADOTA o gupy_id que chegou, preservando o
+   * histórico (notas, entrevistas, mensagens) em vez de duplicar a pessoa.
+   * `origem` continua BANCO_TALENTOS: ela de fato veio do banco.
+   */
+  private async adotarCandidaturaLocal(
+    vagaId: string,
+    candidatoId: string,
+    gupyCandidaturaId: bigint,
+  ): Promise<void> {
+    const local = await this.prisma.candidatura.findUnique({
+      where: { vaga_id_candidato_id: { vaga_id: vagaId, candidato_id: candidatoId } },
+      select: { id: true, gupy_id: true },
+    });
+    if (!local || local.gupy_id !== null) return;
+    await this.prisma.candidatura.update({
+      where: { id: local.id },
+      data: { gupy_id: gupyCandidaturaId },
+    });
+    this.logger.log(
+      `Candidatura local (banco de talentos) ${local.id} adotou gupy_id=${gupyCandidaturaId} — a pessoa se inscreveu na vaga.`,
+    );
+  }
+
+  private async candidatoApagado(gupyId: bigint): Promise<boolean> {
+    const existente = await this.prisma.candidato.findUnique({
+      where: { gupy_id: gupyId },
+      select: { excluido_em: true },
+    });
+    return existente?.excluido_em != null;
+  }
+
+  /**
    * Aplica o currículo ESTRUTURADO da Gupy sem rebaixar um currículo que já
    * veio do PDF: quando o arquivo já foi baixado (arquivo_url) ou parseado
    * pelo Claude, o update do perfil estruturado zeraria o ponteiro do PDF no
@@ -189,10 +240,19 @@ export class GupyService {
     }
 
     let total = 0;
+    let apagados = 0;
     for await (const cand of this.client.iterarCandidaturas({ jobId: gupyVagaId })) {
+      // Lápide LGPD: pula candidato, candidatura e currículo de quem já foi
+      // apagado. Precisa vir ANTES do upsert — é ele que repopularia o PII.
+      if (await this.candidatoApagado(cand.candidate.id)) {
+        apagados += 1;
+        continue;
+      }
+
       const candidato = await this.prisma.candidato.upsert(
         paraUpsertCandidato(cand.candidate),
       );
+      await this.adotarCandidaturaLocal(vaga.id, candidato.id, cand.id);
       const candidatura = await this.prisma.candidatura.upsert(
         paraUpsertCandidatura(cand, vaga.id, candidato.id),
       );
@@ -231,7 +291,8 @@ export class GupyService {
       total += 1;
     }
     this.logger.log(
-      `Candidaturas sincronizadas para vaga ${vaga.id}: total=${total}`,
+      `Candidaturas sincronizadas para vaga ${vaga.id}: total=${total}` +
+        (apagados ? ` (${apagados} ignoradas — candidato apagado por LGPD)` : ''),
     );
     return { total };
   }
@@ -323,8 +384,16 @@ export class GupyService {
     return { iniciado: true, ...this.statusBulkCandidaturas() };
   }
 
-  /** Sincroniza apenas uma candidatura (usado pelo webhook). */
-  async sincronizarCandidatura(gupyId: bigint): Promise<{ id: string }> {
+  /**
+   * Sincroniza apenas uma candidatura (usado pelo webhook).
+   *
+   * Devolve `id: null` quando o candidato está apagado por LGPD — o evento é
+   * dado como tratado, sem erro: o webhook não deve ficar re-tentando algo que
+   * decidimos deliberadamente não importar.
+   */
+  async sincronizarCandidatura(
+    gupyId: bigint,
+  ): Promise<{ id: string | null; ignorado?: 'candidato_apagado' }> {
     const cand = await this.client.obterCandidatura(gupyId);
 
     // A API real manda `job.id`; o campo plano `jobId` é legado/opcional.
@@ -346,6 +415,15 @@ export class GupyService {
       throw new NotFoundException(
         `Vaga gupy_id=${jobGupyId} ainda não importada — converge no próximo sync agendado`,
       );
+    }
+
+    // Lápide LGPD (ver `candidatoApagado`): quem foi apagado não volta por
+    // webhook. Sem erro — o evento fica marcado como tratado.
+    if (await this.candidatoApagado(cand.candidate.id)) {
+      this.logger.log(
+        `Candidatura gupy=${gupyId} ignorada: candidato apagado por LGPD.`,
+      );
+      return { id: null, ignorado: 'candidato_apagado' };
     }
 
     const candidato = await this.prisma.candidato.upsert(

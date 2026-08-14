@@ -422,6 +422,8 @@ O peso do LLM é maior porque o vetor sozinho ignora hard requirements (ex.: "ob
 | `EMBEDDING_CONCURRENCY` | `2` | Jobs de embedding simultâneos por instância. |
 | `MATCHING_CONCURRENCY` | `2` | Jobs de matching simultâneos por instância. |
 | `MATCHING_TOP_K` | `20` | Default do `/ranking`. |
+| `CLASSIFICACAO_CONCORRENCIA` | `10` | Chamadas simultâneas ao Claude em "classificar a vaga inteira" (era 4 fixo). Medido sem 429 em 10. |
+| `TALENTOS_SIMILARIDADE_MINIMA` | `80` | Piso de aderência para o banco de talentos indicar alguém numa vaga. Alto de propósito — a aba vazia é o caso normal. |
 
 **LGPD e fairness**
 
@@ -900,15 +902,56 @@ revisão humana em `scores` (Art. 20). Critérios da avaliação documentados em
 [`docs/ranking-criterios.md`](docs/ranking-criterios.md) — exigência do Art. 20 sobre
 informação a respeito dos critérios.
 
+**Nome não vai para o modelo.** Na análise de respostas, o nome do candidato é trocado por
+um rótulo (`[CANDIDATO]`) no transcript e na instrução, e restaurado na saída antes de
+persistir. O modelo não precisa do nome verdadeiro — precisa de um rótulo consistente.
+Cada variante (nome completo, primeiro nome, sobrenome) tem seu próprio token, para que a
+citação literal volte com a palavra exata que estava na conversa. Ver
+[`pseudonimo.ts`](apps/api/src/modules/claude/pseudonimo.ts).
+
+> A chamada de **censura** (`redigirSensivel`) é a exceção, e é por construção: é ela que
+> torna o texto seguro, então precisa ver o cru. Anonimizar antes seria circular.
+
 **Operacional.** Secrets fora do git (`.env` no `.gitignore`; em produção vêm do secret
 `ENV_PRODUCTION`). Logs `pino` redactam `Authorization`, `email`, `phone`, `cpf`.
-Webhooks com HMAC e `timingSafeEqual`. Soft delete (`excluido_em`) nas entidades com PII.
-`registro_auditoria` é append-only.
+Containers rodam como usuário `node`, não root. Soft delete (`excluido_em`) nas entidades
+com PII. `registro_auditoria` é append-only.
 
-**Retenção.** Transcrição 12 meses (`RETENCAO_TRANSCRICAO_DIAS`, aplicado na criação).
-⚠️ `RETENCAO_CV_DIAS` está declarada mas **não há rotina de retenção de currículo** —
-currículos, candidatos e candidaturas ficam indefinidamente. Item aberto, junto com a
-ausência de um fluxo de exclusão a pedido do titular (Art. 18).
+**Webhooks.** HMAC com `timingSafeEqual`, idempotência por `unique(provider, external_id)`
+e janela anti-replay de 5 min ([`anti-replay.ts`](apps/api/src/common/anti-replay.ts)). A
+janela só é aplicada onde o timestamp é **coberto pela assinatura** — Gupy (`occurredAt`),
+WAHA (`timestamp`) e SendGrid (10 min, recomendação do provedor). Autentique e o callback
+do bot não trazem timestamp assinado: neles vale só a idempotência, e validar um campo que
+o atacante pode reescrever seria encenação. Timestamp ausente alerta e segue;
+`WEBHOOK_REPLAY_STRICT=true` transforma a ausência em recusa — ligue depois de confirmar
+nos logs que o campo sempre chega, senão a ingestão do WhatsApp para em silêncio.
+
+**Retenção.** Duas rotinas noturnas, uma por natureza de dado:
+
+| Cron | Rotina | Prazo | Como o corte é definido |
+|---|---|---|---|
+| 03:00 | Áudio e transcrição (`RetencaoLGPDService`) | 90 dias / 12 meses | Coluna `expira_em`, gravada na criação |
+| 03:20 | Currículo e candidato (`RetencaoDadosService`) | 2 anos | **Calculado** a partir da env, a cada execução |
+
+A diferença é deliberada. Com o corte calculado, mudar `RETENCAO_CV_DIAS` ou
+`RETENCAO_CANDIDATO_DIAS` muda a política já na madrugada seguinte — e alcança o que
+está no banco, sem migration nem backfill. É o botão para acertar o prazo com a área de
+segurança. O preço é que baixar o valor de uma vez apaga em massa na primeira execução.
+
+O currículo perde texto, campos estruturados, arquivo no storage e **embeddings** (o
+vetor é o mesmo texto em outra forma — mantê-lo deixaria o candidato pesquisável por
+similaridade). O candidato só é alcançado quando não tem processo vivo, entrevista em
+aberto nem admissão.
+
+**Exclusão a pedido do titular (Art. 18).** `POST /api/lgpd/candidatos/:id/apagar`, com
+motivo obrigatório, restrito a `admin`/`dho`, disponível na ficha da candidatura. Usa o
+mesmo motor da varredura. Não existe botão de autoatendimento porque o candidato não tem
+conta aqui — ele se cadastra na Gupy, e este é um espelho interno.
+
+> **A trava que faz isso valer.** `paraUpsertCandidato` usa `update: base`, então o sync
+> de 6 em 6 horas reescreveria nome, e-mail e telefone de quem acabou de ser apagado.
+> `excluido_em` funciona como lápide: `GupyService.candidatoApagado` consulta antes de
+> qualquer upsert e recusa reimportar. Sem essa dupla, a exclusão duraria 6 horas.
 
 ---
 
@@ -916,20 +959,24 @@ ausência de um fluxo de exclusão a pedido do titular (Art. 18).
 
 Pendências conhecidas, para quem for pegar o projeto:
 
-1. **Retenção de currículo e exclusão a pedido do titular** (Art. 18) — não existem.
-2. **Consentimento**: `consentimento_lgpd_em` nunca preenchido; consentimento de gravação
+1. **Consentimento**: `consentimento_lgpd_em` nunca preenchido; consentimento de gravação
    não bloqueia a transcrição. Ver seções 6.4 e 6.5.2.
-3. **E-mail inoperante**: o cliente SendGrid está pronto, mas sem `SENDGRID_API_KEY` todo
+2. **E-mail inoperante**: o cliente SendGrid está pronto, mas sem `SENDGRID_API_KEY` todo
    envio falha.
-4. **Currículo em PDF**: a Gupy **não expõe arquivo de currículo** nesta API — o ranking
+3. **Currículo em PDF**: a Gupy **não expõe arquivo de currículo** nesta API — o ranking
    trabalha só com o perfil estruturado dela. O pipeline `cv-download`/`cv-parse` existe
    mas nunca é acionado.
-5. **Rebrand técnico** (pacotes `@collab/*`, domínio, containers) — previsto para a virada
+4. **Rebrand técnico** (pacotes `@collab/*`, domínio, containers) — previsto para a virada
    do servidor, junto com a conta de serviço da agenda e a rotação de segredos.
-6. **Módulos do DHO** (Admissão, Alteração Contratual, Offboarding): implementados, ocultos,
+5. **Módulos do DHO** (Admissão, Alteração Contratual, Offboarding): implementados, ocultos,
    com conectores Senior/Autentique em modo simulado.
-7. **Dependências**: auditoria acusa vulnerabilidades altas, com destaque para o Next.js
-   (upgrade de major pendente).
+6. **Dependências**: a varredura roda a cada push
+   ([`security-scan.yml`](.github/workflows/security-scan.yml)) e é **não-bloqueante** —
+   os achados ficam no log do job, sem reprovar nada. Triar essa saída e remover o
+   `|| true` para crítico/alto é o que o REQ-DEP-002 pede.
+   A menção anterior a "major do Next.js pendente" **não procede**: o lockfile está em
+   `next@14.2.35`, acima do 14.2.25 que corrigiu o CVE-2025-29927 (bypass de autorização
+   por middleware) — e o projeto não tem `middleware.ts`, que é o vetor.
 
 ---
 

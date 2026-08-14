@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { createPublicKey, createVerify } from 'node:crypto';
 import { Request } from 'express';
 
+import { assertDentroDaJanela } from '../../../common/anti-replay.js';
 import { MessagingService } from '../messaging.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 
@@ -114,13 +115,16 @@ export class SendGridWebhookController {
       );
     }
 
-    // Anti-replay: rejeita timestamp com diferença > 10 minutos.
+    // Anti-replay. O timestamp é concatenado ao corpo ANTES de assinar (ver
+    // `payloadAssinado` abaixo), então adulterá-lo invalida a assinatura — é
+    // uma âncora de tempo confiável. Janela de 10 min: é a recomendada pelo
+    // próprio SendGrid, mais folgada que os 5 min dos outros webhooks.
+    // `estrito` não se aplica: header ausente já foi recusado acima.
     const ts = Number(timestamp);
-    if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 600) {
-      throw new UnauthorizedException(
-        'Timestamp do webhook fora da janela aceitável.',
-      );
-    }
+    assertDentroDaJanela(Number.isFinite(ts) ? ts * 1000 : null, 'SendGrid', {
+      toleranciaMs: 10 * 60 * 1000,
+      estrito: true,
+    });
 
     const payloadAssinado = Buffer.concat([
       Buffer.from(timestamp, 'utf8'),

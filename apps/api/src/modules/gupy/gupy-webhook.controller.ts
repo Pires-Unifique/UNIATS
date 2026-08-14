@@ -21,6 +21,7 @@ import {
   WebhookGupyInvolucroSchema,
 } from '@collab/shared';
 
+import { assertDentroDaJanela } from '../../common/anti-replay.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { QUEUE_NAMES } from '../../queue/queue.module.js';
 
@@ -41,6 +42,7 @@ import { QUEUE_NAMES } from '../../queue/queue.module.js';
 export class GupyWebhookController {
   private readonly logger = new Logger(GupyWebhookController.name);
   private readonly secret: string;
+  private readonly replayEstrito: boolean;
 
   constructor(
     config: ConfigService,
@@ -48,6 +50,7 @@ export class GupyWebhookController {
     @InjectQueue(QUEUE_NAMES.GUPY_WEBHOOK)
     private readonly fila: Queue,
   ) {
+    this.replayEstrito = config.get<boolean>('WEBHOOK_REPLAY_STRICT') === true;
     // Opcional no MVP: sem secret, o webhook fica desabilitado (responde 503).
     // O fluxo de sync via API key (POST /api/gupy/sync/...) não depende disto.
     this.secret = config.get<string>('GUPY_WEBHOOK_SECRET') ?? '';
@@ -104,6 +107,16 @@ export class GupyWebhookController {
     }
     const envelope = parsed.data;
     const externalId = envelope.eventId ?? eventIdHeader ?? null;
+
+    // 2.1) Anti-replay. `occurredAt` viaja DENTRO do corpo que acabou de passar
+    // pelo HMAC — não dá para reescrevê-lo sem invalidar a assinatura. Repare
+    // que o header `x-gupy-event-id` NÃO tem essa propriedade: ele fica fora do
+    // corpo assinado e por isso não serve como âncora de tempo.
+    assertDentroDaJanela(
+      envelope.occurredAt ? Date.parse(envelope.occurredAt) : null,
+      'Gupy',
+      { estrito: this.replayEstrito },
+    );
 
     // 3) Idempotência
     try {

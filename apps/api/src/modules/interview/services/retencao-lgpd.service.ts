@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@collab/db';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
+import { MARCADOR_PURGADO } from '../../lgpd/retencao.constants.js';
 import { StorageService } from '../../storage/storage.service.js';
 
 /**
@@ -110,7 +111,7 @@ export class RetencaoLGPDService {
         await this.prisma.transcricao.update({
           where: { id: t.id },
           data: {
-            texto_completo: '[retencao_lgpd: conteudo removido]',
+            texto_completo: MARCADOR_PURGADO,
             segmentos: {} as unknown as object,
             // Motores/fusão guardam o MESMO conteúdo bruto da conversa e
             // nasceram depois desta rotina — sem limpá-los, a retenção de 12

@@ -25,6 +25,7 @@ import { GraphModule } from './modules/graph/graph.module.js';
 import { GupyModule } from './modules/gupy/gupy.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { InterviewModule } from './modules/interview/interview.module.js';
+import { LgpdModule } from './modules/lgpd/lgpd.module.js';
 import { MessagingModule } from './modules/messaging/messaging.module.js';
 import { NotificacoesModule } from './modules/notificacoes/notificacoes.module.js';
 import { OffboardingModule } from './modules/offboarding/offboarding.module.js';
@@ -109,6 +110,7 @@ import { WahaModule } from './modules/waha/waha.module.js';
     RankingModule,
     MessagingModule,
     InterviewModule,
+    LgpdModule,
     NotificacoesModule,
     QuestionsModule,
     VagasModule,

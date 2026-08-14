@@ -7,6 +7,7 @@ import { AgendarEntrevistaModal } from '@/components/AgendarEntrevistaModal';
 import { EnviarMensagemModal } from '@/components/EnviarMensagemModal';
 import { ProporHorariosModal } from '@/components/ProporHorariosModal';
 import { EsteiraGupy } from '@/components/EsteiraGupy';
+import { MotivoModal } from '@/components/MotivoModal';
 import { PageHeader } from '@/components/PageHeader';
 import { ScoreBadge } from '@/components/ScoreBadge';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -54,7 +55,9 @@ interface Score {
 
 interface CandidaturaDetalhe {
   id: string;
-  gupy_id: string;
+  /** NULL quando a pessoa foi puxada do banco de talentos (não existe na Gupy). */
+  gupy_id: string | null;
+  origem?: 'GUPY' | 'BANCO_TALENTOS';
   vaga_id: string;
   status: string;
   etapa_gupy: string | null;
@@ -108,7 +111,9 @@ export default function CandidaturaPage({
   params: { id: string };
 }) {
   const id = params.id;
-  const { usuario } = useAuth();
+  const { usuario, areas } = useAuth();
+  // Só esconde o botão — quem autoriza de verdade é o AreasGuard no endpoint.
+  const podeApagar = areas.includes('admin') || areas.includes('dho');
   const [c, setC] = useState<CandidaturaDetalhe | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -123,6 +128,10 @@ export default function CandidaturaPage({
     { inicio: string; fim: string } | undefined
   >(undefined);
   const [confirmandoTeams, setConfirmandoTeams] = useState(false);
+  // Apagamento LGPD (Art. 18): modal do motivo + confirmação extra, porque a
+  // ação é irreversível e leva junto o arquivo no storage.
+  const [modalApagar, setModalApagar] = useState(false);
+  const [apagando, setApagando] = useState(false);
   // Currículo completo (texto extraído) expandido/recolhido + abertura do PDF.
   const [cvCompletoAberto, setCvCompletoAberto] = useState(false);
   const [abrindoArquivo, setAbrindoArquivo] = useState(false);
@@ -251,6 +260,36 @@ export default function CandidaturaPage({
           ? err.message
           : 'Falha ao atualizar consentimento de gravação.',
       );
+    }
+  }
+
+  /**
+   * Direito de eliminação (Art. 18, VI). Irreversível: apaga currículo, áudio,
+   * transcrição e mensagens, e carimba a lápide que impede o sync da Gupy de
+   * repopular o candidato.
+   */
+  async function apagarDadosDoTitular(motivo: string) {
+    if (!c) return;
+    setApagando(true);
+    setAcaoStatus(null);
+    try {
+      const r = await api<{ categorias: string[] }>(
+        `/api/lgpd/candidatos/${c.candidato.id}/apagar`,
+        { method: 'POST', body: { motivo } },
+      );
+      setModalApagar(false);
+      setAcaoStatus(
+        r.categorias.length
+          ? `Dados apagados: ${r.categorias.join(', ')}.`
+          : 'Este candidato já estava apagado.',
+      );
+      await carregar();
+    } catch (err) {
+      setAcaoStatus(
+        err instanceof ApiError ? err.message : 'Falha ao apagar os dados.',
+      );
+    } finally {
+      setApagando(false);
     }
   }
 
@@ -406,15 +445,34 @@ export default function CandidaturaPage({
       )}
 
       <div className="mb-4">
-        <EsteiraGupy
-          jobId={c.vaga.gupy_id}
-          applicationId={c.gupy_id}
-          etapaAtual={c.etapa_gupy}
-          onMoved={(aviso) => {
-            setAcaoStatus(aviso);
-            void carregar();
-          }}
-        />
+        {c.gupy_id == null ? (
+          // Puxado do banco de talentos: não existe inscrição na Gupy, então
+          // não há esteira para mover. Mostrar a esteira aqui daria botões que
+          // falhariam na API da Gupy com "candidatura não encontrada".
+          <section className="card p-5">
+            <h2 className="mb-2 font-medium text-grafite-900">Esteira (Gupy)</h2>
+            <p className="text-sm text-grafite-600">
+              Esta pessoa veio do <strong>banco de talentos</strong> — não existe
+              inscrição dela nesta vaga na Gupy, então não há etapas para mover
+              por aqui.
+            </p>
+            <p className="mt-2 text-xs text-grafite-400">
+              Para colocá-la no funil oficial, faça a inscrição na Gupy. No
+              próximo sync as duas se juntam automaticamente e o histórico daqui
+              (notas, entrevistas, mensagens) é preservado.
+            </p>
+          </section>
+        ) : (
+          <EsteiraGupy
+            jobId={c.vaga.gupy_id}
+            applicationId={c.gupy_id}
+            etapaAtual={c.etapa_gupy}
+            onMoved={(aviso) => {
+              setAcaoStatus(aviso);
+              void carregar();
+            }}
+          />
+        )}
       </div>
 
       {/* Justificativa do LLM */}
@@ -812,7 +870,45 @@ export default function CandidaturaPage({
             </li>
           )}
         </ul>
+
+        {/*
+          Art. 18, VI — direito de eliminação. Fica atrás do bloco de
+          consentimentos de propósito: é a última coisa da página e nunca cai
+          perto de um botão de uso rotineiro.
+        */}
+        {podeApagar && !c.candidato.excluido_em && (
+          <div className="mt-4 pt-4 border-t border-grafite-200">
+            <p className="text-sm text-grafite-600">
+              O candidato pediu a exclusão dos dados dele?
+            </p>
+            <p className="text-xs text-grafite-500 mt-1">
+              Apaga currículo, arquivo, áudio, transcrição e mensagens. A
+              candidatura permanece como histórico do processo, sem identificação.
+              Não tem volta, e o candidato não retorna em sincronizações futuras.
+            </p>
+            <button
+              type="button"
+              className="btn-soft mt-2 !text-red-700"
+              onClick={() => setModalApagar(true)}
+            >
+              Apagar dados do titular
+            </button>
+          </div>
+        )}
       </section>
+
+      {modalApagar && (
+        <MotivoModal
+          titulo="Apagar dados do titular"
+          descricao={`Os dados pessoais de ${c.candidato.nome_completo} serão apagados de forma irreversível. Registre a origem do pedido — é o que sustenta a legitimidade da exclusão numa auditoria.`}
+          label="Motivo (ex.: pedido do titular, protocolo 123)"
+          confirmarLabel="Apagar definitivamente"
+          perigo
+          carregando={apagando}
+          onConfirmar={(motivo) => void apagarDadosDoTitular(motivo)}
+          onClose={() => setModalApagar(false)}
+        />
+      )}
     </div>
   );
 }

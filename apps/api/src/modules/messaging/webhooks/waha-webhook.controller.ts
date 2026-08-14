@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Request } from 'express';
 
+import { assertDentroDaJanela } from '../../../common/anti-replay.js';
 import { EnqueteService } from '../enquete.service.js';
 import { MessagingService } from '../messaging.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
@@ -36,6 +37,7 @@ export class WahaWebhookController {
   private readonly logger = new Logger(WahaWebhookController.name);
   private readonly secret?: string;
   private readonly ehProducao: boolean;
+  private readonly replayEstrito: boolean;
 
   constructor(
     config: ConfigService,
@@ -45,6 +47,7 @@ export class WahaWebhookController {
   ) {
     this.secret = config.get<string>('WAHA_WEBHOOK_SECRET');
     this.ehProducao = config.get<string>('NODE_ENV') === 'production';
+    this.replayEstrito = config.get<boolean>('WEBHOOK_REPLAY_STRICT') === true;
     if (!this.secret) {
       this.logger.warn(
         'WAHA_WEBHOOK_SECRET ausente — webhooks WAHA NÃO serão autenticados. ' +
@@ -72,6 +75,18 @@ export class WahaWebhookController {
 
     // 2) Schema (parse permissivo — WAHA evolui rápido)
     const envelope = this.parseEnvelope(body);
+
+    // 2.1) Anti-replay. O `timestamp` do WAHA vem DENTRO do corpo assinado, ou
+    // seja, é coberto pelo HMAC verificado acima — validá-lo tem valor real.
+    // Só faz sentido com o secret configurado: sem assinatura, o campo é
+    // livremente forjável e a checagem viraria encenação.
+    if (this.secret) {
+      assertDentroDaJanela(
+        envelope.timestamp ? envelope.timestamp * 1000 : null,
+        'WAHA',
+        { estrito: this.replayEstrito },
+      );
+    }
 
     // 3) Idempotência — único por (provider, external_id)
     try {

@@ -23,8 +23,8 @@ import {
 type MockQueue = { add: jest.Mock };
 type MockPrisma = {
   vaga: { upsert: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock };
-  candidato: { upsert: jest.Mock };
-  candidatura: { upsert: jest.Mock };
+  candidato: { upsert: jest.Mock; findUnique: jest.Mock };
+  candidatura: { upsert: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
   curriculoProcessado: { findUnique: jest.Mock; upsert: jest.Mock };
 };
 
@@ -41,8 +41,19 @@ function montarMocks() {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
-    candidato: { upsert: jest.fn() },
-    candidatura: { upsert: jest.fn() },
+    candidato: {
+      upsert: jest.fn(),
+      // Lápide LGPD: por padrão o candidato NÃO está apagado.
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+    candidatura: {
+      upsert: jest.fn(),
+      // Adoção de candidatura puxada do banco de talentos: por padrão NÃO
+      // existe candidatura local para (vaga, candidato), então o sync segue
+      // direto para o upsert normal.
+      findUnique: jest.fn().mockResolvedValue(null),
+      update: jest.fn(),
+    },
     curriculoProcessado: {
       findUnique: jest.fn().mockResolvedValue(null),
       upsert: jest.fn(),
@@ -288,6 +299,47 @@ describe('GupyService.sincronizarCandidaturasDaVaga', () => {
     );
   });
 
+  it('candidatura puxada do banco de talentos ADOTA o gupy_id quando a pessoa se inscreve', async () => {
+    // Cenário: o recrutador puxou alguém do banco para a vaga (candidatura
+    // local, gupy_id NULL) e depois essa pessoa se inscreveu de verdade. Sem a
+    // adoção, o upsert por gupy_id tentaria CRIAR e bateria no unique
+    // (vaga_id, candidato_id), derrubando o sync da vaga inteira.
+    const { service, client, prisma } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen([cand]));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    prisma.candidatura.findUnique.mockResolvedValue({
+      id: 'local-1',
+      gupy_id: null,
+    });
+    prisma.candidatura.upsert.mockResolvedValue({ id: 'local-1' });
+
+    await service.sincronizarCandidaturasDaVaga(BigInt(987654));
+
+    expect(prisma.candidatura.update).toHaveBeenCalledWith({
+      where: { id: 'local-1' },
+      data: { gupy_id: cand.id },
+    });
+  });
+
+  it('NÃO mexe em candidatura que já tem gupy_id', async () => {
+    const { service, client, prisma } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen([cand]));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    prisma.candidatura.findUnique.mockResolvedValue({
+      id: 'app-1',
+      gupy_id: BigInt(111),
+    });
+    prisma.candidatura.upsert.mockResolvedValue({ id: 'app-1' });
+
+    await service.sincronizarCandidaturasDaVaga(BigInt(987654));
+
+    expect(prisma.candidatura.update).not.toHaveBeenCalled();
+  });
+
   it('NÃO enfileira CV quando resumeUrl é nulo', async () => {
     const { service, client, prisma, filaCV } = montarMocks();
     const cand = CandidaturaGupySchema.parse(candidaturaSemCvFakeJson);
@@ -388,5 +440,46 @@ describe('GupyService.sincronizarCandidatura', () => {
 
     await service.sincronizarCandidatura(BigInt(5544332211));
     expect(admissao.criarDeCandidaturaSeElegivel).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A garantia que sustenta a retenção e o Art. 18: `paraUpsertCandidato` usa
+ * `update: base`, então SEM esta trava todo sync reescreveria nome, e-mail e
+ * telefone de quem acabou de ser apagado — a exclusão duraria 6 horas.
+ */
+describe('GupyService — lápide LGPD (candidato apagado não volta)', () => {
+  it('webhook: ignora a candidatura sem tocar em candidato nem currículo', async () => {
+    const { service, client, prisma, filaCV } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    (client.obterCandidatura as any).mockResolvedValue(cand);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    prisma.candidato.findUnique.mockResolvedValue({ excluido_em: new Date() });
+
+    const r = await service.sincronizarCandidatura(BigInt(5544332211));
+
+    expect(r).toEqual({ id: null, ignorado: 'candidato_apagado' });
+    expect(prisma.candidato.upsert).not.toHaveBeenCalled();
+    expect(prisma.candidatura.upsert).not.toHaveBeenCalled();
+    expect(prisma.curriculoProcessado.upsert).not.toHaveBeenCalled();
+    // Não pode entrar na fila: baixar o CV de novo re-materializaria o dado.
+    expect(filaCV.add).not.toHaveBeenCalled();
+  });
+
+  it('sync da vaga: pula o apagado e segue com os demais', async () => {
+    const { service, client, prisma } = montarMocks();
+    const cand = CandidaturaGupySchema.parse(candidaturaFakeJson);
+    prisma.vaga.findUnique.mockResolvedValue({ id: 'vaga-1' });
+    (client.iterarCandidaturas as any).mockReturnValue(gen([cand, cand]));
+    prisma.candidato.upsert.mockResolvedValue({ id: 'cand-1' });
+    prisma.candidatura.upsert.mockResolvedValue({ id: 'app-1' });
+    prisma.candidato.findUnique
+      .mockResolvedValueOnce({ excluido_em: new Date() })
+      .mockResolvedValueOnce(null);
+
+    const r = await service.sincronizarCandidaturasDaVaga(BigInt(999));
+
+    expect(r.total).toBe(1);
+    expect(prisma.candidato.upsert).toHaveBeenCalledTimes(1);
   });
 });

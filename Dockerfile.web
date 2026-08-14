@@ -61,5 +61,16 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app/apps/web
 EXPOSE 13000
+# Container NÃO roda como root (REQ-CTR-001 / CIS Docker Benchmark).
+# Em runtime o Next só escreve dentro de `.next/cache` (cache de fetch do App
+# Router e de imagem). O build acima removeu essa pasta, então recriamos vazia e
+# só ELA muda de dono — um `chown -R` no `.next` inteiro duplicaria a pasta numa
+# layer nova, e o disco desse servidor é compartilhado com a produção e vive
+# enchendo. O resto da imagem segue do root e é apenas lido.
+RUN mkdir -p /app/apps/web/.next/cache \
+ && chown -R node:node /app/apps/web/.next/cache
+USER node
 # -H 0.0.0.0: aceita conexões de outros containers/host (o nginx do host fala aqui).
-CMD ["pnpm", "exec", "next", "start", "-p", "13000", "-H", "0.0.0.0"]
+# Binário do Next direto, sem passar pelo pnpm: como não-root, o pnpm tentaria
+# escrever em $PNPM_HOME (/app, do root) e o container não subiria.
+CMD ["node", "node_modules/next/dist/bin/next", "start", "-p", "13000", "-H", "0.0.0.0"]

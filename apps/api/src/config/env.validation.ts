@@ -154,6 +154,15 @@ const EnvSchema = z.object({
   EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(2),
   MATCHING_CONCURRENCY: z.coerce.number().int().positive().default(2),
   MATCHING_TOP_K: z.coerce.number().int().positive().max(100).default(20),
+  // Chamadas simultâneas ao Claude em "classificar a vaga inteira". Era 4 fixo no
+  // código; medido em 13/08/2026 contra a API real, 10 roda o mesmo lote em -42%
+  // do tempo sem nenhum 429. Teto de 20 para não estourar o rate limit da conta.
+  CLASSIFICACAO_CONCORRENCIA: z.coerce.number().int().min(1).max(20).default(10),
+  // Piso de similaridade (0-100) para alguém do banco de talentos ser INDICADO
+  // numa vaga. Alto de propósito: quem se inscreveu na vaga tem preferência, e
+  // do banco só sobe quem for excepcionalmente aderente. Ver comentário em
+  // vagas.controller.ts para a calibragem da escala.
+  TALENTOS_SIMILARIDADE_MINIMA: z.coerce.number().min(0).max(100).default(80),
   // Tamanho do lote avaliado pelo Claude por vez no fluxo vetorial (top-N / "próximos").
   MATCHING_TOP_N: z.coerce.number().int().positive().max(100).default(10),
   // Se true, o embedding de um CV dispara o Claude automaticamente (comportamento
@@ -267,7 +276,12 @@ const EnvSchema = z.object({
   // Retenção LGPD
   RETENCAO_AUDIO_DIAS: z.coerce.number().int().positive().default(90),
   RETENCAO_TRANSCRICAO_DIAS: z.coerce.number().int().positive().default(365),
+  // Currículo e candidato: 2 anos. Diferente das duas de cima, o corte NÃO é
+  // gravado em coluna — é calculado a cada varredura (ver RetencaoDadosService),
+  // então mudar o número aqui vale já na próxima madrugada, inclusive
+  // retroativamente. É o botão para acertar o prazo com a cyber sem migration.
   RETENCAO_CV_DIAS: z.coerce.number().int().positive().default(730),
+  RETENCAO_CANDIDATO_DIAS: z.coerce.number().int().positive().default(730),
   // Censura LGPD — Camada 2 (semântica via Claude). 'false' deixa só o piso da
   // regex (Camada 1). Não recomendado desligar em produção.
   REDACAO_SEMANTICA_ENABLED: z.enum(['true', 'false']).default('true'),
@@ -370,6 +384,16 @@ const EnvSchema = z.object({
       message: 'DATA_ENCRYPTION_KEY deve ser 32 bytes em base64',
     })
     .optional(),
+
+  // Anti-replay de webhook (REQ-API-008): a janela de 5 min é sempre aplicada
+  // quando o evento traz timestamp assinado. Este flag decide o que fazer
+  // quando NÃO traz — false (padrão) alerta e segue; true recusa. Ligue depois
+  // de confirmar nos logs que Gupy e WAHA mandam o campo em todo evento, senão
+  // a ingestão do WhatsApp para sem aviso.
+  WEBHOOK_REPLAY_STRICT: z
+    .string()
+    .default('false')
+    .transform((v) => v.toLowerCase() === 'true'),
 
   FRONTEND_ORIGIN: z.string().url().optional(),
 
