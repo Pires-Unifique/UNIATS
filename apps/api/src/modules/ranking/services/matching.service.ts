@@ -42,6 +42,8 @@ export class MatchingService {
   private readonly modeloLLM: string;
   private readonly maxTokens: number;
   private readonly topK: number;
+  /** Chamadas simultâneas ao Claude em `classificarVagaLLM`. Ver env.validation. */
+  private readonly concorrenciaClassificacao: number;
 
   // Pesos do score consolidado.
   private static readonly PESO_VETORIAL = 0.4;
@@ -55,6 +57,9 @@ export class MatchingService {
     this.modeloLLM = this.config.getOrThrow<string>('ANTHROPIC_MODEL');
     this.maxTokens = this.config.getOrThrow<number>('ANTHROPIC_MAX_TOKENS');
     this.topK = this.config.getOrThrow<number>('MATCHING_TOP_K');
+    this.concorrenciaClassificacao = this.config.getOrThrow<number>(
+      'CLASSIFICACAO_CONCORRENCIA',
+    );
     this.client = new Anthropic({
       apiKey,
       timeout: this.config.getOrThrow<number>('ANTHROPIC_TIMEOUT_MS'),
@@ -352,7 +357,12 @@ export class MatchingService {
     let erros = 0;
     let ultimoErro: string | null = null;
     // Processa em lotes concorrentes para acelerar (o SDK trata rate-limit/retry).
-    const CONCORRENCIA = 4;
+    //
+    // Era 4 fixo, o que fazia uma vaga de 100 candidatos levar 25 rodadas (~9 min).
+    // Medido contra a API real em 13/08/2026: a 10 o mesmo lote roda em 2 rodadas
+    // com ZERO 429 — 12 avaliações caíram de 67,9s para 39,5s (-42%). A conta não
+    // muda: é o mesmo número de chamadas, só que em paralelo.
+    const CONCORRENCIA = this.concorrenciaClassificacao;
     for (let i = 0; i < candidaturas.length; i += CONCORRENCIA) {
       const lote = candidaturas.slice(i, i + CONCORRENCIA);
       const resultados = await Promise.allSettled(
