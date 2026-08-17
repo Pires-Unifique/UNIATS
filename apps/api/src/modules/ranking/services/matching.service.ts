@@ -12,6 +12,11 @@ import { Prisma } from '@collab/db';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import {
+  prepararCurriculoParaIA,
+  SELECT_CURRICULO_PARA_IA,
+  type CurriculoParaIAInput,
+} from '../../redacao/curriculo-para-ia.js';
+import {
   Avaliacao,
   AvaliacaoSchema,
   RANKING_PROMPT_VERSION,
@@ -84,15 +89,8 @@ export class MatchingService {
         curriculo: {
           select: {
             id: true,
-            texto_normalizado: true,
-            resumo: true,
-            competencias: true,
-            experiencias: true,
-            formacoes: true,
-            idiomas: true,
-            certificacoes: true,
-            anos_experiencia: true,
             parser_versao: true,
+            ...SELECT_CURRICULO_PARA_IA,
           },
         },
       },
@@ -207,15 +205,8 @@ export class MatchingService {
         curriculo: {
           select: {
             id: true,
-            texto_normalizado: true,
-            resumo: true,
-            competencias: true,
-            experiencias: true,
-            formacoes: true,
-            idiomas: true,
-            certificacoes: true,
-            anos_experiencia: true,
             parser_versao: true,
+            ...SELECT_CURRICULO_PARA_IA,
           },
         },
       },
@@ -705,35 +696,31 @@ export class MatchingService {
       modalidade: 'presencial' | 'remota';
       localizacao: string | null;
     },
-    cv: {
-      texto_normalizado: string;
-      resumo?: string | null;
-      competencias: string[];
-      experiencias: unknown;
-      formacoes: unknown;
-      idiomas: unknown;
-      certificacoes: unknown;
-      anos_experiencia: number | null;
-    },
+    cv: CurriculoParaIAInput,
     candidatoLocal: string | null,
   ): Promise<Avaliacao> {
+    // FRONTEIRA: daqui o currículo sai para o Claude. Só o que passa por
+    // `prepararCurriculoParaIA` pode ir — sem espelho censurado, os campos de
+    // texto livre são omitidos e o ranking segue com o histórico estruturado.
+    const seguro = prepararCurriculoParaIA(cv);
+
     // Texto estruturado tem mais sinal que texto bruto. Mas mantemos um trecho
-    // do texto_normalizado como fallback para o LLM puxar evidências literais.
+    // literal como fallback para o LLM puxar evidências.
     const cvJson = JSON.stringify(
       {
-        resumo: cv.resumo,
-        anos_experiencia: cv.anos_experiencia,
-        competencias: cv.competencias,
-        experiencias: cv.experiencias,
-        formacoes: cv.formacoes,
-        idiomas: cv.idiomas,
-        certificacoes: cv.certificacoes,
+        resumo: seguro.resumo,
+        anos_experiencia: seguro.anos_experiencia,
+        competencias: seguro.competencias,
+        experiencias: seguro.experiencias,
+        formacoes: seguro.formacoes,
+        idiomas: seguro.idiomas,
+        certificacoes: seguro.certificacoes,
       },
       null,
       2,
     ).slice(0, 12_000);
 
-    const trechoLiteral = (cv.texto_normalizado ?? '').slice(0, 6_000);
+    const trechoLiteral = seguro.textoLiteral.slice(0, 6_000);
 
     // Localização só entra em vaga presencial (minimização LGPD: em vaga
     // remota a cidade do candidato é irrelevante e não deve chegar ao modelo).

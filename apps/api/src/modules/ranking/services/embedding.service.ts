@@ -15,6 +15,10 @@ import {
 } from '../../embeddings/embedding.provider.js';
 import type { CurriculoEstruturado } from '../../claude/curriculo.schema.js';
 import {
+  prepararCurriculoParaIA,
+  SELECT_CURRICULO_PARA_IA,
+} from '../../redacao/curriculo-para-ia.js';
+import {
   TEXTO_CANONICO_VERSAO,
   montarTextoCanonicoCurriculo,
   montarTextoCanonicoVaga,
@@ -83,15 +87,8 @@ export class EmbeddingService {
       where: { candidatura_id: candidaturaId },
       select: {
         id: true,
-        resumo: true,
-        experiencias: true,
-        formacoes: true,
-        competencias: true,
-        idiomas: true,
-        certificacoes: true,
-        anos_experiencia: true,
-        texto_normalizado: true,
         parser_versao: true,
+        ...SELECT_CURRICULO_PARA_IA,
       },
     });
     if (!cv) {
@@ -105,23 +102,27 @@ export class EmbeddingService {
       );
     }
 
-    // Tenta usar a estrutura LLM-parseada; cai para texto_normalizado em último caso.
+    // FRONTEIRA: o vetor sai daqui para a Voyage, fora do Brasil. Só o que
+    // passa por `prepararCurriculoParaIA` pode ir junto.
+    const seguro = prepararCurriculoParaIA(cv);
+
     const texto = montarTextoCanonicoCurriculo({
-      resumo: cv.resumo,
+      resumo: seguro.resumo,
       estruturado: {
         experiencias:
-          (cv.experiencias as CurriculoEstruturado['experiencias']) ?? [],
-        formacoes:
-          (cv.formacoes as CurriculoEstruturado['formacoes']) ?? [],
-        competencias: cv.competencias ?? [],
-        idiomas: (cv.idiomas as CurriculoEstruturado['idiomas']) ?? [],
+          seguro.experiencias as CurriculoEstruturado['experiencias'],
+        formacoes: seguro.formacoes as CurriculoEstruturado['formacoes'],
+        competencias: seguro.competencias,
+        idiomas: seguro.idiomas as CurriculoEstruturado['idiomas'],
         certificacoes:
-          (cv.certificacoes as CurriculoEstruturado['certificacoes']) ?? [],
-        anos_experiencia: cv.anos_experiencia ?? undefined,
+          seguro.certificacoes as CurriculoEstruturado['certificacoes'],
+        anos_experiencia: seguro.anos_experiencia ?? undefined,
       },
     });
 
-    const textoFinal = texto.trim() || cv.texto_normalizado;
+    // O fallback é o texto CENSURADO — nunca `texto_normalizado` cru, que
+    // carrega as descrições em texto livre.
+    const textoFinal = texto.trim() || seguro.textoLiteral;
     if (!textoFinal) {
       throw new BadRequestException(
         'Currículo sem conteúdo suficiente para embedding.',
@@ -218,15 +219,8 @@ export class EmbeddingService {
       },
       select: {
         id: true,
-        resumo: true,
-        experiencias: true,
-        formacoes: true,
-        competencias: true,
-        idiomas: true,
-        certificacoes: true,
-        anos_experiencia: true,
-        texto_normalizado: true,
         parser_versao: true,
+        ...SELECT_CURRICULO_PARA_IA,
       },
     });
 
@@ -253,20 +247,22 @@ export class EmbeddingService {
         pulados++;
         continue;
       }
+      // Mesma fronteira do caminho unitário — ver `embedarCurriculo`.
+      const seguro = prepararCurriculoParaIA(cv);
       const texto =
         montarTextoCanonicoCurriculo({
-          resumo: cv.resumo,
+          resumo: seguro.resumo,
           estruturado: {
             experiencias:
-              (cv.experiencias as CurriculoEstruturado['experiencias']) ?? [],
-            formacoes: (cv.formacoes as CurriculoEstruturado['formacoes']) ?? [],
-            competencias: cv.competencias ?? [],
-            idiomas: (cv.idiomas as CurriculoEstruturado['idiomas']) ?? [],
+              seguro.experiencias as CurriculoEstruturado['experiencias'],
+            formacoes: seguro.formacoes as CurriculoEstruturado['formacoes'],
+            competencias: seguro.competencias,
+            idiomas: seguro.idiomas as CurriculoEstruturado['idiomas'],
             certificacoes:
-              (cv.certificacoes as CurriculoEstruturado['certificacoes']) ?? [],
-            anos_experiencia: cv.anos_experiencia ?? undefined,
+              seguro.certificacoes as CurriculoEstruturado['certificacoes'],
+            anos_experiencia: seguro.anos_experiencia ?? undefined,
           },
-        }).trim() || (cv.texto_normalizado ?? '');
+        }).trim() || seguro.textoLiteral;
       if (!texto.trim()) {
         pulados++;
         continue;

@@ -292,6 +292,15 @@ const EnvSchema = z.object({
   // regex (Camada 1). Não recomendado desligar em produção.
   REDACAO_SEMANTICA_ENABLED: z.enum(['true', 'false']).default('true'),
 
+  // Espelho censurado do currículo (o que pode sair para Voyage/Claude).
+  // O currículo fica ÍNTEGRO no banco; só a cópia que atravessa a fronteira é
+  // censurada. Ver modules/redacao/curriculo-para-ia.ts.
+  // Cada job é uma chamada Claude: o lote do cron é o que impede a avalanche no
+  // primeiro backfill. Subir muito reproduz a queima de tokens de junho.
+  REDACAO_CV_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  REDACAO_RECONCILE_ENABLED: z.coerce.boolean().default(true),
+  REDACAO_RECONCILE_BATCH: z.coerce.number().int().positive().max(200).default(20),
+
   // Base URL pública da API (para construir webhook URLs)
   PUBLIC_BASE_URL: z.string().url().optional(),
 

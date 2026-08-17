@@ -7,6 +7,9 @@ export const QUEUE_NAMES = {
   GUPY_WEBHOOK: 'gupy-webhook',
   CV_DOWNLOAD: 'cv-download',
   CV_PARSE: 'cv-parse',
+  // Espelho censurado do currículo — a versão que pode sair para Voyage/Claude.
+  // Ver modules/redacao/curriculo-para-ia.ts.
+  CV_REDACAO: 'cv-redacao',
   EMBEDDING: 'embedding',
   MATCHING: 'matching',
   MENSAGEM: 'mensagem',
@@ -59,6 +62,7 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.GUPY_WEBHOOK },
       { name: QUEUE_NAMES.CV_DOWNLOAD },
       { name: QUEUE_NAMES.CV_PARSE },
+      { name: QUEUE_NAMES.CV_REDACAO },
       { name: QUEUE_NAMES.EMBEDDING },
       { name: QUEUE_NAMES.MATCHING },
       { name: QUEUE_NAMES.MENSAGEM },

@@ -257,6 +257,26 @@ model CurriculoProcessado {
   anos_experiencia  Float?
 
   parser_versao     String                        // versionamento do parser
+
+  // -------------------------------------------------------------------
+  // ESPELHO PARA IA — o que pode sair para Voyage/Claude.
+  //
+  // As colunas acima ficam ÍNTEGRAS: o recrutador precisa ver o currículo
+  // completo, e foi decisão da área de segurança mantê-lo assim. O que não
+  // pode atravessar a fronteira é dado sensível do art. 11 (saúde, religião,
+  // filiação sindical…), que aparece no texto livre que o candidato escreve —
+  // hoje, `experiencias[].descricao`.
+  //
+  // Por isso o espelho: censurado uma vez, gravado, e é ele que sai. Censurar
+  // a cada chamada somaria um Claude por currículo por ranking.
+  // Ver `modules/redacao/curriculo-para-ia.ts` — nada sai sem passar por lá.
+  // -------------------------------------------------------------------
+  ia_experiencias   Json?                         // mesma forma de `experiencias`, com `descricao` censurada
+  ia_resumo         String?  @db.Text
+  ia_texto          String?  @db.Text             // `texto_normalizado` censurado (trecho literal do prompt)
+  ia_redacao_versao String?                       // versão do prompt; difere da atual → reprocessa
+  ia_categorias     String[] @default([])         // categorias encontradas — NUNCA o valor (art. 37)
+
   processado_em     DateTime @default(now())
   atualizado_em     DateTime @updatedAt
 

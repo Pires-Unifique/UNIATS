@@ -894,8 +894,39 @@ O payload bruto de candidato e candidatura **não é persistido**.
 > Ao acrescentar um campo ao schema, pergunte a finalidade antes. E **nunca** declare
 > `additionalQuestions` da candidatura em bloco — é por onde chegam perguntas de saúde.
 
-**Censura antes de persistir.** Transcrição e resumo passam pelo `RedacaoService` (regex +
-semântica via Claude) e o banco só recebe texto censurado. Ver seção 6.4.
+**Censura em dois modelos, por natureza do dado.**
+
+| | Transcrição | Currículo |
+|---|---|---|
+| Quando censura | **antes de persistir** | **na saída para IA** |
+| O que o banco guarda | só o texto censurado | o texto íntegro |
+| O que o recrutador vê | censurado | completo |
+
+A diferença é decisão da área de segurança, não inconsistência. Na entrevista, o texto cru
+não precisa existir. No currículo, o recrutador precisa ler o que o candidato escreveu —
+então o dado fica, e quem é filtrado é o que **atravessa a fronteira** para Voyage e Claude.
+
+O risco do currículo mora num campo só: `experiencias[].descricao`, texto livre vindo de
+`activitiesPerformed` da Gupy. É onde aparece "atuei na pastoral", "diretor do sindicato",
+"afastado por tratamento". O resto — cargo, empresa, datas, formação, idiomas — vem de
+campos fechados e é seguro por construção.
+
+**Nada sai sem passar por [`curriculo-para-ia.ts`](apps/api/src/modules/redacao/curriculo-para-ia.ts).**
+As duas fronteiras (embedding e ranking) chamam a mesma função. O furo original nasceu
+justamente da ausência desse ponto único: a censura existia, estava ligada na transcrição,
+e ninguém viu que o currículo saía cru por duas portas.
+
+O espelho censurado vive nas colunas `ia_*`, calculado uma vez por currículo pelo job
+`cv-redacao` (censurar a cada ranking somaria um Claude por currículo por execução). Um cron
+de 10 em 10 minutos enfileira um lote pequeno de quem ainda não tem espelho — cobre
+currículo novo, acervo antigo, job que falhou e mudança de `REDACAO_CV_VERSAO`.
+
+> **Fail-closed sem quebrar o ranking.** Sem espelho, a fronteira omite descrição, resumo e
+> trecho literal, e deixa passar o histórico estruturado. O ranking perde sinal e nada vaza.
+> Travar o ranking inteiro seria pior: alguém desligaria a proteção no primeiro incidente.
+
+`ia_categorias` guarda quais categorias foram ocultadas — nunca o valor (Art. 37). É também
+a métrica de quantos currículos realmente carregam dado sensível.
 
 **Decisão humana.** Os scores da IA são sugestão. Mover ou reprovar candidato grava a
 revisão humana em `scores` (Art. 20). Critérios da avaliação documentados em

@@ -9,6 +9,7 @@ import {
   montarTextoCanonicoVaga,
 } from '../services/texto-canonico.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
+import { REDACAO_CV_VERSAO } from '../../redacao/curriculo-para-ia.js';
 import type { EmbeddingProvider } from '../../embeddings/embedding.provider.js';
 
 describe('EmbeddingService', () => {
@@ -150,19 +151,22 @@ describe('EmbeddingService', () => {
       );
     });
 
-    it('grava embedding do CV com texto canônico construído', async () => {
-      prisma.curriculoProcessado.findUnique.mockResolvedValue({
-        id: 'cv-1',
-        resumo: 'Dev',
-        competencias: ['Node'],
-        experiencias: [{ cargo: 'Dev', empresa: 'X' }],
-        formacoes: [],
-        idiomas: [],
-        certificacoes: [],
-        anos_experiencia: 3,
-        texto_normalizado: 'fallback',
-        parser_versao: 'claude-curriculo-v1',
-      });
+    const CV_BASE = {
+      id: 'cv-1',
+      resumo: 'Dev',
+      competencias: ['Node'],
+      experiencias: [
+        { cargo: 'Dev', empresa: 'X', descricao: 'Afastado por saúde' },
+      ],
+      formacoes: [],
+      idiomas: [],
+      certificacoes: [],
+      anos_experiencia: 3,
+      texto_normalizado: 'fallback',
+      parser_versao: 'claude-curriculo-v1',
+    };
+
+    function prepararEmbed() {
       provider.embed.mockResolvedValue({
         vetores: [[1, 1, 1, 1]],
         modelo: 'voyage-3',
@@ -170,6 +174,20 @@ describe('EmbeddingService', () => {
       });
       prisma.embedding.deleteMany.mockResolvedValue({ count: 0 });
       prisma.$executeRaw.mockResolvedValue(1);
+    }
+
+    it('grava embedding do CV com texto canônico construído', async () => {
+      // Com espelho censurado, o texto livre entra — já tratado.
+      prisma.curriculoProcessado.findUnique.mockResolvedValue({
+        ...CV_BASE,
+        ia_redacao_versao: REDACAO_CV_VERSAO,
+        ia_resumo: 'Dev',
+        ia_experiencias: [
+          { cargo: 'Dev', empresa: 'X', descricao: '[OCULTADO: saúde]' },
+        ],
+        ia_texto: 'fallback',
+      });
+      prepararEmbed();
 
       const out = await service.embedarCurriculo('cand-1');
       expect(out.embeddingId).toMatch(/^[0-9a-f-]{36}$/);
@@ -180,6 +198,26 @@ describe('EmbeddingService', () => {
       expect(prisma.embedding.deleteMany).toHaveBeenCalledWith({
         where: { curriculo_id: 'cv-1', modelo: 'voyage-3' },
       });
+    });
+
+    it('SEM espelho censurado, o texto livre não chega à Voyage', async () => {
+      // A Voyage processa fora do Brasil: sem a censura calculada, resumo e
+      // descrição ficam de fora e só o histórico estruturado atravessa.
+      prisma.curriculoProcessado.findUnique.mockResolvedValue({
+        ...CV_BASE,
+        ia_redacao_versao: null,
+      });
+      prepararEmbed();
+
+      await service.embedarCurriculo('cand-1');
+
+      const [{ textos }] = provider.embed.mock.calls[0];
+      expect(textos[0]).not.toContain('saúde');
+      expect(textos[0]).not.toContain('Resumo:');
+      expect(textos[0]).not.toContain('fallback');
+      // O que é seguro continua indo — senão o ranking morreria.
+      expect(textos[0]).toContain('Dev @ X');
+      expect(textos[0]).toContain('Node');
     });
   });
 });
